@@ -1,0 +1,16 @@
+[package]
+name = "rustfire"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = { version = "0.1.77" }
+hyper = { version = "1.1.0", features = ["full"] }
+serde = { version = "1.0.195", features = ["serde_derive"] }
+serde_json = "1.0.111"
+tokio = { version = "1.35.1", features = ["full"] }
+# reqwest = { version = "0.11", features = ["json"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http-body-util = "0.1.0"
