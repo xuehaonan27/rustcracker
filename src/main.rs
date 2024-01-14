@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
     // });
 
     let task1 = tokio::task::spawn_local(launch(Arc::clone(&client_arcmutex), Some(Arc::clone(&notify)), 10));
-
+    
     let child: Child = match try_join!(task1) {
         Ok((result,)) => {
             match result {
@@ -256,7 +256,6 @@ async fn main() -> Result<()> {
                 Ok(_) => (),
                 Err(e) => eprintln!("Failed at putting root file system: {e}"),
             }
-            todo!()
         },
         Err(err) => {
             eprintln!("At least one task failed: {err}");

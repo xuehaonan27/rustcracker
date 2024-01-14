@@ -37,3 +37,13 @@ pub struct Vsock {
 impl<'a> Json<'a> for Vsock {
     type Item = Vsock;
 }
+
+impl Default for Vsock {
+    fn default() -> Self {
+        Self {
+            guest_cid: 3,
+            uds_path: "".into(),
+            vsock_id: "".into(),
+        }
+    }
+}

@@ -13,3 +13,11 @@ pub struct Metrics {
 impl<'a> Json<'a> for Metrics {
     type Item = Metrics;
 }
+
+impl Default for Metrics {
+    fn default() -> Self {
+        Self {
+            metrics_path: "".into(),
+        }
+    }
+}

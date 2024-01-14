@@ -8,6 +8,8 @@ pub mod cpu_template;
 pub mod drive;
 pub mod entropy_device;
 pub mod error;
+pub mod firecracker_version;
+pub mod full_vm_configuration;
 pub mod instance_action_info;
 pub mod instance_info;
 pub mod logger;

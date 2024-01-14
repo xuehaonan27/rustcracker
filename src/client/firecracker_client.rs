@@ -252,7 +252,7 @@ impl FirecrackerClient {
     pub(crate) async fn create_sync_action(&self, action: InstanceActionInfo) -> Result<()> {
         let mut sender = self.establish_connection().await?;
 
-        let url: &'static str = "actions";
+        let url: &'static str = "/actions";
 
         let json = action.to_json()?;
         let length = json.as_bytes().len();
@@ -449,4 +449,174 @@ pub async fn create_sync_action(client_arcmutex: Arc<Mutex<FirecrackerClient>>, 
         line!()
     );
     Ok(())
+}
+
+pub async fn demo_connection<B>(socket_path: PathBuf) -> Result<SendRequest<B>>
+where
+    B: Body + 'static + Send,
+    B::Data: Send,
+    B::Error: Into<Box<dyn StdError + Send + Sync>>,
+{
+    let stream = UnixStream::connect(socket_path).await?;
+    let io = TokioIo::new(stream);
+    let (sender, conn): (SendRequest<B>, Connection<TokioIo<UnixStream>, B>) =
+        hyper::client::conn::http1::handshake(io).await?;
+    tokio::task::spawn(async move {
+        if let Err(err) = conn.await {
+            eprintln!("Connection failer: {:?}", err);
+        }
+    });
+    
+    Ok(sender)
+}
+
+use tokio::io::AsyncWriteExt;
+pub async fn demo_shutdown(io: TokioIo<UnixStream>) -> Result<()> {
+    let _test = io.into_inner().shutdown();
+    Ok(())
+}
+
+pub async fn demo_boot_source(socket_path: PathBuf, boot_source: BootSource) -> Result<()>
+{
+    let mut sender = demo_connection(socket_path).await?;
+    
+    let url: &'static str = "/boot-source";
+    let json = boot_source.to_json()?;
+    let length = json.as_bytes().len();
+    let req = Request::put(url)
+        .header(header::CONTENT_LENGTH, length)
+        .body(Full::new(Bytes::from(json)))?;
+
+    let res = sender.send_request(req).await?;
+
+    let body = res.collect().await?.aggregate();
+
+    let result = serde_json::from_reader::<_, InternalError>(body.reader());
+
+    match result {
+        Ok(_) => return Err("putGuestBootSource".into()),
+        Err(_) => return Ok(()),
+    }
+}
+
+pub async fn demo_rootfs(socket_path: PathBuf, drive: Drive) -> Result<()> {
+    let mut sender = demo_connection(socket_path).await?;
+
+    let json = drive.to_json()?;
+    let length = json.as_bytes().len();
+    let drive_id = drive.get_drive_id();
+
+    let url = format!("/drives/{drive_id}");
+
+    let req = Request::put(url)
+        .header(header::CONTENT_LENGTH, length)
+        .body(Full::new(Bytes::from(json)))?;
+
+    let res = sender.send_request(req).await?;
+
+    let body = res.collect().await?.aggregate();
+
+    let result = serde_json::from_reader::<_, InternalError>(body.reader());
+    match result {
+        Ok(_) => return Err("putGuestDriveByID".into()),
+        Err(_) => return Ok(()),
+    }
+}
+
+pub async fn demo_machine_config(socket_path: PathBuf, machine_config: MachineConfiguration) -> Result<()> {
+    let mut sender = demo_connection(socket_path).await?;
+
+    let url: &'static str = "/machine-config";
+    let json = machine_config.to_json()?;
+    let length = json.as_bytes().len();
+
+    let req = Request::put(url)
+        .header(header::CONTENT_LENGTH, length)
+        .body(Full::new(Bytes::from(json)))?;
+
+    let res = sender.send_request(req).await?;
+
+    let body = res.collect().await?.aggregate();
+    let result = serde_json::from_reader::<_, InternalError>(body.reader());
+
+    match result {
+        Ok(_) => return Err("putMachineConfiguration".into()),
+        Err(_) => return Ok(()),
+    }
+}
+
+pub async fn demo_query_machine_config(socket_path: PathBuf, i: usize) -> Result<(MachineConfiguration, usize)> {
+    let mut sender = demo_connection(socket_path).await?;
+    
+    let url = "/machine-config";
+    
+    let req = Request::get(url)
+        .body(Empty::<Bytes>::new())?;
+
+    let res = sender.send_request(req).await?;
+    let body = res.collect().await?.aggregate();
+    let result = serde_json::from_reader::<_, MachineConfiguration>(body.reader());
+
+    match result {
+        Ok(machine_config) => return Ok((machine_config, i)),
+        Err(_) => return Err("describeMachineConfig".into()),
+    }
+}
+
+pub async fn demo_start(socket_path: PathBuf, action: InstanceActionInfo) -> Result<()> {
+    let mut sender = demo_connection(socket_path).await?;
+
+    let url: &'static str = "/actions";
+
+    let json = action.to_json()?;
+    let length = json.as_bytes().len();
+
+    let req = Request::put(url)
+        .header(header::CONTENT_LENGTH, length)
+        .body(Full::new(Bytes::from(json)))?;
+        
+
+    let res = sender.send_request(req).await?;
+
+    let body = res.collect().await?.aggregate();
+    let result = serde_json::from_reader::<_, InternalError>(body.reader());
+
+    match result {
+        Ok(_) => return Err("createSyncAction".into()),
+        Err(_) => return Ok(()),
+    }
+}
+
+pub async fn demo_launch(socket_path: PathBuf, firecracker_binary_path: PathBuf, timeout_secs: u64) -> Result<Child> {
+    // if notify_ptr.is_none() {
+    //     return Err("Need a notifier to sync with firecracker".into());
+    // }
+    // client.clear()?;
+
+    if let Ok(metadata) = fs::metadata(&socket_path) {
+        if metadata.file_type().is_socket() {
+            fs::remove_file(&socket_path)?;
+        }
+    }
+
+    let child = Command::new("sudo")
+            .arg(firecracker_binary_path)
+            .arg("--api-sock")
+            .arg(&socket_path)
+            .spawn()?;
+
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(timeout_secs), async move {
+        while let Err(_) = tokio::fs::metadata(&socket_path).await {}
+    }).await;
+    
+    match result {
+        Ok(_) => {
+            // notify_ptr.unwrap().notify_waiters();
+            return Ok(child)
+        },
+        Err(_) => {
+            eprintln!("Timeout after {timeout_secs} secs when waiting the firecracker");
+            return Err("Timeout".into());
+        },
+    }
 }
