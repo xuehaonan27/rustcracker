@@ -21,7 +21,7 @@ use super::cpu_template::CPUTemplate;
 ///     .set_hyperthreading(true)
 ///     .set_track_dirty_pages(false);
 /// ```
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MachineConfiguration {
     // cpu template
     cpu_template: Option<CPUTemplate>,

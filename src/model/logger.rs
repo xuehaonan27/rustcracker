@@ -6,7 +6,7 @@ use crate::utils::Json;
 /// logger can only be constructed once
 /// and cannot update after configuration
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum LogLevel {
     Error,
     Warning,

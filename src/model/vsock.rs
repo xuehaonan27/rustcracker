@@ -18,19 +18,23 @@ For guest-initiated connections, Firecracker will expect host
 software to be bound and listening on Unix sockets at `uds_path_<PORT>`.
 E.g. "/path/to/host_vsock.sock_52" for port number 52.
 */
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Vsock {
     // Guest Vsock CID
     // Required: true
     // Minimum: 3
-    guest_cid: u64,
+    // CID defines the 32-bit Context Identifier for the vsock device.  See
+	// the vsock(7) manual page for more information.
+    guest_cid: u32,
 
     // Path to UNIX domain socket, used to proxy vsock connections.
     // Required: true
+    // Path defines the filesystem path of the vsock device on the host.
     uds_path: String,
 
     // vsock id
     // Required: true
+    // ID defines the vsock's device ID for firecracker.
     vsock_id: String,
 }
 

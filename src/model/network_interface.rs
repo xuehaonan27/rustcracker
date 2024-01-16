@@ -6,7 +6,7 @@ use crate::utils::Json;
 
 use super::rate_limiter::RateLimiter;
 // NetworkInterface Defines a network interface.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NetworkInterface {
     // If this field is set, the device model will reply to
     // HTTP GET requests sent to the MMDS address via this interface.

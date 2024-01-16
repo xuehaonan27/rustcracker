@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, any::Any};
 
 use async_channel::Receiver;
 use tokio::{
@@ -60,14 +60,14 @@ pub struct SocketConnectionPool {
     /* 连接池入口 */
     pub actor_handle: ActorHandle,
 
-    /* 运行时 */
+    /* 连接池所在运行时保存field */
     #[allow(unused)]
     runtime: tokio::runtime::Runtime,
 }
 
 impl SocketConnectionPool {
     pub fn new(
-        socket_path: PathBuf,
+        socket_path: &PathBuf,
         max_conn_num: usize,
         max_pending_request_num: usize,
         worker_threads: usize,
@@ -78,7 +78,8 @@ impl SocketConnectionPool {
             .unwrap();
 
         let (actor_handle, receiver) =
-            ActorHandle::pair(&socket_path, &rt).expect("Fail to create socket connection pool");
+            ActorHandle::pair(&socket_path, max_pending_request_num, &rt)
+                .expect("Fail to create socket connection pool");
 
         for i in 1..max_conn_num {
             let actor =
@@ -89,7 +90,7 @@ impl SocketConnectionPool {
             max_conn_num,
             max_pending_request_num,
             worker_threads,
-            socket_path,
+            socket_path: socket_path.clone(),
             actor_handle,
             runtime: rt,
         }
@@ -116,9 +117,31 @@ impl SocketConnectionPool {
     }
 
     /* Getter */
+    // actor_handle clone the ActorHandle owned by the connection pool
+    // which could be used for construct another connection pool
     pub fn actor_handle(&self) -> ActorHandle {
         self.actor_handle.clone()
     }
+
+    // shutdown gracefully close the connection and discard the tokio runtime
+    pub fn shutdown(self) -> Result<()> {
+        let cnt = self.max_conn_num;
+        let mut buf: Vec<bool> = vec![false; cnt];
+        while buf != vec![true; cnt] {
+            let idx = self.runtime.block_on(self.actor_handle.shutdown());
+            buf[idx] = true;
+            log::info!("actor {idx} shut down");
+        }
+        log::info!("actors all shut down");
+        let res = self.actor_handle.sender.close();
+        if !res {
+            return Err("actor handler fail to close its sender".into());
+        }
+        self.runtime.shutdown_background();
+        log::info!("connection pool shut down");
+        Ok(())
+    }
+
 }
 
 /* 对于一个Unix Domain Socket, 可以建立一个连接池, 内部有多个Actor以及可以复制的连接池入口ActorHandle, 每一个Actor管理一个对该UDS的连接UnixStream */
@@ -138,6 +161,9 @@ pub(crate) enum ActorMessage {
     },
     InspectSocketPath {
         respond_to: oneshot::Sender<PathBuf>,
+    },
+    ShutDown {
+        respond_to: oneshot::Sender<usize>,
     },
 
     // PUT /snapshot/create
@@ -309,7 +335,7 @@ pub(crate) enum ActorMessage {
 }
 
 impl Actor {
-    pub fn id(&self) -> usize {
+    pub(crate) fn id(&self) -> usize {
         self.id
     }
 
@@ -318,13 +344,6 @@ impl Actor {
         socket_path: &PathBuf,
         receiver: async_channel::Receiver<ActorMessage>,
     ) -> Result<Self> {
-        // let rt = tokio::runtime::Builder::new_current_thread()
-        //     .enable_all()
-        //     .build()?;
-
-        // let conn = rt.block_on(UnixStream::connect(socket_path))?;
-        // let conn = rt.block_on(UnixStream::connect(socket_path))?;
-        // drop(rt); /* 显式释放rt, 尽快释放资源 */
         let std_stream = std::os::unix::net::UnixStream::connect(&socket_path)?;
         std_stream.set_nonblocking(true)?;
         let conn = UnixStream::from_std(std_stream)?;
@@ -337,6 +356,15 @@ impl Actor {
         })
     }
 
+    pub(crate) async fn clear_up(&mut self) -> Result<()> {
+        let res = self.receiver.close();
+        if !res {
+            return Err(format!("Actor {} fail to close it's receiver", self.id).into());
+        }
+        self.conn.shutdown().await?;
+        Ok(())
+    } 
+
     async fn handle_message(&mut self, msg: ActorMessage) -> Result<()> {
         match msg {
             ActorMessage::InspectId { respond_to } => {
@@ -346,6 +374,9 @@ impl Actor {
             ActorMessage::InspectSocketPath { respond_to } => {
                 let _ = respond_to.send(self.socket_path.clone());
                 Ok(())
+            }
+            ActorMessage::ShutDown { respond_to: _ } => {
+                panic!("Control flow should never reach here");
             }
 
             // PUT /snapshot/create
@@ -785,10 +816,17 @@ impl Actor {
 }
 
 async fn run_my_actor(mut actor: Actor) {
-    let id = actor.id();
     while let Ok(msg) = actor.receiver.recv().await {
-        println!("Actor {} got a message", id);
-        actor.handle_message(msg).await.unwrap(); // more graceful error handling needed
+        // more graceful error handling needed
+        match msg {
+            ActorMessage::ShutDown { respond_to } => {
+                let _ = respond_to.send(actor.id);
+                actor.clear_up().await.unwrap();
+                break;
+            }
+            _ => actor.handle_message(msg).await.unwrap(),
+        }
+        // actor.handle_message(msg).await.unwrap();
     }
 }
 
@@ -799,11 +837,13 @@ pub struct ActorHandle {
 }
 
 impl ActorHandle {
+   // pair 方法创建一个连接对
     pub(crate) fn pair(
         socket_path: &PathBuf,
+        max_pending_request_num: usize,
         rt: &tokio::runtime::Runtime,
     ) -> Result<(Self, Receiver<ActorMessage>)> {
-        let (sender, receiver) = async_channel::bounded(MAX_PENDING_REQUEST_NUM);
+        let (sender, receiver) = async_channel::bounded(max_pending_request_num);
         let actor = Actor::build(0, socket_path, receiver.clone())?;
         rt.spawn(run_my_actor(actor));
         Ok((Self { sender }, receiver))
@@ -825,6 +865,14 @@ impl ActorHandle {
         recv.await.expect("Actor task has been killed")
     }
 
+    pub async fn shutdown(&self) -> usize {
+        let (send, recv) = oneshot::channel();
+        let msg = ActorMessage::ShutDown { respond_to: send };
+
+        let _ = self.sender.send(msg).await;
+        recv.await.expect("Actor task has been killed")
+    }
+
     pub async fn create_snap_shot(
         &self,
         snapshot_create_params: SnapshotCreateParams,
@@ -840,9 +888,8 @@ impl ActorHandle {
     }
 
     pub async fn create_sync_action(&self, action: InstanceActionInfo) -> (String, String) {
-        println!("ActorHandle CreateSyncAction Enter");
         let (send, recv) = oneshot::channel();
-        let msg = ActorMessage::CreateSyncAction {
+        let msg: ActorMessage = ActorMessage::CreateSyncAction {
             respond_to: send,
             action,
         };
@@ -851,7 +898,7 @@ impl ActorHandle {
         recv.await.expect("Actor task has been killed")
     }
 
-    pub async fn get_balloon(&self) -> Balloon {
+    pub async fn describe_balloon_config(&self) -> Balloon {
         let (send, recv) = oneshot::channel();
         let msg = ActorMessage::DescribeBalloonConfig { respond_to: send };
 
@@ -859,7 +906,7 @@ impl ActorHandle {
         recv.await.expect("Actor task has been killed")
     }
 
-    pub async fn get_balloon_stats(&self) -> BalloonStatistics {
+    pub async fn describe_balloon_stats(&self) -> BalloonStatistics {
         let (send, recv) = oneshot::channel();
         let msg = ActorMessage::DescribeBalloonStats { respond_to: send };
 
@@ -867,7 +914,7 @@ impl ActorHandle {
         recv.await.expect("Actor task has been killed")
     }
 
-    pub async fn get_instance_info(&self) -> InstanceInfo {
+    pub async fn describe_instance(&self) -> InstanceInfo {
         let (send, recv) = oneshot::channel();
         let msg = ActorMessage::DescribeInstance { respond_to: send };
 
@@ -875,7 +922,7 @@ impl ActorHandle {
         recv.await.expect("Actor task has been killed")
     }
 
-    pub async fn get_vm_config(&self) -> FullVmConfiguration {
+    pub async fn get_export_vm_config(&self) -> FullVmConfiguration {
         let (send, recv) = oneshot::channel();
         let msg = ActorMessage::GetExportVmConfig { respond_to: send };
 
@@ -891,7 +938,7 @@ impl ActorHandle {
         recv.await.expect("Actor task has been killed")
     }
 
-    pub async fn get_machine_config(&self) -> MachineConfiguration {
+    pub async fn get_machine_configuration(&self) -> MachineConfiguration {
         let (send, recv) = oneshot::channel();
         let msg = ActorMessage::GetMachineConfiguration { respond_to: send };
 
@@ -921,7 +968,7 @@ impl ActorHandle {
         recv.await.expect("Actor task has been killed")
     }
 
-    pub async fn patch_balloon_stats(
+    pub async fn patch_balloon_stats_interval(
         &self,
         balloon_stats_update: BalloonStatsUpdate,
     ) -> (String, String) {
@@ -946,7 +993,7 @@ impl ActorHandle {
         recv.await.expect("Actor task has been killed")
     }
 
-    pub async fn patch_drive(&self, partial_drive: PartialDrive) -> (String, String) {
+    pub async fn patch_guest_drive_by_id(&self, partial_drive: PartialDrive) -> (String, String) {
         let (send, recv) = oneshot::channel();
         let msg = ActorMessage::PatchGuestDriveByID {
             respond_to: send,
@@ -957,7 +1004,7 @@ impl ActorHandle {
         recv.await.expect("Actor task has been killed")
     }
 
-    pub async fn patch_network_interface(
+    pub async fn patch_guest_network_interface_by_id(
         &self,
         partial_network_interface: PartialNetworkInterface,
     ) -> (String, String) {
@@ -971,7 +1018,7 @@ impl ActorHandle {
         recv.await.expect("Actor task has been killed")
     }
 
-    pub async fn patch_machine_config(
+    pub async fn patch_machine_configuration(
         &self,
         machine_config: MachineConfiguration,
     ) -> (String, String) {
@@ -1019,7 +1066,7 @@ impl ActorHandle {
         recv.await.expect("Actor task has been killed")
     }
 
-    pub async fn put_cpu_config(&self, cpu_config: CPUConfig) -> (String, String) {
+    pub async fn put_cpu_configuration(&self, cpu_config: CPUConfig) -> (String, String) {
         let (send, recv) = oneshot::channel();
         let msg = ActorMessage::PutCpuConfiguration {
             respond_to: send,
@@ -1042,7 +1089,6 @@ impl ActorHandle {
     }
 
     pub async fn put_guest_boot_source(&self, boot_source: BootSource) -> (String, String) {
-        println!("ActorHandle PutGuestBootSource Enter");
         let (send, recv) = oneshot::channel();
         let msg = ActorMessage::PutGuestBootSource {
             respond_to: send,
@@ -1054,8 +1100,7 @@ impl ActorHandle {
         recv.await.expect("Actor task has been killed")
     }
 
-    pub async fn put_drive(&self, drive: Drive) -> (String, String) {
-        println!("ActorHandle PutGuestDriveByID Enter");
+    pub async fn put_guest_drive_by_id(&self, drive: Drive) -> (String, String) {
         let (send, recv) = oneshot::channel();
         let msg = ActorMessage::PutGuestDriveByID {
             respond_to: send,
@@ -1066,7 +1111,7 @@ impl ActorHandle {
         recv.await.expect("Actor task has been killed")
     }
 
-    pub async fn put_network_interface(
+    pub async fn put_guest_network_interface_by_id(
         &self,
         network_interface: NetworkInterface,
     ) -> (String, String) {
@@ -1080,7 +1125,7 @@ impl ActorHandle {
         recv.await.expect("Actor task has been killed")
     }
 
-    pub async fn put_vsock(&self, vsock: Vsock) -> (String, String) {
+    pub async fn put_guest_vsock(&self, vsock: Vsock) -> (String, String) {
         let (send, recv) = oneshot::channel();
         let msg = ActorMessage::PutGuestVsock {
             respond_to: send,
@@ -1102,7 +1147,7 @@ impl ActorHandle {
         recv.await.expect("Actor task has been killed")
     }
 
-    pub async fn put_machine_config(
+    pub async fn put_machine_configuration(
         &self,
         machine_config: MachineConfiguration,
     ) -> (String, String) {

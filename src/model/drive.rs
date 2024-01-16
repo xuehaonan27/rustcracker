@@ -6,7 +6,7 @@ use crate::utils::Json;
 
 use super::rate_limiter::RateLimiter;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Drive {
     // drive id
     // Required: true
@@ -14,7 +14,7 @@ pub struct Drive {
 
     // Host level path for the guest drive
     // Required: true
-    path_on_host: PathBuf,
+    pub(crate) path_on_host: PathBuf,
 
     // is root device
     // Required: true

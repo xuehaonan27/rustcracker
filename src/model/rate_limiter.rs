@@ -5,7 +5,7 @@ use super::token_bucket::TokenBucket;
 // RateLimiter Defines an IO rate limiter with independent bytes/s and ops/s limits.
 // Limits are defined by configuring each of the _bandwidth_ and _ops_ token buckets.
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RateLimiter {
     pub bandwidth: Option<TokenBucket>,
     pub ops: Option<TokenBucket>,
