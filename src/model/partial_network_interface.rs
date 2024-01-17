@@ -5,17 +5,20 @@ use crate::utils::Json;
 use super::rate_limiter::RateLimiter;
 // PartialNetworkInterface Defines a partial network interface structure,
 // used to update the rate limiters for that interface, after microvm start.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PartialNetworkInterface {
     // iface id
 	// Required: true
-    iface_id: String,
+    #[serde(rename = "iface_id")]
+    pub iface_id: String,
 
     // rx rate limiter
-    rx_rate_limiter: Option<RateLimiter>,
+    #[serde(rename = "rx_rate_limiter", skip_serializing_if = "Option::is_none")]
+    pub rx_rate_limiter: Option<RateLimiter>,
 
     // tx rate limiter
-    tx_rate_limiter: Option<RateLimiter>,
+    #[serde(rename = "tx_rate_limiter", skip_serializing_if = "Option::is_none")]
+    pub tx_rate_limiter: Option<RateLimiter>,
 }
 
 impl<'a> Json<'a> for PartialNetworkInterface {

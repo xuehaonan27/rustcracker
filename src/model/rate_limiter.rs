@@ -23,3 +23,13 @@ impl RateLimiter {
         }
     }
 }
+
+// RateLimiterSet represents a pair of RateLimiters (inbound and outbound)
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RateLimiterSet {
+    // InRateLimiter limits the incoming bytes.
+    pub in_rate_limiter: Option<RateLimiter>,
+
+    // OutRateLimiter limits the outgoing bytes.
+    pub out_rate_limiter: Option<RateLimiter>,
+}

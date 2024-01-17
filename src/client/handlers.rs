@@ -170,7 +170,7 @@ pub struct Handlers {
 pub fn ConfigValidationHandler() -> Handler { Handler {
     name: ValidateCfgHandlerName,
     func: Box::new(move |m: &mut Machine| -> Result<()> {
-        m.cfg.validate()
+        todo!()
     }),
 }}
 

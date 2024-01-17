@@ -1,5 +1,9 @@
 use std::collections::HashMap;
 
+type GenericError = Box<dyn std::error::Error + Send + Sync>;
+type Result<T> = std::result::Result<T, GenericError>;
+
+
 pub fn http_request(request_type: &str, endpoint: &str, body: Option<String>) -> String {
     let req_no_body = format!(
         "{} {} HTTP/1.1\r\nContent-Type: application/json\r\n",
@@ -67,4 +71,39 @@ pub fn res_into_parts(res: String) -> (String, String, String) {
     };
 
     (parsed_status_code.to_string(), parsed_status_text, parsed_msg_body.to_string())
+}
+
+pub struct HttpUnixClient {
+
+}
+
+#[cfg(test)]
+mod http_client_test {
+    use std::error::Error;
+    use hyper::{body::HttpBody, Client};
+    use hyperlocal::{UnixClientExt, Uri};
+    use tokio::io::{self, AsyncWriteExt as _};
+
+    type GenericError = Box<dyn std::error::Error + Send + Sync>;
+    type Result<T> = std::result::Result<T, GenericError>;
+
+    async fn create_client() -> Result<()> {
+        let url = Uri::new("/tmp/hyperlocal.sock", "/").into();
+
+        let client = Client::unix();
+
+        let mut response = client.get(url).await?;
+
+        while let Some(next) = response.data().await {
+            let chunk = next?;
+            io::stdout().write_all(&chunk).await?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_client() {
+        tokio::task::spawn(create_client());
+    }
 }

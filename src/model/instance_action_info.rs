@@ -2,22 +2,22 @@ use serde::{Serialize, Deserialize};
 
 use crate::utils::Json;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ActionType {
     FlushMetrics,
     InstanceStart,
     SendCtrlAtlDel,
 }
-impl From<ActionType> for String {
-    fn from(value: ActionType) -> Self {
-        match value {
-            ActionType::FlushMetrics => "FlushMetrics".into(),
-            ActionType::InstanceStart => "InstanceStart".into(),
-            ActionType::SendCtrlAtlDel => "SendCtrlAtlDel".into(),
-        }
-    }
-}
-#[derive(Serialize, Deserialize)]
+// impl From<ActionType> for String {
+//     fn from(value: ActionType) -> Self {
+//         match value {
+//             ActionType::FlushMetrics => "FlushMetrics".into(),
+//             ActionType::InstanceStart => "InstanceStart".into(),
+//             ActionType::SendCtrlAtlDel => "SendCtrlAtlDel".into(),
+//         }
+//     }
+// }
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct InstanceActionInfo {
     // Enumeration indicating what type of action is contained in the payload
 	// Required: true

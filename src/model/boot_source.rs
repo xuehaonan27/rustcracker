@@ -3,17 +3,18 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::utils::Json;
-#[derive(Serialize, Deserialize)]
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BootSource {
     // Kernel boot arguments
-    boot_args: Option<String>,
+    pub boot_args: Option<String>,
 
     // Host level path to the initrd image used to boot the guest
-    initrd_path: Option<PathBuf>,
+    pub initrd_path: Option<PathBuf>,
 
     // Host level path to the kernel image used to boot the guest
     // Required: true
-    kernel_image_path: PathBuf,
+    pub kernel_image_path: PathBuf,
 }
 
 impl<'a> Json<'a> for BootSource {

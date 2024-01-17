@@ -8,7 +8,7 @@ pub type CPUTemplate = String;
 pub const CPU_TEMPLATE_C3: &'static str = "C3";
 pub const CPU_TEMPLATE_T2: &'static str = "T2";
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CPUConfig {}
 
 impl<'a> Json<'a> for CPUConfig {

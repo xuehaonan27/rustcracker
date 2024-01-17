@@ -14,7 +14,7 @@ pub struct Drive {
 
     // Host level path for the guest drive
     // Required: true
-    pub(crate) path_on_host: PathBuf,
+    path_on_host: PathBuf,
 
     // is root device
     // Required: true
@@ -92,12 +92,14 @@ impl Drive {
         self
     }
 
-    pub fn with_drive_path<S>(mut self, path: S) -> Self
-    where
-        S: Into<PathBuf>
+    pub fn with_drive_path<S>(mut self, path: impl Into<PathBuf>) -> Self
     {
         self.path_on_host = path.into();
         self
+    }
+
+    pub fn set_drive_path(&mut self, path: impl Into<PathBuf>) {
+        self.path_on_host = path.into();
     }
     
     pub fn with_rate_limiter(mut self, limiter: RateLimiter) -> Self {
@@ -107,5 +109,13 @@ impl Drive {
 
     pub fn get_drive_id(&self) -> String {
         self.drive_id.to_owned()
+    }
+
+    pub fn is_root_device(&self) -> bool {
+        self.is_root_device
+    }
+
+    pub fn get_path_on_host(&self) -> PathBuf {
+        self.path_on_host.to_owned()
     }
 }

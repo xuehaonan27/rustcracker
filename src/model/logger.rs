@@ -24,7 +24,7 @@ impl From<LogLevel> for String {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Logger {
     // Set the level. The possible values are case-insensitive.
     // Enum: [Error Warning Info Debug]

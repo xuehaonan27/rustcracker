@@ -27,16 +27,16 @@ use serde::{Deserialize, Serialize};
 pub struct Balloon {
     // Target balloon size in MiB
     // Required: true
-    amount_mib: isize,
+    pub amount_mib: i64,
 
     // Whether the balloon should deflate when then guest has memory pressure
     // Required: true
-    deflate_on_oom: bool,
+    pub deflate_on_oom: bool,
 
     // Interval in seconds between refreshing statistics
     // non-zero value will enable statistics
     // Defaults to 0
-    stats_polling_interval_s: Option<isize>,
+    pub stats_polling_interval_s: Option<i64>,
 }
 
 impl<'a> Json<'a> for Balloon {
@@ -53,7 +53,7 @@ impl Balloon {
     }
     
     /// Set target balloon size to `m` MiB.
-    pub fn with_amount_mib(mut self, m: isize) -> Self {
+    pub fn with_amount_mib(mut self, m: i64) -> Self {
         self.amount_mib = m;
         self
     }
@@ -70,7 +70,7 @@ impl Balloon {
     /// Once set to zero (non-zero), which indicates refreshing 
     /// disabled (enabled) it couldn't be changed to enabled (disabled)
     /// after boot.
-    pub fn with_stats_polling_interval_s(mut self, s: isize) -> Self {
+    pub fn with_stats_polling_interval_s(mut self, s: i64) -> Self {
         self.stats_polling_interval_s = Some(s);
         self
     }

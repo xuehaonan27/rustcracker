@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 use crate::utils::Json;
@@ -25,17 +27,17 @@ pub struct Vsock {
     // Minimum: 3
     // CID defines the 32-bit Context Identifier for the vsock device.  See
 	// the vsock(7) manual page for more information.
-    guest_cid: u32,
+    pub guest_cid: u32,
 
     // Path to UNIX domain socket, used to proxy vsock connections.
     // Required: true
     // Path defines the filesystem path of the vsock device on the host.
-    uds_path: String,
+    pub uds_path: String,
 
     // vsock id
     // Required: true
     // ID defines the vsock's device ID for firecracker.
-    vsock_id: String,
+    pub vsock_id: String,
 }
 
 impl<'a> Json<'a> for Vsock {

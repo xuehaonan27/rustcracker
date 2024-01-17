@@ -25,7 +25,7 @@ let from_raw_fd = std::process::Stdio::from_raw_fd(fd);
 
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
-pub(crate) enum StdioTypes {
+pub enum StdioTypes {
     // 空设备
     Null,
     // 进程管道的
@@ -394,7 +394,7 @@ pub fn jail(m: &mut Machine, mut cfg: Config) -> Result<()> {
             .with_daemonize(jailer_cfg.daemonize)
             .with_firecracker_args(vec![
                 "--seccomp-level".to_string(),
-                cfg.seccomp_level.to_string(),
+                cfg.seccomp_level.unwrap().to_string(),
                 "--api-sock".to_string(),
                 machine_socket_path.to_string_lossy().to_string()
             ])
@@ -477,7 +477,7 @@ fn link_files_handler(kernel_image_file_name: PathBuf) -> Handler {
 
             // copy kernel image to root fs
             std::fs::hard_link(
-                &m.cfg.kernel_image_path,
+                &m.cfg.kernel_image_path.as_ref().unwrap(),
                 [&rootfs, &kernel_image_file_name.to_owned().into()]
                     .iter()
                     .collect::<PathBuf>(),
@@ -500,8 +500,8 @@ fn link_files_handler(kernel_image_file_name: PathBuf) -> Handler {
             }
 
             // copy all drives to the root fs
-            for drive in &mut m.cfg.drives {
-                let host_path = &drive.path_on_host;
+            for drive in m.cfg.drives.as_mut().unwrap() {
+                let host_path = &drive.get_path_on_host();
                 let drive_file_name: PathBuf = host_path
                     .as_path()
                     .file_name()
@@ -512,7 +512,8 @@ fn link_files_handler(kernel_image_file_name: PathBuf) -> Handler {
                     host_path,
                     [&rootfs, &drive_file_name].iter().collect::<PathBuf>(),
                 )?;
-                drive.path_on_host = drive_file_name;
+                // drive.path_on_host = drive_file_name;
+                drive.set_drive_path(drive_file_name);
             }
 
             m.cfg.kernel_image_path = kernel_image_file_name.to_owned().into();

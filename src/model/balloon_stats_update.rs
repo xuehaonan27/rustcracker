@@ -13,9 +13,9 @@ use crate::utils::Json;
 /// use Rustcracker::model::balloon_stats_update::BalloonStatsUpdate;
 /// let balloon_stats_update = BalloonStatsUpdate::new(10);
 /// ```
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BalloonStatsUpdate {
-    stats_polling_interval_s: isize,
+    pub stats_polling_interval_s: i64,
 }
 impl<'a> Json<'a> for BalloonStatsUpdate {
     type Item = BalloonStatsUpdate;
@@ -24,7 +24,7 @@ impl<'a> Json<'a> for BalloonStatsUpdate {
 impl BalloonStatsUpdate {
     /// Create a balloon statistics updating config with
     /// new statistics polling interval set to `sec` seconds.
-    pub fn new(sec: isize) -> Self {
+    pub fn new(sec: i64) -> Self {
         Self { stats_polling_interval_s: sec }
     }
 }

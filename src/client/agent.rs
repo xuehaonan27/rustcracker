@@ -1,85 +1,447 @@
-use std::{
-    os::unix::fs::FileTypeExt,
-    path::PathBuf,
-    process::{Child, Command, Stdio},
+use std::path::PathBuf;
+
+use hyper::{Body, Client, Method, Request};
+use hyperlocal::UnixConnector;
+use log::{debug, error, trace};
+
+use crate::{
+    model::{
+        balloon::Balloon,
+        balloon_stats::BalloonStatistics,
+        balloon_stats_update::BalloonStatsUpdate,
+        balloon_update::BalloonUpdate,
+        boot_source::BootSource,
+        cpu_template::CPUConfig,
+        drive::Drive,
+        entropy_device::EntropyDevice,
+        firecracker_version::FirecrackerVersion,
+        full_vm_configuration::FullVmConfiguration,
+        instance_action_info::InstanceActionInfo,
+        instance_info::InstanceInfo,
+        logger::Logger,
+        machine_configuration::MachineConfiguration,
+        metrics::Metrics,
+        mmds_config::{MmdsConfig, MmdsContentsObject},
+        network_interface::NetworkInterface,
+        partial_drive::PartialDrive,
+        partial_network_interface::PartialNetworkInterface,
+        snapshot_create_params::SnapshotCreateParams,
+        snapshot_load_params::SnapshotLoadParams,
+        vm::Vm,
+        vsock::Vsock,
+    },
+    utils::Json,
 };
 
-use super::connection_pool::SocketConnectionPool;
-
-type GenericError = Box<dyn std::error::Error + Send + Sync>;
-type Result<T> = std::result::Result<T, GenericError>;
+#[derive(thiserror::Error, Debug)]
+pub enum AgentError {
+    #[error("Could not initate worksapce for machine, reason: {0}")]
+    WorkspaceCreation(String),
+    #[error("Could not delete worksapce for machine, reason: {0}")]
+    WorkspaceDeletion(String),
+    #[error("Could not execute command, reason: {0}")]
+    CommandExecution(String),
+    #[error("Failed to manage socket, reason: {0}")]
+    Socket(String),
+    #[error("Could not send request on uri {0}, reason: {1}")]
+    Request(hyper::Uri, String),
+    #[error("Could not serialize request or deserialize response, reason: {0}")]
+    Serde(#[from] serde_json::Error),
+    #[error("Socket didn't start on time")]
+    Unhealthy,
+}
 
 pub struct Agent {
     socket_path: PathBuf,
-
-    // firecracker_binary_path: PathBuf,
-
-    /* 连接池, 用于和Firecracker通信 */
-    socket_connection_pool: SocketConnectionPool,
-
-    /* 连接池的超时请求 */
-    firecracker_request_timeout: usize,
-
-    firecracker_init_timeout: usize,
+    client: Client<UnixConnector>,
 }
 
 impl Agent {
-    pub fn new(
-        socket_path: impl Into<PathBuf>,
-        firecracker_request_timeout: usize,
-        firecracker_init_timeout: usize,
-        max_conn_num: usize,
-        max_pending_request_num: usize,
-        worker_threads: usize,
-    ) -> Self {
-        let socket_path = socket_path.into();
-        let socket_connection_pool = SocketConnectionPool::new(
-            &socket_path,
-            max_conn_num,
-            max_pending_request_num,
-            worker_threads,
+    async fn send_request(
+        &self,
+        url: hyper::Uri,
+        method: Method,
+        body: String,
+    ) -> Result<String, AgentError> {
+        debug!("Send request to socket: {}", url);
+        trace!("Sent body to socket [{}]: {}", url, body);
+        let request = Request::builder()
+            .method(method)
+            .uri(url.clone())
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .body(Body::from(body))
+            .map_err(|e| AgentError::Request(url.clone(), e.to_string()))?;
+
+        let response = self
+            .client
+            .request(request)
+            .await
+            .map_err(|e| AgentError::Request(url.clone(), e.to_string()))?;
+
+        trace!("Response status: {:#?}", response.status());
+
+        let status = response.status();
+        if !status.is_success() {
+            error!("Request to socket failed [{}]: {:#?}", url, status);
+            // body stream to string
+            let body = hyper::body::to_bytes(response.into_body())
+                .await
+                .map_err(|e| AgentError::Request(url.clone(), e.to_string()))?;
+            error!(
+                "Request [{}] body: {}",
+                url,
+                String::from_utf8(body.to_vec()).unwrap()
+            );
+            return Err(AgentError::CommandExecution(format!(
+                "Failed to send request to {}, status: {}",
+                url, status
+            )));
+        } else {
+            let body = hyper::body::to_bytes(response.into_body())
+                .await
+                .map_err(|e| AgentError::Request(url.clone(), e.to_string()))?;
+            let string = String::from_utf8(body.to_vec()).unwrap();
+            Ok(string)
+        }
+    }
+
+    // PUT /snapshot/create
+    pub async fn create_snapshot(
+        &self,
+        snapshot_create_params: SnapshotCreateParams,
+    ) -> Result<(), AgentError> {
+        debug!("create_snapshot: {:#?}", snapshot_create_params);
+        let json = snapshot_create_params
+            .to_json()
+            .map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/snapshot/create").into();
+        self.send_request(url, Method::PUT, json).await?;
+        Ok(())
+    }
+
+    // PUT /actions
+    pub async fn create_sync_action(&self, action: InstanceActionInfo) -> Result<(), AgentError> {
+        debug!("create_sync_action: {:#?}", action);
+        let json = action.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/actions").into();
+        self.send_request(url, Method::PUT, json).await?;
+        Ok(())
+    }
+
+    // GET /balloon
+    pub async fn describe_balloon_config(&self) -> Result<Balloon, AgentError> {
+        debug!("describe_balloon_config");
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/balloon").into();
+        let string = self.send_request(url, Method::GET, String::new()).await?;
+        let balloon = Balloon::from_json(&string).map_err(AgentError::Serde)?;
+        Ok(balloon)
+    }
+
+    // GET /balloon/statistics
+    pub async fn describe_balloon_stats(&self) -> Result<BalloonStatistics, AgentError> {
+        debug!("describe_balloon_stats");
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/balloon/statistics").into();
+        let string = self.send_request(url, Method::GET, String::new()).await?;
+        let balloon_stats = BalloonStatistics::from_json(&string).map_err(AgentError::Serde)?;
+        Ok(balloon_stats)
+    }
+
+    // GET /
+    pub async fn describe_instance(&self) -> Result<InstanceInfo, AgentError> {
+        debug!("describe_instance");
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/").into();
+        let string = self.send_request(url, Method::GET, String::new()).await?;
+        let instance_info = InstanceInfo::from_json(&string).map_err(AgentError::Serde)?;
+        Ok(instance_info)
+    }
+
+    // GET /vm/config
+    pub async fn get_export_vm_config(&self) -> Result<FullVmConfiguration, AgentError> {
+        debug!("get_export_vm_config");
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/vm/config").into();
+        let string = self.send_request(url, Method::GET, String::new()).await?;
+        let vm_config = FullVmConfiguration::from_json(&string).map_err(AgentError::Serde)?;
+        Ok(vm_config)
+    }
+
+    // GET /version
+    pub async fn get_firecracker_version(&self) -> Result<FirecrackerVersion, AgentError> {
+        debug!("get_firecracker_version");
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/version").into();
+        let string = self.send_request(url, Method::GET, String::new()).await?;
+        let version = FirecrackerVersion::from_json(&string).map_err(AgentError::Serde)?;
+        Ok(version)
+    }
+
+    // GET /machine-config
+    pub async fn get_machine_configuration(&self) -> Result<MachineConfiguration, AgentError> {
+        debug!("get_machine_configuration");
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/machine-config").into();
+        let string = self.send_request(url, Method::GET, String::new()).await?;
+        let machine_config = MachineConfiguration::from_json(&string).map_err(AgentError::Serde)?;
+        Ok(machine_config)
+    }
+
+    // GET /mmds
+    pub async fn get_mmds(&self) -> Result<String, AgentError> {
+        debug!("get_mmds");
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/mmds").into();
+        let string = self.send_request(url, Method::GET, String::new()).await?;
+        Ok(string)
+    }
+
+    // PATCH /balloon/statistics
+    pub async fn patch_balloon_stats_interval(
+        &self,
+        balloon_stats_update: BalloonStatsUpdate,
+    ) -> Result<(), AgentError> {
+        debug!("patch_balloon_stats_interval: {:#?}", balloon_stats_update);
+        let json = balloon_stats_update.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/balloon/statistics").into();
+        self.send_request(url, Method::PATCH, json).await?;
+        Ok(())
+    }
+
+    // PATCH /balloon
+    pub async fn patch_balloon(&self, balloon_update: BalloonUpdate) -> Result<(), AgentError> {
+        debug!("patch_balloon: {:#?}", balloon_update);
+        let json = balloon_update.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/balloon").into();
+        self.send_request(url, Method::PATCH, json).await?;
+        Ok(())
+    }
+
+    // PATCH /drives/{drive_id}
+    pub async fn patch_guest_drive_by_id(
+        &self,
+        partial_drive: PartialDrive,
+    ) -> Result<(), AgentError> {
+        debug!("patch_guest_drive_by_id: {:#?}", partial_drive);
+        let drive_id = partial_drive.get_drive_id();
+        let json = partial_drive.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri =
+            hyperlocal::Uri::new(&self.socket_path, format!("/drives/{drive_id}").as_str()).into();
+        self.send_request(url, Method::PATCH, json).await?;
+        Ok(())
+    }
+
+    // PATCH /network-interfaces/{iface_id}
+    pub async fn patch_guest_network_interface_by_id(
+        &self,
+        partial_network_interface: PartialNetworkInterface,
+    ) -> Result<(), AgentError> {
+        debug!(
+            "patch_guest_network_interface_by_id: {:#?}",
+            partial_network_interface
         );
-        Self {
-            socket_path,
-            socket_connection_pool,
-            firecracker_request_timeout,
-            firecracker_init_timeout,
-        }
-    }
-}
+        let iface_id = partial_network_interface.get_iface_id();
+        let json = partial_network_interface
+            .to_json()
+            .map_err(AgentError::Serde)?;
 
-pub fn clear(socket_path: &PathBuf) -> Result<()> {
-    /* 若socket_path处已经有套接字文件则删除 */
-    if let Ok(metadata) = std::fs::metadata(socket_path) {
-        if metadata.file_type().is_socket() {
-            std::fs::remove_file(socket_path)?;
-        }
+        let url: hyper::Uri = hyperlocal::Uri::new(
+            &self.socket_path,
+            format!("/network-interfaces/{iface_id}").as_str(),
+        )
+        .into();
+        self.send_request(url, Method::PATCH, json).await?;
+        Ok(())
     }
-    Ok(())
-}
 
-pub fn launch(
-    path: &PathBuf,
-    socket_path: &PathBuf,
-    stdin: Option<impl Into<std::process::Stdio>>,
-    stdout: Option<impl Into<std::process::Stdio>>,
-    stderr: Option<impl Into<std::process::Stdio>>,
-) -> Result<Child> {
-    let mut child = Command::new("sudo");
-    let mut child = child.arg(path).arg("--api-sock").arg(socket_path);
-    if let Some(stdin) = stdin {
-        child = child.stdin(stdin);
-    }
-    if let Some(stdout) = stdout {
-        child = child.stdout(stdout);
-    }
-    if let Some(stderr) = stderr {
-        child = child.stderr(stderr);
-    }
-    let child = child.spawn()?;
-    Ok(child)
-}
+    // PATCH /machine-config
+    pub async fn patch_machine_configuration(
+        &self,
+        machine_config: MachineConfiguration,
+    ) -> Result<(), AgentError> {
+        debug!("patch_machine_configuration: {:#?}", machine_config);
+        let json = machine_config.to_json().map_err(AgentError::Serde)?;
 
-pub fn wait_socket(socket_path: &PathBuf) {
-    while let Err(_) = std::fs::metadata(socket_path) {}
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/machine-config").into();
+        self.send_request(url, Method::PATCH, json).await?;
+        Ok(())
+    }
+
+    // PATCH /mmds
+    pub async fn patch_mmds(
+        &self,
+        mmds_contents_object: MmdsContentsObject,
+    ) -> Result<(), AgentError> {
+        debug!("patch_mmds: {:#?}", mmds_contents_object);
+        let json = mmds_contents_object.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/mmds").into();
+        self.send_request(url, Method::PATCH, json).await?;
+        Ok(())
+    }
+
+    // PATCH /vm
+    pub async fn patch_vm(&self, vm: Vm) -> Result<(), AgentError> {
+        debug!("patch_vm: {:#?}", vm);
+        let json = vm.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/vm").into();
+        self.send_request(url, Method::PATCH, json).await?;
+        Ok(())
+    }
+
+    // PUT /snapshot/load
+    pub async fn load_snapshot(
+        &self,
+        snapshot_load_params: SnapshotLoadParams,
+    ) -> Result<(), AgentError> {
+        debug!("load_snapshot: {:#?}", snapshot_load_params);
+        let json = snapshot_load_params.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/snapshot/load").into();
+        self.send_request(url, Method::PUT, json).await?;
+        Ok(())
+    }
+
+    // PUT /balloon
+    pub async fn put_balloon(&self, balloon: Balloon) -> Result<(), AgentError> {
+        debug!("put_balloon: {:#?}", balloon);
+        let json = balloon.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/balloon").into();
+        self.send_request(url, Method::PUT, json).await?;
+        Ok(())
+    }
+
+    // PUT /cpu-config
+    pub async fn put_cpu_configuration(&self, cpu_config: CPUConfig) -> Result<(), AgentError> {
+        debug!("put_cpu_configuration: {:#?}", cpu_config);
+        let json = cpu_config.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/cpu-config").into();
+        self.send_request(url, Method::PUT, json).await?;
+        Ok(())
+    }
+
+    // PUT /entropy
+    pub async fn put_entropy_device(
+        &self,
+        entropy_device: EntropyDevice,
+    ) -> Result<(), AgentError> {
+        debug!("put_entropy_device: {:#?}", entropy_device);
+        let json = entropy_device.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/entropy").into();
+        self.send_request(url, Method::PUT, json).await?;
+        Ok(())
+    }
+
+    // PUT /boot-source
+    pub async fn put_guest_boot_source(&self, boot_source: BootSource) -> Result<(), AgentError> {
+        debug!("put_guest_boot_source: {:#?}", boot_source);
+        let json = boot_source.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/boot-source").into();
+        self.send_request(url, Method::PUT, json).await?;
+        Ok(())
+    }
+
+    // PUT /drives/{drive_id}
+    pub async fn put_guest_drive_by_id(&self, drive: Drive) -> Result<(), AgentError> {
+        debug!("put_guest_drive_by_id: {:#?}", drive);
+        let drive_id = drive.get_drive_id();
+        let json = drive.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri =
+            hyperlocal::Uri::new(&self.socket_path, format!("/drives/{drive_id}").as_str()).into();
+        self.send_request(url, Method::PUT, json).await?;
+        Ok(())
+    }
+
+    // PUT /network-interfaces/{iface_id}
+    pub async fn put_guest_network_interface_by_id(
+        &self,
+        network_interface: NetworkInterface,
+    ) -> Result<(), AgentError> {
+        debug!(
+            "put_guest_network_interface_by_id: {:#?}",
+            network_interface
+        );
+        let iface_id = network_interface.get_iface_id();
+        let json = network_interface.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri = hyperlocal::Uri::new(
+            &self.socket_path,
+            format!("/network-interfaces/{iface_id}").as_str(),
+        )
+        .into();
+        self.send_request(url, Method::PUT, json).await?;
+        Ok(())
+    }
+
+    // PUT /vsock
+    pub async fn put_guest_vsock(&self, vsock: &Vsock) -> Result<(), AgentError> {
+        debug!("put_guest_vsock: {:#?}", vsock);
+        let json = vsock.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/vsock").into();
+        self.send_request(url, Method::PUT, json).await?;
+        Ok(())
+    }
+
+    // PUT /logger
+    pub async fn put_logger(&self, logger: Logger) -> Result<(), AgentError> {
+        debug!("put_logger: {:#?}", logger);
+        let json = logger.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/logger").into();
+        self.send_request(url, Method::PUT, json).await?;
+        Ok(())
+    }
+
+    // PUT /machine-config
+    pub async fn put_machine_configuration(
+        &self,
+        machine_config: &MachineConfiguration,
+    ) -> Result<(), AgentError> {
+        debug!("put_machine_configuration: {:#?}", machine_config);
+        let json = machine_config.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/machine-config").into();
+        self.send_request(url, Method::PUT, json).await?;
+        Ok(())
+    }
+
+    // PUT /metrics
+    pub async fn put_metrics(&self, metrics: Metrics) -> Result<(), AgentError> {
+        debug!("put_metrics: {:#?}", metrics);
+        let json = metrics.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/metrics").into();
+        self.send_request(url, Method::PUT, json).await?;
+        Ok(())
+    }
+
+    // PUT /mmds/config
+    pub async fn put_mmds_config(&self, mmds_config: MmdsConfig) -> Result<(), AgentError> {
+        debug!("put_mmds_config: {:#?}", mmds_config);
+        let json = mmds_config.to_json().map_err(AgentError::Serde)?;
+
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/mmds/config").into();
+        self.send_request(url, Method::PUT, json).await?;
+        Ok(())
+    }
+
+    // PUT /mmds
+    pub async fn put_mmds(
+        &self,
+        mmds_contents_object: MmdsContentsObject,
+    ) -> Result<(), AgentError> {
+        debug!("put_mmds: {:#?}", mmds_contents_object);
+        let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/mmds").into();
+
+        self.send_request(url, Method::PUT, mmds_contents_object)
+            .await?;
+        Ok(())
+    }
 }

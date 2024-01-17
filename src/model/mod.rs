@@ -12,6 +12,7 @@ pub mod firecracker_version;
 pub mod full_vm_configuration;
 pub mod instance_action_info;
 pub mod instance_info;
+pub mod kernel_args;
 pub mod logger;
 pub mod machine_configuration;
 pub mod metrics;

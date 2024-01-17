@@ -1,7 +1,7 @@
 use serde::{Serialize, Deserialize};
 
 use crate::utils::Json;
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SnapshotLoadParams {
     // Enable support for incremental (diff) snapshots
     // by tracking dirty guest pages.

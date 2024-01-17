@@ -3,17 +3,17 @@ use serde::{Serialize, Deserialize};
 use crate::utils::Json;
 
 use super::rate_limiter::RateLimiter;
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PartialDrive {
     // drive id
     // Required: true
-    drive_id: String,
+    pub drive_id: String,
 
     // Host level path for the guest drive
-    path_on_host: Option<String>,
+    pub path_on_host: Option<String>,
 
     // rate limiter
-    rate_limiter: Option<RateLimiter>,
+    pub rate_limiter: Option<RateLimiter>,
 }
 
 impl<'a> Json<'a> for PartialDrive {
