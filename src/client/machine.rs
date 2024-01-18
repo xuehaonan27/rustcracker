@@ -33,8 +33,7 @@ use crate::{
 
 use super::{
     agent::{Agent, AgentError},
-    handlers::Handlers,
-    jailer::{JailerConfig, StdioTypes},
+    jailer::{JailerConfig, StdioTypes}, handler::Handlers,
 };
 
 const USER_AGENT: &'static str = "rustfire";
@@ -59,8 +58,9 @@ const SECCOMP_LEVEL_BASIC: SeccompLevelValue = 1;
 // allowed syscalls.
 const SECCOMP_LEVEL_ADVANCED: SeccompLevelValue = 2;
 
-// Config is a collection of user-configurable VMM settings
-// #[derive(Deserialize, Serialize, Debug, Clone)]
+/// Config is a collection of user-configurable VMM settings
+/// describe the microVM
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Config {
     // SocketPath defines the file path where the Firecracker control socket
     // should be created.
@@ -113,7 +113,7 @@ pub struct Config {
 
     // VsockDevices specifies the vsock devices that should be made available to
     // the microVM.
-    pub vsock_devices: Option<Vec<model::vsock::Vsock>>,
+    pub vsock_devices: Option<Vec<Vsock>>,
 
     // MachineCfg represents the firecracker microVM process configuration
     pub machine_cfg: Option<MachineConfiguration>,
@@ -182,7 +182,7 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn validate(&self) -> Result<(), MachineError> {
+    pub(super) fn validate(&self) -> Result<(), MachineError> {
         if self.disable_validation {
             return Ok(());
         }
@@ -279,6 +279,7 @@ impl Config {
     }
 }
 
+/// Machine is process handler of rust side
 pub struct Machine {
     pub(crate) handlers: Handlers,
 
@@ -292,7 +293,7 @@ pub struct Machine {
 
     pid: Option<u32>,
 
-    logger: Option<Logger>,
+    logger: Option<env_logger::Builder>,
 
     // The actual machine config as reported by Firecracker
     // id est, not the config set by user, which should be a field of `cfg`
@@ -304,7 +305,7 @@ pub struct Machine {
     // exitCh is a channel which gets closed when the VMM exits
     // implemented with sync::mpsc, which will receive the instruction
     // sent by outside
-    exit_ch: tokio::sync::mpsc::Receiver<MachineMessage>,
+    exit_ch: tokio::sync::oneshot::Receiver<MachineMessage>,
 
     // fatalErr records an error that either stops or prevent starting the VMM
     fatalerr: Option<MachineError>,
@@ -369,6 +370,8 @@ pub trait MachineTrait {
 /// 保证绝对终止firecracker进程.
 ///
 /// 可以使用tokio::select!和channel完成exit_ch的编写
+/// 
+/// 将所有put操作全部pub(super)防止user直接调用
 impl Machine {
     /// new initializes a new Machine instance and performs validation of the
     /// provided Config.
@@ -391,6 +394,12 @@ impl Machine {
         todo!()
     }
 
+    /// logger set a appropriate logger for logging hypervisor message
+    pub fn logger(&mut self) {
+        let logger = env_logger::Builder::new();
+        self.logger = Some(logger);
+    }
+
     /// PID returns the machine's running process PID or an error if not running
     #[allow(non_snake_case)]
     pub fn PID(&self) -> Result<u32, MachineError> {
@@ -408,6 +417,34 @@ impl Machine {
             .ok_or(MachineError::Execute(
                 "machine may by not running or already stopped".to_string(),
             ))
+    }
+
+    /// Start actually start a Firecracker microVM.
+    /// The context must not be cancelled while the microVM is running.
+    ///
+    /// It will iterate through the handler list and call each handler. If an
+    /// error occurred during handler execution, that error will be returned. If the
+    /// handlers succeed, then this will start the VMM instance.
+    /// Start may only be called once per Machine.  Subsequent calls will return
+    /// ErrAlreadyStarted.
+    pub async fn start(&self) -> Result<(), MachineError> {
+        debug!("Called Machine::start");
+        let mut already_started = true;
+        self.start_once.call_once(|| {
+            debug!("marking Machine as Started");
+            already_started = false;
+        });
+        if already_started {
+            return Err(MachineError::Execute("machine already started".to_string()));
+        }
+        // do clean up
+        todo!();
+
+        // run functions according to handlers
+        todo!(); 
+
+        self.start_instance().await?;
+        Ok(())
     }
 
     /// wait will wait until the firecracker process has finished.
@@ -466,7 +503,7 @@ impl Machine {
     }
 
     /// start_vmm starts the firecracker vmm process and configures logging.
-    pub async fn start_vmm(&mut self) -> Result<(), MachineError> {
+    pub(super) async fn start_vmm(&mut self) -> Result<(), MachineError> {
         if self.cfg.socket_path.is_none() {
             error!("start_vmm: no socket path provided");
             return Err(MachineError::FileError(
@@ -555,18 +592,18 @@ impl Machine {
         Ok(())
     }
 
-    // pub async fn do_clean_up(&mut self) -> Result<(), MachineError> {
-    //     self.cleanup_once.call_once(|| {
-    //         self.cleanup_funcs.reverse();
-    //         self.cleanup_funcs.iter_mut().for_each(|f| {
-    //             let f = f.take();
-    //             if f.is_some() {
+    pub async fn do_clean_up(&mut self) -> Result<(), MachineError> {
+        self.cleanup_once.call_once(|| {
+            self.cleanup_funcs.reverse();
+            self.cleanup_funcs.iter_mut().for_each(|f| {
+                let f = f.take();
+                if f.is_some() {
 
-    //             }
-    //         });
-    //     });
-    //     Ok(())
-    // }
+                }
+            });
+        });
+        Ok(())
+    }
 
     /// create_machine put the machine configuration to firecracker
     /// and refresh(by get from firecracker) the machine configuration stored in `self`
@@ -607,6 +644,14 @@ impl Machine {
 
         debug!("Setting up signal handler: {}", todo!());
 
+        todo!()
+    }
+
+    pub async fn setup_network(&self) -> Result<(), MachineError> {
+        todo!()
+    }
+
+    pub async fn setup_kernel_args(&self) -> Result<(), MachineError> {
         todo!()
     }
 
@@ -703,14 +748,14 @@ impl Machine {
     /// create_boot_source creates a boot source and configure it to microVM
     pub async fn create_boot_source(
         &self,
-        image_path: PathBuf,
-        initrd_path: PathBuf,
-        kernel_args: String,
+        image_path: &PathBuf,
+        initrd_path: &PathBuf,
+        kernel_args: &String,
     ) -> Result<(), MachineError> {
         let bsrc = BootSource {
-            kernel_image_path: image_path,
-            initrd_path: Some(initrd_path),
-            boot_args: Some(kernel_args),
+            kernel_image_path: image_path.to_path_buf(),
+            initrd_path: Some(initrd_path.to_path_buf()),
+            boot_args: Some(kernel_args.to_string()),
         };
 
         self.agent.put_guest_boot_source(&bsrc).await.map_err(|e| {
@@ -730,6 +775,10 @@ impl Machine {
     ) -> Result<(), MachineError> {
         let iface_id = iid.to_string();
 
+        todo!()
+    }
+
+    pub async fn create_network_interfaces(&self) -> Result<(), MachineError> {
         todo!()
     }
 
@@ -765,7 +814,7 @@ impl Machine {
         Ok(())
     }
     /// attach_drive attaches a secondary block device.
-    pub async fn attach_drive(&self, dev: &Drive) -> Result<(), MachineError> {
+    async fn attach_drive(&self, dev: &Drive) -> Result<(), MachineError> {
         let host_path = dev.get_path_on_host();
         info!(
             "Attaching drive {}, slot {}, root {}",
@@ -790,9 +839,12 @@ impl Machine {
         Ok(())
     }
 
-    pub async fn attach_drives(&mut self, drives: &Vec<Drive>) -> Result<(), MachineError> {
+    pub(super) async fn attach_drives(&self) -> Result<(), MachineError> {
+        if self.cfg.drives.is_none() {
+            return Err(MachineError::Validation("drives not provided".to_string()));
+        }
         let mut err: Vec<(usize, MachineError)> = Vec::new();
-        for (i, dev) in drives.iter().enumerate() {
+        for (i, dev) in self.cfg.drives.as_ref().unwrap().iter().enumerate() {
             match self.attach_drive(dev).await {
                 Ok(_) => (),
                 Err(e) => err.push((i, e)),
@@ -817,7 +869,7 @@ impl Machine {
     }
 
     /// add_vsock adds a vsock to the instance
-    pub async fn add_vsock(&mut self, vsock: &Vsock) -> Result<(), MachineError> {
+    async fn add_vsock(&self, vsock: &Vsock) -> Result<(), MachineError> {
         self.agent.put_guest_vsock(vsock).await.map_err(|e| {
             MachineError::Agent(format!("PutGuestVsock returned: {}", e.to_string()))
         })?;
@@ -825,9 +877,12 @@ impl Machine {
         Ok(())
     }
 
-    pub async fn add_vsocks(&mut self, vsocks: &Vec<Vsock>) -> Result<(), MachineError> {
+    pub(super) async fn add_vsocks(&self) -> Result<(), MachineError> {
+        if self.cfg.vsock_devices.is_none() {
+            return Err(MachineError::Validation("no vsock devices provided".to_string()));
+        }
         let mut err: Vec<(usize, MachineError)> = Vec::new();
-        for (i, dev) in vsocks.iter().enumerate() {
+        for (i, dev) in self.cfg.vsock_devices.as_ref().unwrap().iter().enumerate() {
             match self.add_vsock(dev).await {
                 Ok(_) => (),
                 Err(e) => err.push((i, e)),
@@ -852,7 +907,7 @@ impl Machine {
     }
 
     /// set_mmds_config sets the machine's mmds system
-    pub async fn set_mmds_config(&self, address: Ipv4Addr) -> Result<(), MachineError> {
+    pub async fn set_mmds_config(&self, address: &Ipv4Addr) -> Result<(), MachineError> {
         let mut mmds_config = MmdsConfig::default();
         mmds_config.ipv4_address = Some(address.to_string());
         self.agent.put_mmds_config(&mmds_config).await.map_err(|e| {
@@ -873,7 +928,7 @@ impl Machine {
     }
 
     /// set_metadata sets the machine's metadata for MDDS
-    pub async fn set_metadata(&self, metadata: impl Metadata) -> Result<(), MachineError> {
+    pub async fn set_metadata(&self, metadata: &impl Metadata) -> Result<(), MachineError> {
         self.agent
             .put_mmds(&metadata.to_raw_string().map_err(|e| {
                 error!("Setting metadata: {}", e.to_string());
@@ -890,7 +945,7 @@ impl Machine {
     }
 
     /// update_metadata patches the machine's metadata for MDDS
-    pub async fn update_matadata(&self, metadata: impl Metadata) -> Result<(), MachineError> {
+    pub async fn update_matadata(&self, metadata: &impl Metadata) -> Result<(), MachineError> {
         self.agent
             .patch_mmds(&metadata.to_raw_string().map_err(|e| {
                 error!(

@@ -133,7 +133,7 @@ impl HandlerList {
 }
 
 #[derive(Clone)]
-pub(crate) struct HandlersAdapter(
+pub struct HandlersAdapter(
     pub(crate) fn(&Handlers) -> Result<()>,
 );
 

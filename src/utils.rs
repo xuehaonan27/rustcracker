@@ -54,3 +54,14 @@ impl Metadata for Balloon {
         self.to_json().map_err(|_| "fail to serialize to a json style string")
     }
 }
+
+impl Metadata for String {
+    fn from_raw_string(value: String) -> Result<Self, &'static str>
+        where
+            Self: Sized {
+        Ok(value)
+    }
+    fn to_raw_string(&self) -> Result<String, &'static str> {
+        Ok(self.to_string())
+    }
+}
