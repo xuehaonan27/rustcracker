@@ -2,9 +2,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::utils::Json;
 
+/// Describes the Firecracker version.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct FirecrackerVersion {
-    firecracker_version: String,
+    /// Firecracker build version.
+    #[serde(rename = "firecracker_version")]
+    pub firecracker_version: String,
 }
 
 impl<'a> Json<'a> for FirecrackerVersion {

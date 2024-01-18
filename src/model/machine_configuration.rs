@@ -4,9 +4,8 @@ use crate::utils::Json;
 
 use super::cpu_template::CPUTemplate;
 
-
 /// # Example
-/// 
+///
 /// ```
 /// // This piece of code will give you a machine configuration with
 /// // CPU template set to C3, 8 virtual CPU, memory
@@ -15,41 +14,41 @@ use super::cpu_template::CPUTemplate;
 /// use Rustcracker::model::machine_configuration::MachineConfiguration;
 /// let machine_config =
 ///     MachineConfiguration::default()
-///     .with_cpu_template("C3")
-///     .with_vcpu_count(8)
-///     .with_mem_size_mib(1024)
-///     .set_hyperthreading(true)
-///     .set_track_dirty_pages(false);
+///         .with_cpu_template("C3")
+///         .with_vcpu_count(8)
+///         .with_mem_size_mib(1024)
+///         .set_hyperthreading(true)
+///         .set_track_dirty_pages(false);
 /// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MachineConfiguration {
-    // cpu template
+    /// cpu template
     #[serde(rename = "cpu_template", skip_serializing_if = "Option::is_none")]
-    cpu_template: Option<CPUTemplate>,
+    pub cpu_template: Option<CPUTemplate>,
 
-    // Flag for enabling/disabling Hyperthreading
-    // Required: true
-    #[serde(rename = "smt")]
-    ht_enabled: bool,
+    /// Flag for enabling/disabling Hyperthreading
+    /// Required: true
+    #[serde(rename = "smt", skip_serializing_if = "Option::is_none")]
+    pub ht_enabled: Option<bool>,
 
-    // Memory size of VM
-    // Required: true
+    /// Memory size of VM
+    /// Required: true
     #[serde(rename = "mem_size_mib")]
-    mem_size_mib: isize,
+    pub mem_size_mib: isize,
 
-    // Enable dirty page tracking.
-    // If this is enabled, then incremental guest memory snapshots can be created.
-    // These belong to diff snapshots, which contain, besides the microVM state, only the memory dirtied since
-    // a previous snapshot. Full snapshots each contain a full copy of the guest memory.
+    /// Enable dirty page tracking.
+    /// If this is enabled, then incremental guest memory snapshots can be created.
+    /// These belong to diff snapshots, which contain, besides the microVM state, only the memory dirtied since
+    /// a previous snapshot. Full snapshots each contain a full copy of the guest memory.
     #[serde(rename = "track_dirty_pages", skip_serializing_if = "Option::is_none")]
-    track_dirty_pages: Option<bool>,
+    pub track_dirty_pages: Option<bool>,
 
-    // Number of vCPUs (either 1 or an even number)
-    // Required: true
-    // Maximum: 32
-    // Minimum: 1
+    /// Number of vCPUs (either 1 or an even number)
+    /// Required: true
+    /// Maximum: 32
+    /// Minimum: 1
     #[serde(rename = "vcpu_count")]
-    vcpu_count: isize,
+    pub vcpu_count: isize,
 }
 
 impl<'a> Json<'a> for MachineConfiguration {
@@ -58,12 +57,12 @@ impl<'a> Json<'a> for MachineConfiguration {
 
 impl Default for MachineConfiguration {
     /// Get a default MachineConfiguration instance.
-    /// By default, it disables hyperthreading, set memory 
+    /// By default, it disables hyperthreading, set memory
     /// size to 0 and allocate no vCPU for the machine.
     fn default() -> Self {
         Self {
             cpu_template: None,
-            ht_enabled: false,
+            ht_enabled: Some(false),
             mem_size_mib: 0,
             track_dirty_pages: None,
             vcpu_count: 0,
@@ -72,13 +71,13 @@ impl Default for MachineConfiguration {
 }
 
 impl MachineConfiguration {
-    pub fn with_cpu_template(mut self, cpu_template: impl Into<CPUTemplate>) -> Self {
-        self.cpu_template = Some(cpu_template.into());
+    pub fn with_cpu_template(mut self, cpu_template: &CPUTemplate) -> Self {
+        self.cpu_template = Some(cpu_template.to_owned());
         self
     }
 
     pub fn set_hyperthreading(mut self, b: bool) -> Self {
-        self.ht_enabled = b;
+        self.ht_enabled = Some(b);
         self
     }
 
@@ -97,22 +96,16 @@ impl MachineConfiguration {
         self
     }
 
-    pub fn demo() -> Self {
-        Self {
-            cpu_template: None,
-            vcpu_count: 2,
-            mem_size_mib: 1024,
-            track_dirty_pages: Some(false),
-            ht_enabled: false,
-        }
-    }
-
     pub fn get_vcpu_count(&self) -> isize {
         self.vcpu_count
     }
 
     pub fn is_ht_enabled(&self) -> bool {
-        self.ht_enabled
+        if self.ht_enabled.is_none() {
+            return false;
+        } else {
+            return *self.ht_enabled.as_ref().unwrap();
+        }
     }
 
     pub fn get_mem_size_in_mib(&self) -> isize {

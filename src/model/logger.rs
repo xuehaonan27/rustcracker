@@ -3,42 +3,50 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::utils::Json;
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum LogLevel {
+    #[serde(rename = "Error")]
+    Error,
+    #[serde(rename = "Warning")]
+    Warning,
+    #[serde(rename = "Info")]
+    Info,
+    #[serde(rename = "Debug")]
+    Debug,
+    #[serde(rename = "Trace")]
+    Trace,
+    #[serde(rename = "Off")]
+    Off,
+}
+
+
+/// Describes the configuration option for the logging capability.
 /// logger can only be constructed once
 /// and cannot update after configuration
-
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
-pub enum LogLevel {
-    Error,
-    Warning,
-    Info,
-    Debug,
-}
-impl From<LogLevel> for String {
-    fn from(value: LogLevel) -> Self {
-        match value {
-            LogLevel::Debug => "Debug".into(),
-            LogLevel::Error => "Error".into(),
-            LogLevel::Info => "Info".into(),
-            LogLevel::Warning => "Warning".into(),
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Logger {
-    // Set the level. The possible values are case-insensitive.
-    // Enum: [Error Warning Info Debug]
-    level: LogLevel,
+    /// Set the level. The possible values are case-insensitive.
+    /// Enum: [Error Warning Info Debug]
+    #[serde(rename = "level", skip_serializing_if = "Option::is_none")]
+    pub level: Option<LogLevel>,
 
-    // Path to the named pipe or file for the human readable log output.
-    // Required: true
-    log_path: PathBuf,
+    /// Path to the named pipe or file for the human readable log output.
+    /// Required: true
+    #[serde(rename = "log_path", skip_serializing_if = "Option::is_none")]
+    pub log_path: Option<PathBuf>,
 
-    // Whether or not to output the level in the logs.
-    show_level: Option<bool>,
+    /// Whether or not to output the level in the logs.
+    #[serde(rename = "show_level", skip_serializing_if = "Option::is_none")]
+    pub show_level: Option<bool>,
 
-    // Whether or not to include the file path and line number of the log's origin.
-    show_log_origin: Option<bool>,
+    /// Whether or not to include the file path and line number of the log's origin.
+    #[serde(rename = "show_log_origin", skip_serializing_if = "Option::is_none")]
+    pub show_log_origin: Option<bool>,
+
+    /// The module path to filter log messages by. example: api_server::request
+    #[serde(rename = "module", skip_serializing_if = "Option::is_none")]
+    pub module: Option<String>,
 }
 
 impl<'a> Json<'a> for Logger {
@@ -48,22 +56,23 @@ impl<'a> Json<'a> for Logger {
 impl Default for Logger {
     fn default() -> Self {
         Self {
-            level: LogLevel::Warning,
-            log_path: "".into(),
+            level: Some(LogLevel::Info),
+            log_path: None,
             show_level: None,
             show_log_origin: None,
+            module: None,
         }
     }
 }
 
 impl Logger {
-    pub fn with_log_level(mut self, level: LogLevel) -> Self {
-        self.level = level;
+    pub fn with_log_level(mut self, level: &LogLevel) -> Self {
+        self.level = Some(level.to_owned());
         self
     }
 
-    pub fn with_log_path(mut self, path: impl Into<PathBuf>) -> Self {
-        self.log_path = path.into();
+    pub fn with_log_path(mut self, path: &PathBuf) -> Self {
+        self.log_path = Some(path.to_owned());
         self
     }
 
@@ -77,38 +86,8 @@ impl Logger {
         self
     }
 
-    // 在指定path位置创建fifo文件并且封装配置返回
-    // fn create_fifo(
-    //     log_path: String,
-    //     level: LogLevel,
-    //     show_level: Option<bool>,
-    //     show_log_origin: Option<bool>,
-    // ) -> io::Result<Self> {
-    //     let pipe = File::create(&log_path)?;
-    //     Ok(Self {
-    //         log_path,
-    //         level,
-    //         show_level,
-    //         show_log_origin,
-    //     })
-    // }
-
-    // /// 将Config指定的文件包含的内容输出到String里面
-    // /// 对于fifo和file两种格式有两种处理方法
-    // fn read_to_string(&self) -> Result<String, ConfigError> {
-    //     self.validate()?;
-    //     if let Some(path) = &self.file_path {
-    //         let mut file_read = File::open(path)?;
-    //         let mut buf = String::new();
-    //         file_read.read_to_string(&mut buf)?;
-    //         Ok(buf)
-    //     } else if let Some(path) = &self.pipe_path {
-    //         let mut file_read = File::open(path)?;
-    //         let mut buf = String::new();
-    //         file_read.read_to_string(&mut buf)?;
-    //         Ok(buf)
-    //     } else {
-    //         Err(ConfigError { message: "Unknown".to_string() })
-    //     }
-    // }
+    pub fn with_module(mut self, module: &String) -> Self {
+        self.module = Some(module.to_owned());
+        self
+    }
 }

@@ -2,9 +2,12 @@ use serde::{Serialize, Deserialize};
 
 use crate::utils::Json;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct InternalError {
-    fault_message: String,
+    /// A description of the error condition
+    /// readOnly: true
+    #[serde(rename = "fault_message")]
+    pub fault_message: String,
 }
 
 impl<'a> Json<'a> for InternalError {

@@ -6,15 +6,17 @@ use crate::utils::Json;
 // It is especially useful in the snapshotting context.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Vm {
-    // state
-    // Required: true
-    // Enum: [Paused Resumed]
-    state: State,
+    /// state
+    /// Required: true
+    /// Enum: [Paused Resumed]
+    pub state: State,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum State {
+    #[serde(rename = "Paused")]
     Paused,
+    #[serde(rename = "Resumed")]
     Resumed,
 }
 

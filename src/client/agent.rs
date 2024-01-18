@@ -109,7 +109,7 @@ impl Agent {
     // PUT /snapshot/create
     pub async fn create_snapshot(
         &self,
-        snapshot_create_params: SnapshotCreateParams,
+        snapshot_create_params: &SnapshotCreateParams,
     ) -> Result<(), AgentError> {
         debug!("create_snapshot: {:#?}", snapshot_create_params);
         let json = snapshot_create_params
@@ -122,7 +122,7 @@ impl Agent {
     }
 
     // PUT /actions
-    pub async fn create_sync_action(&self, action: InstanceActionInfo) -> Result<(), AgentError> {
+    pub async fn create_sync_action(&self, action: &InstanceActionInfo) -> Result<(), AgentError> {
         debug!("create_sync_action: {:#?}", action);
         let json = action.to_json().map_err(AgentError::Serde)?;
 
@@ -196,7 +196,7 @@ impl Agent {
     // PATCH /balloon/statistics
     pub async fn patch_balloon_stats_interval(
         &self,
-        balloon_stats_update: BalloonStatsUpdate,
+        balloon_stats_update: &BalloonStatsUpdate,
     ) -> Result<(), AgentError> {
         debug!("patch_balloon_stats_interval: {:#?}", balloon_stats_update);
         let json = balloon_stats_update.to_json().map_err(AgentError::Serde)?;
@@ -207,7 +207,7 @@ impl Agent {
     }
 
     // PATCH /balloon
-    pub async fn patch_balloon(&self, balloon_update: BalloonUpdate) -> Result<(), AgentError> {
+    pub async fn patch_balloon(&self, balloon_update: &BalloonUpdate) -> Result<(), AgentError> {
         debug!("patch_balloon: {:#?}", balloon_update);
         let json = balloon_update.to_json().map_err(AgentError::Serde)?;
 
@@ -219,7 +219,7 @@ impl Agent {
     // PATCH /drives/{drive_id}
     pub async fn patch_guest_drive_by_id(
         &self,
-        partial_drive: PartialDrive,
+        partial_drive: &PartialDrive,
     ) -> Result<(), AgentError> {
         debug!("patch_guest_drive_by_id: {:#?}", partial_drive);
         let drive_id = partial_drive.get_drive_id();
@@ -234,7 +234,7 @@ impl Agent {
     // PATCH /network-interfaces/{iface_id}
     pub async fn patch_guest_network_interface_by_id(
         &self,
-        partial_network_interface: PartialNetworkInterface,
+        partial_network_interface: &PartialNetworkInterface,
     ) -> Result<(), AgentError> {
         debug!(
             "patch_guest_network_interface_by_id: {:#?}",
@@ -257,7 +257,7 @@ impl Agent {
     // PATCH /machine-config
     pub async fn patch_machine_configuration(
         &self,
-        machine_config: MachineConfiguration,
+        machine_config: &MachineConfiguration,
     ) -> Result<(), AgentError> {
         debug!("patch_machine_configuration: {:#?}", machine_config);
         let json = machine_config.to_json().map_err(AgentError::Serde)?;
@@ -270,7 +270,7 @@ impl Agent {
     // PATCH /mmds
     pub async fn patch_mmds(
         &self,
-        mmds_contents_object: MmdsContentsObject,
+        mmds_contents_object: &MmdsContentsObject,
     ) -> Result<(), AgentError> {
         debug!("patch_mmds: {:#?}", mmds_contents_object);
         let json = mmds_contents_object.to_json().map_err(AgentError::Serde)?;
@@ -281,7 +281,7 @@ impl Agent {
     }
 
     // PATCH /vm
-    pub async fn patch_vm(&self, vm: Vm) -> Result<(), AgentError> {
+    pub async fn patch_vm(&self, vm: &Vm) -> Result<(), AgentError> {
         debug!("patch_vm: {:#?}", vm);
         let json = vm.to_json().map_err(AgentError::Serde)?;
 
@@ -293,7 +293,7 @@ impl Agent {
     // PUT /snapshot/load
     pub async fn load_snapshot(
         &self,
-        snapshot_load_params: SnapshotLoadParams,
+        snapshot_load_params: &SnapshotLoadParams,
     ) -> Result<(), AgentError> {
         debug!("load_snapshot: {:#?}", snapshot_load_params);
         let json = snapshot_load_params.to_json().map_err(AgentError::Serde)?;
@@ -304,7 +304,7 @@ impl Agent {
     }
 
     // PUT /balloon
-    pub async fn put_balloon(&self, balloon: Balloon) -> Result<(), AgentError> {
+    pub async fn put_balloon(&self, balloon: &Balloon) -> Result<(), AgentError> {
         debug!("put_balloon: {:#?}", balloon);
         let json = balloon.to_json().map_err(AgentError::Serde)?;
 
@@ -314,7 +314,7 @@ impl Agent {
     }
 
     // PUT /cpu-config
-    pub async fn put_cpu_configuration(&self, cpu_config: CPUConfig) -> Result<(), AgentError> {
+    pub async fn put_cpu_configuration(&self, cpu_config: &CPUConfig) -> Result<(), AgentError> {
         debug!("put_cpu_configuration: {:#?}", cpu_config);
         let json = cpu_config.to_json().map_err(AgentError::Serde)?;
 
@@ -326,7 +326,7 @@ impl Agent {
     // PUT /entropy
     pub async fn put_entropy_device(
         &self,
-        entropy_device: EntropyDevice,
+        entropy_device: &EntropyDevice,
     ) -> Result<(), AgentError> {
         debug!("put_entropy_device: {:#?}", entropy_device);
         let json = entropy_device.to_json().map_err(AgentError::Serde)?;
@@ -337,7 +337,7 @@ impl Agent {
     }
 
     // PUT /boot-source
-    pub async fn put_guest_boot_source(&self, boot_source: BootSource) -> Result<(), AgentError> {
+    pub async fn put_guest_boot_source(&self, boot_source: &BootSource) -> Result<(), AgentError> {
         debug!("put_guest_boot_source: {:#?}", boot_source);
         let json = boot_source.to_json().map_err(AgentError::Serde)?;
 
@@ -347,7 +347,7 @@ impl Agent {
     }
 
     // PUT /drives/{drive_id}
-    pub async fn put_guest_drive_by_id(&self, drive: Drive) -> Result<(), AgentError> {
+    pub async fn put_guest_drive_by_id(&self, drive: &Drive) -> Result<(), AgentError> {
         debug!("put_guest_drive_by_id: {:#?}", drive);
         let drive_id = drive.get_drive_id();
         let json = drive.to_json().map_err(AgentError::Serde)?;
@@ -361,7 +361,7 @@ impl Agent {
     // PUT /network-interfaces/{iface_id}
     pub async fn put_guest_network_interface_by_id(
         &self,
-        network_interface: NetworkInterface,
+        network_interface: &NetworkInterface,
     ) -> Result<(), AgentError> {
         debug!(
             "put_guest_network_interface_by_id: {:#?}",
@@ -390,7 +390,7 @@ impl Agent {
     }
 
     // PUT /logger
-    pub async fn put_logger(&self, logger: Logger) -> Result<(), AgentError> {
+    pub async fn put_logger(&self, logger: &Logger) -> Result<(), AgentError> {
         debug!("put_logger: {:#?}", logger);
         let json = logger.to_json().map_err(AgentError::Serde)?;
 
@@ -413,7 +413,7 @@ impl Agent {
     }
 
     // PUT /metrics
-    pub async fn put_metrics(&self, metrics: Metrics) -> Result<(), AgentError> {
+    pub async fn put_metrics(&self, metrics: &Metrics) -> Result<(), AgentError> {
         debug!("put_metrics: {:#?}", metrics);
         let json = metrics.to_json().map_err(AgentError::Serde)?;
 
@@ -423,7 +423,7 @@ impl Agent {
     }
 
     // PUT /mmds/config
-    pub async fn put_mmds_config(&self, mmds_config: MmdsConfig) -> Result<(), AgentError> {
+    pub async fn put_mmds_config(&self, mmds_config: &MmdsConfig) -> Result<(), AgentError> {
         debug!("put_mmds_config: {:#?}", mmds_config);
         let json = mmds_config.to_json().map_err(AgentError::Serde)?;
 
@@ -435,12 +435,12 @@ impl Agent {
     // PUT /mmds
     pub async fn put_mmds(
         &self,
-        mmds_contents_object: MmdsContentsObject,
+        mmds_contents_object: &MmdsContentsObject,
     ) -> Result<(), AgentError> {
         debug!("put_mmds: {:#?}", mmds_contents_object);
         let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/mmds").into();
 
-        self.send_request(url, Method::PUT, mmds_contents_object)
+        self.send_request(url, Method::PUT, mmds_contents_object.to_string())
             .await?;
         Ok(())
     }

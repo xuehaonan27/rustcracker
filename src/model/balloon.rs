@@ -25,17 +25,20 @@ use serde::{Deserialize, Serialize};
 /// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Balloon {
-    // Target balloon size in MiB
-    // Required: true
+    /// Target balloon size in MiB
+    /// Required: true
+    #[serde(rename = "amount_mib")]
     pub amount_mib: i64,
 
-    // Whether the balloon should deflate when then guest has memory pressure
-    // Required: true
+    /// Whether the balloon should deflate when then guest has memory pressure
+    /// Required: true
+    #[serde(rename = "deflate_on_oon")]
     pub deflate_on_oom: bool,
 
-    // Interval in seconds between refreshing statistics
-    // non-zero value will enable statistics
-    // Defaults to 0
+    /// Interval in seconds between refreshing statistics
+    /// non-zero value will enable statistics
+    /// Defaults to 0
+    #[serde(rename = "stats_polling_interval_s", skip_serializing_if = "Option::is_none")]
     pub stats_polling_interval_s: Option<i64>,
 }
 

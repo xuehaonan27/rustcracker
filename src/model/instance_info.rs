@@ -2,42 +2,42 @@ use serde::{Serialize, Deserialize};
 
 use crate::utils::Json;
 
-#[derive(Serialize, Deserialize, Clone)]
+/// The current detailed state (Not started, Running, Paused) of the Firecracker instance.
+/// This value is read-only for the control-plane.
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum State {
     #[serde(rename = "Not started")]
     NotStarted,
+    #[serde(rename = "Running")]
     Running,
+    #[serde(rename = "Paused")]
     Paused,
 }
 
-impl From<State> for String {
-    fn from(value: State) -> Self {
-        match value {
-            State::NotStarted => "Not started".into(),
-            State::Running => "Running".into(),
-            State::Paused => "Paused".into(),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
+/// Describes MicroVM instance information.
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct InstanceInfo {
-    // Application name.
-	// Required: true
-    app_name: String,
+    /// Application name.
+	/// Required: true
+    #[serde(rename = "app_name")]
+    pub app_name: String,
 
-    // MicroVM / instance ID.
-	// Required: true
-    id: String,
+    /// MicroVM / instance ID.
+	/// Required: true
+    #[serde(rename = "id")]
+    pub id: String,
 
-    // The current detailed state (Not started, Running, Paused) of the Firecracker instance. This value is read-only for the control-plane.
-	// Required: true
-	// Enum: [Not started Running Paused]
-    state: State,
+    /// The current detailed state (Not started, Running, Paused) of the Firecracker instance.
+    /// This value is read-only for the control-plane.
+	/// Required: true
+	/// Enum: [Not started Running Paused]
+    #[serde(rename = "state")]
+    pub state: State,
 
-    // MicroVM hypervisor build version.
-	// Required: true
-    vmm_version: String,
+    /// MicroVM hypervisor build version.
+	/// Required: true
+    #[serde(rename = "vmm_version")]
+    pub vmm_version: String,
 }
 
 impl<'a> Json<'a> for InstanceInfo {

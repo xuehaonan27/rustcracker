@@ -4,25 +4,22 @@ use crate::utils::Json;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ActionType {
+    #[serde(rename = "FlushMetrics")]
     FlushMetrics,
+    #[serde(rename = "InstanceStart")]
     InstanceStart,
+    #[serde(rename = "SendCtrlAltDel")]
     SendCtrlAtlDel,
 }
-// impl From<ActionType> for String {
-//     fn from(value: ActionType) -> Self {
-//         match value {
-//             ActionType::FlushMetrics => "FlushMetrics".into(),
-//             ActionType::InstanceStart => "InstanceStart".into(),
-//             ActionType::SendCtrlAtlDel => "SendCtrlAtlDel".into(),
-//         }
-//     }
-// }
+
+/// Variant wrapper containing the real action.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct InstanceActionInfo {
-    // Enumeration indicating what type of action is contained in the payload
-	// Required: true
-	// Enum: [FlushMetrics InstanceStart SendCtrlAltDel
-    action_type: ActionType,
+    /// Enumeration indicating what type of action is contained in the payload
+	/// Required: true
+	/// Enum: [FlushMetrics InstanceStart SendCtrlAltDel
+    #[serde(rename = "action_type")]
+    pub action_type: ActionType,
 }
 
 impl<'a> Json<'a> for InstanceActionInfo {

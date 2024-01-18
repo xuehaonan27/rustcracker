@@ -8,64 +8,95 @@ use super::rate_limiter::RateLimiter;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Drive {
-    // drive id
-    // Required: true
-    drive_id: String,
+    /// drive id
+    /// Required: true
+    #[serde(rename = "drive_id")]
+    pub drive_id: String,
 
-    // Host level path for the guest drive
-    // Required: true
-    path_on_host: PathBuf,
+    /// partuuid
+    /// Represents the unique id of the boot partition of this device.
+    /// It is optional and it will be taken into account
+    /// only if the is_root_device field is true.
+    #[serde(rename = "partuuid", skip_serializing_if = "Option::is_none")]
+    pub partuuid: Option<String>,
 
-    // is root device
-    // Required: true
-    is_root_device: bool,
 
-    // is read only
-    // Required: true
-    is_read_only: bool,
+    /// is root device
+    /// Required: true
+    #[serde(rename = "is_root_device")]
+    pub is_root_device: bool,
+    
+    /// cache type
+    /// Represents the caching strategy for the block device.
+    #[serde(rename = "cache_type", skip_serializing_if = "Option::is_none")]
+    pub cache_type: Option<CacheType>,
 
-    // Represents the unique id of the boot partition of this device.
-    // It is optional and it will be taken into account
-    // only if the is_root_device field is true.
-    #[serde(rename = "partuuid")]
-    part_uuid: Option<String>,
 
-    // rate limiter
-    rate_limiter: Option<RateLimiter>,
-    // // cache type
-    // cache_type:
+    /// VirtioBlock specific parameters: 
+    /// Is block read only. 
+    /// This field is required for virtio-block config and should be omitted for vhost-user-block configuration.
+    /// Required: true
+    #[serde(rename = "is_read_only")]
+    pub is_read_only: bool,
 
-    // // io engine
-    // io_engine:
+    /// VirtioBlock specific parameters:
+    /// Host level path for the guest drive.
+    /// This field is required for virtio-block config and should be omitted for vhost-user-block configuration.
+    /// Required: true
+    #[serde(rename = "path_on_host")]
+    pub path_on_host: PathBuf,
 
-    // // socket
-    // socket: Option<PathBuf>
+    /// VirtioBlock specific parameters:
+    /// rate limiter
+    #[serde(rename = "rate_limiter", skip_serializing_if = "Option::is_none")]
+    pub rate_limiter: Option<RateLimiter>,
+    
+    /// VirtioBlock specific parameters:
+    /// Type of the IO engine used by the device. "Async" is supported on
+    /// host kernels newer than 5.10.51.
+    /// This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
+    #[serde(rename = "io_engine", skip_serializing_if = "Option::is_none")]
+    pub io_engine: Option<IoEngine>,
+
+    /// VhostUserBlock specific parameters
+    /// Path to the socket of vhost-user-block backend.
+    /// This field is required for vhost-user-block config should be omitted for virtio-block configuration.
+    #[serde(rename = "socket", skip_serializing_if = "Option::is_none")]
+    pub socket: Option<PathBuf>,
 }
 
 impl<'a> Json<'a> for Drive {
     type Item = Drive;
 }
 
-impl Drive {
-    pub fn demo() -> Self {
-        Self {
-            drive_id: "rootfs".into(),
-            path_on_host: "bionic.rootfs.ext4".into(),
-            is_root_device: true,
-            is_read_only: false,
-            part_uuid: None,
-            rate_limiter: None,
-        }
-    }
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+pub enum CacheType {
+    #[serde(rename = "Unsafe")]
+    Unsafe,
+    #[serde(rename = "WriteBack")]
+    WriteBack,
+}
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+pub enum IoEngine {
+    #[serde(rename = "Sync")]
+    Sync,
+    #[serde(rename = "Async")]
+    Async,
+}
+
+impl Drive {
     pub fn new() -> Self {
         Self {
             drive_id: "".into(),
             path_on_host: "".into(),
             is_root_device: false,
             is_read_only: false,
-            part_uuid: None,
+            partuuid: None,
             rate_limiter: None,
+            cache_type: None,
+            io_engine: None,
+            socket: None,
         }
     }
 
@@ -78,7 +109,7 @@ impl Drive {
     }
 
     pub fn with_part_uuid(mut self, uuid: String) -> Self {
-        self.part_uuid = Some(uuid);
+        self.partuuid = Some(uuid);
         self
     }
 

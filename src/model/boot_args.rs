@@ -1,9 +1,9 @@
 #[derive(Debug, PartialEq)]
 pub struct BootArgs {
-    console: String,
-    reboot: String,
-    panic: u8, // 1 or 0
-    pci: bool, // 1: on, 0: off
+    pub console: String,
+    pub reboot: String,
+    pub panic: u8, // 1 or 0
+    pub pci: bool, // 1: on, 0: off
 }
 impl BootArgs {
     /// Parse a string into a BootArgs structure.

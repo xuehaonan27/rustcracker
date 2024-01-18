@@ -159,7 +159,7 @@ impl JailerCommandBuilder {
             args.push(net_ns.to_string());
         }
 
-        if let Some(daemonize) = self.daemonize {
+        if let Some(true) = self.daemonize {
             args.push("--daemonize".into());
         }
 
@@ -302,14 +302,14 @@ impl JailerCommandBuilder {
 // stating of files
 pub fn jail(m: &mut Machine, mut cfg: Config) -> Result<()> {
 
-    let mut machine_socket_path: PathBuf = PathBuf::new();
+    let machine_socket_path: PathBuf;
     if let Some(socket_path) = cfg.socket_path {
         machine_socket_path = socket_path;
     } else {
         machine_socket_path = DEFAULT_SOCKET_PATH.into();
     }
 
-    let mut jailer_workspace_dir: PathBuf = PathBuf::new();
+    let jailer_workspace_dir: PathBuf;
     if let Some(jailer_cfg) = &cfg.jailer_cfg {
         if let Some(chroot_base_dir) = &jailer_cfg.chroot_base_dir {
             jailer_workspace_dir = [
@@ -377,8 +377,6 @@ pub fn jail(m: &mut Machine, mut cfg: Config) -> Result<()> {
             }
         }
 
-        
-
         let mut builder = JailerCommandBuilder::new()
             .with_id(jailer_cfg.id.to_owned())
             .with_uid(jailer_cfg.uid)
@@ -428,7 +426,7 @@ pub fn jail(m: &mut Machine, mut cfg: Config) -> Result<()> {
 
         builder = builder.with_stdin(stdin);
 
-        m.cmd = builder.build();
+        m.cmd = Some(builder.build().into());
 
         /*
            if err := cfg.JailerCfg.ChrootStrategy.AdaptHandlers(&m.Handlers); err != nil {

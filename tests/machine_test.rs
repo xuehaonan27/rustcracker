@@ -1,15 +1,10 @@
-use std::net::Ipv4Addr;
-
 use rustfire::{
     client::machine::{Config, Machine},
     model::{
         cpu_template::{self, CPUTemplate},
-        logger::LogLevel,
         machine_configuration::MachineConfiguration,
-        network_interface::NetworkInterface,
     },
 };
-use uuid::Uuid;
 
 const FIRECRACKER_BINARY_PATH: &'static str = "firecracker";
 const FIRECRACKER_BINARY_OVERRIDE_ENV: &'static str = "FC_TEST_BIN";
@@ -27,7 +22,7 @@ fn test_new_machine() {
         MachineConfiguration::default()
             .with_vcpu_count(1)
             .with_mem_size_mib(100)
-            .with_cpu_template(cpu_template::CPU_TEMPLATE_T2)
+            .with_cpu_template(&CPUTemplate(cpu_template::CPUTemplateString::T2))
             .set_hyperthreading(false)
     ).set_disable_validation(true);
     let m = Machine::new(config);

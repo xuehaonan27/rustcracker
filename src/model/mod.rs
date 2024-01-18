@@ -15,6 +15,7 @@ pub mod instance_info;
 pub mod kernel_args;
 pub mod logger;
 pub mod machine_configuration;
+pub mod memory_backend;
 pub mod metrics;
 pub mod mmds_config;
 pub mod network_interface;

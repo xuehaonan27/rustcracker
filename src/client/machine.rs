@@ -3,6 +3,7 @@ use std::{net::Ipv4Addr, path::PathBuf};
 use async_trait::async_trait;
 
 use log::{debug, error, info, trace, warn};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     model::{
@@ -11,17 +12,21 @@ use crate::{
         balloon_stats::BalloonStatistics,
         balloon_stats_update::BalloonStatsUpdate,
         balloon_update::BalloonUpdate,
+        boot_source::BootSource,
         drive::Drive,
         instance_action_info::InstanceActionInfo,
         instance_info::InstanceInfo,
+        logger::{LogLevel, Logger},
         machine_configuration::MachineConfiguration,
+        metrics::{self, Metrics},
         mmds_config::MmdsConfig,
+        network_interface::NetworkInterface,
         partial_drive::PartialDrive,
         partial_network_interface::PartialNetworkInterface,
         rate_limiter::RateLimiterSet,
         snapshot_create_params::SnapshotCreateParams,
         vm::{VM_STATE_PAUSED, VM_STATE_RESUMED},
-        vsock::Vsock, network_interface::NetworkInterface, boot_source::BootSource,
+        vsock::Vsock,
     },
     utils::{Json, Metadata},
 };
@@ -70,7 +75,7 @@ pub struct Config {
 
     // LogLevel defines the verbosity of Firecracker logging.  Valid values are
     // "Error", "Warning", "Info", and "Debug", and are case-sensitive.
-    pub log_level: Option<model::logger::LogLevel>,
+    pub log_level: Option<LogLevel>,
 
     // MetricsPath defines the file path where the Firecracker metrics
     // is located.
@@ -95,7 +100,7 @@ pub struct Config {
 
     // Drives specifies BlockDevices that should be made available to the
     // microVM.
-    pub drives: Option<Vec<model::drive::Drive>>,
+    pub drives: Option<Vec<Drive>>,
 
     // NetworkInterfaces specifies the tap devices that should be made available
     // to the microVM.
@@ -111,7 +116,7 @@ pub struct Config {
     pub vsock_devices: Option<Vec<model::vsock::Vsock>>,
 
     // MachineCfg represents the firecracker microVM process configuration
-    pub machine_cfg: Option<model::machine_configuration::MachineConfiguration>,
+    pub machine_cfg: Option<MachineConfiguration>,
 
     // DisableValidation allows for easier mock testing by disabling the
     // validation of configuration performed by the SDK(crate).
@@ -280,8 +285,14 @@ pub struct Machine {
     pub(crate) cfg: Config,
 
     agent: Agent,
-    pub(crate) cmd: std::process::Command,
-    logger: crate::model::logger::Logger,
+
+    pub(crate) cmd: Option<tokio::process::Command>,
+
+    child_process: Option<tokio::process::Child>,
+
+    pid: Option<u32>,
+
+    logger: Option<Logger>,
 
     // The actual machine config as reported by Firecracker
     // id est, not the config set by user, which should be a field of `cfg`
@@ -291,7 +302,9 @@ pub struct Machine {
     start_once: std::sync::Once,
 
     // exitCh is a channel which gets closed when the VMM exits
-    exit_ch: (),
+    // implemented with sync::mpsc, which will receive the instruction
+    // sent by outside
+    exit_ch: tokio::sync::mpsc::Receiver<MachineMessage>,
 
     // fatalErr records an error that either stops or prevent starting the VMM
     fatalerr: Option<MachineError>,
@@ -302,27 +315,31 @@ pub struct Machine {
     cleanup_funcs: Vec<Option<Box<dyn FnOnce() -> Result<(), MachineError>>>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MachineMessage {
+    StopVMM,
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum MachineError {
     /// Mostly problems related to directories error or unavailable files
     #[error("Could not set up environment(e.g. file, linking) the machine, reason: {0}")]
-    Setup(String),
+    FileError(String),
     /// Failure when validating the configuration before starting the microVM
     #[error("Invalid configuration for the machine, reason: {0}")]
     Validation(String),
     /// Related to communication with the socket to configure the microVM which failed
     #[error("Could not put initial configuration for the machine, reason: {0}")]
-    Configure(String),
+    Initialize(String),
     /// The process didn't start properly or an error occurred while trying to run it
     #[error("Fail to start or run the machine, reason: {0}")]
     Execute(String),
     /// Failure when cleaning up the machine
     #[error("Could not clean up the machine properly, reason: {0}")]
     Cleaning(String),
+    /// An Error occured when communicating with firecracker by Unix Domain Socket
     #[error("Agent could not communicate with firecracker process, reason: {0}")]
     Agent(String),
-    #[error("Could not dump the file, reason: {0}")]
-    Dump(String),
 }
 
 #[async_trait]
@@ -336,6 +353,22 @@ pub trait MachineTrait {
     async fn update_guest_network_interface_rate_limit(s: String) -> Result<(), MachineError>;
 }
 
+/// start, start_instance和start_vmm的区别
+/// start是外部应该调用的方法, 它会调用start_instance并且消耗Machine的Once, 保证每一个Machine实例只被启动一次.
+/// start_instance仅仅发送InstanceActionInfo::instance_start()给microVM, 不应该被外部直接调用, 仅仅由start调用
+/// 在此之前需要start_vmm为其配置好环境然后启动firecracker进程
+///
+/// 总结: 先调用start_vmm, 然后调用start
+///
+/// shutdown, stop_vmm的区别
+/// shutdown仅仅发送InstanceActionInfo::send_ctrl_alt_del()给microVM.
+/// stop_vmm停止firecracker并做好收尾工作
+///
+/// 总结: 先调用shutdown, 然后调用firecracker.
+/// 和go实现不同的是, stop_vmm没有选择SIGTERM而是SIGKILL.
+/// 保证绝对终止firecracker进程.
+///
+/// 可以使用tokio::select!和channel完成exit_ch的编写
 impl Machine {
     /// new initializes a new Machine instance and performs validation of the
     /// provided Config.
@@ -358,10 +391,42 @@ impl Machine {
         todo!()
     }
 
-    pub async fn start_instance(&self) -> Result<(), MachineError> {
-        debug!("called Machine::start");
+    /// PID returns the machine's running process PID or an error if not running
+    #[allow(non_snake_case)]
+    pub fn PID(&self) -> Result<u32, MachineError> {
+        if self.cmd.is_none() || self.child_process.is_none() {
+            return Err(MachineError::Execute("machine is not running".to_string()));
+        }
+
+        // 如果exit_ch有消息, 说明要求停止了
+        // todo!(); // "machine process has exited"
+
+        self.child_process
+            .as_ref()
+            .unwrap()
+            .id()
+            .ok_or(MachineError::Execute(
+                "machine may by not running or already stopped".to_string(),
+            ))
+    }
+
+    /// wait will wait until the firecracker process has finished.
+    /// it will deliver the same error to all subscribers.
+    async fn wait(&self) -> Result<(), MachineError> {
+        debug!("called Machine::wait");
+        if self.cmd.is_none() || self.child_process.is_none() {
+            return Err(MachineError::Execute(
+                "cannot wait before machine starts".to_string(),
+            ));
+        }
+        // self.child_process.as_ref().unwrap().wait_with_output();
+        todo!()
+    }
+
+    async fn start_instance(&self) -> Result<(), MachineError> {
+        debug!("called Machine::start_instance");
         self.agent
-            .create_sync_action(InstanceActionInfo::instance_start())
+            .create_sync_action(&InstanceActionInfo::instance_start())
             .await
             .map_err(|e| MachineError::Execute(e.to_string()))?;
         Ok(())
@@ -376,7 +441,7 @@ impl Machine {
     pub async fn send_ctrl_alt_del(&self) -> Result<(), MachineError> {
         debug!("called Machine::send_ctrl_alt_del");
         self.agent
-            .create_sync_action(InstanceActionInfo::send_ctrl_alt_del())
+            .create_sync_action(&InstanceActionInfo::send_ctrl_alt_del())
             .await
             .map_err(|e| MachineError::Execute(e.to_string()))?;
         Ok(())
@@ -385,7 +450,7 @@ impl Machine {
     pub async fn pause(&self) -> Result<(), MachineError> {
         debug!("called Machine::pause");
         self.agent
-            .patch_vm(VM_STATE_PAUSED)
+            .patch_vm(&VM_STATE_PAUSED)
             .await
             .map_err(|e| MachineError::Execute(e.to_string()))?;
         Ok(())
@@ -394,9 +459,99 @@ impl Machine {
     pub async fn resume(&self) -> Result<(), MachineError> {
         debug!("called Machine::resume");
         self.agent
-            .patch_vm(VM_STATE_RESUMED)
+            .patch_vm(&VM_STATE_RESUMED)
             .await
             .map_err(|e| MachineError::Execute(e.to_string()))?;
+        Ok(())
+    }
+
+    /// start_vmm starts the firecracker vmm process and configures logging.
+    pub async fn start_vmm(&mut self) -> Result<(), MachineError> {
+        if self.cfg.socket_path.is_none() {
+            error!("start_vmm: no socket path provided");
+            return Err(MachineError::FileError(
+                "start_vmm: no socket path provided".to_string(),
+            ));
+        }
+        info!(
+            "Called start_vmm, setting up a VMM on {}",
+            self.cfg.socket_path.as_ref().unwrap().display()
+        );
+
+        if self.cmd.is_none() {
+            error!("start_vmm: no command provided");
+            return Err(MachineError::Execute(
+                "start_vmm: no command provided".to_string(),
+            ));
+        }
+        debug!("start_vmm: starting {:#?}", self.cmd.as_ref().unwrap());
+
+        if self.cfg.net_ns.is_some() && self.cfg.jailer_cfg.is_none() {
+            // If the VM needs to be started in a netns but no jailer netns was configured,
+            // start the vmm child process in the netns directly here.
+            todo!()
+            // 这里有对于netns的设置, 然后启动进程
+        } else {
+            // Else, just start the process normally as it's either not in a netns or will
+            // be placed in one by the jailer process instead.
+            self.child_process = Some(self.cmd.as_mut().unwrap().spawn().map_err(|e| {
+                error!(
+                    "start_vmm: fail to start the firecracker process: {}",
+                    e.to_string()
+                );
+                MachineError::Execute(format!(
+                    "start_vmm: fail to start the firecracker process: {}",
+                    e.to_string()
+                ))
+            })?);
+            // 并且在Machine里面存储pid
+        }
+
+        // 增加一个移除socket文件的清理函数
+
+        // 一个显式地单独的协程等待进程结束. 可以用std::process下面的wait等等.
+        // 查看退出码
+        // 逐个call保存的clean_up_funcs
+
+        // 本协程继续
+        todo!(); // setup_signals
+                 // Wait for firecracker to initialize:
+
+        // 再生成一个协程, 如果有通道发送了一个结束命令消息, 就直接stop_vmm
+
+        // 再生成一个协程, 向订阅者发送结束的消息
+
+        // 所以其实Machine里面需要两个通道
+
+        debug!("returning from start_vmm");
+        Ok(())
+    }
+
+    /// stop_vmm stops the current VMM by sending a SIGKILL
+    pub async fn stop_vmm(&mut self) -> Result<(), MachineError> {
+        debug!("stop_vmm: sending sigkill to firecracker");
+        // if self.cmd.is_some() && self.child_process.is_some() {
+        //     let pid = self.child_process.as_ref().unwrap().id();
+        //     let res = nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid as i32), nix::sys::signal::SIGTERM);
+        //     if res.is_err() &&
+        // }
+        if self.cmd.is_some() && self.child_process.is_some() {
+            let pid = self.pid;
+            self.child_process
+                .as_mut()
+                .unwrap()
+                .kill()
+                .await
+                .map_err(|e| {
+                    error!("vmm process already finished!");
+                    MachineError::Execute(format!(
+                        "firecracker process already finished, pid: {:?}",
+                        pid
+                    ))
+                })?;
+        }
+
+        debug!("stop_vmm: no firecracker process running, not sending as signal");
         Ok(())
     }
 
@@ -420,14 +575,13 @@ impl Machine {
             .put_machine_configuration(self.cfg.machine_cfg.as_ref().unwrap())
             .await
             .map_err(|e| {
-                MachineError::Configure(format!(
+                MachineError::Initialize(format!(
                     "PutMachineConfiguration returned {}",
                     e.to_string()
                 ))
             })?;
         debug!("PutMachineConfiguration returned");
         self.refresh_machine_configuration().await?;
-        // "Unable to inspect Firecracker MachineConfiguration. Continuing anyway. %s"
         debug!("create_machine returning");
         Ok(())
     }
@@ -436,7 +590,7 @@ impl Machine {
     /// with that reported by the Firecracker API
     pub async fn refresh_machine_configuration(&mut self) -> Result<(), MachineError> {
         let machine_config = self.agent.get_machine_configuration().await.map_err(|e| {
-            MachineError::Dump(format!(
+            MachineError::Agent(format!(
                 "Unable to inspect Firecracker MachineConfiguration. Continuing anyway. {}",
                 e.to_string()
             ))
@@ -456,10 +610,73 @@ impl Machine {
         todo!()
     }
 
+    pub async fn create_fifo(&self, path: &PathBuf) -> Result<(), MachineError> {
+        debug!("Creating FIFO {}", path.display());
+        nix::unistd::mkfifo(path, nix::sys::stat::Mode::S_IRWXU).map_err(|e| {
+            error!("Failed to create log fifo: {}", e.to_string());
+            MachineError::FileError(format!("Failed to create log fifo: {}", e.to_string()))
+        })?;
+
+        Ok(())
+    }
+
+    pub async fn setup_logging(&self) -> Result<(), MachineError> {
+        let path: &PathBuf;
+        if self.cfg.log_fifo.is_some() {
+            path = self.cfg.log_fifo.as_ref().unwrap();
+        } else if self.cfg.log_path.is_some() {
+            path = self.cfg.log_path.as_ref().unwrap();
+        } else {
+            info!("VMM logging disabled");
+            return Ok(());
+        }
+
+        let mut l = Logger::default()
+            .with_log_path(path)
+            .set_show_level(true)
+            .set_show_origin(false);
+        if self.cfg.log_level.is_some() {
+            l = l.with_log_level(self.cfg.log_level.as_ref().unwrap());
+        }
+
+        self.agent.put_logger(&l).await.map_err(|e| {
+            error!(
+                "Fail to configured VMM logging to {}: {}",
+                path.display(),
+                e.to_string()
+            );
+            MachineError::Initialize(format!(
+                "Fail to configured VMM logging to {}: {}",
+                path.display(),
+                e.to_string()
+            ))
+        })?;
+        debug!("Configured VMM logging to {}", path.display());
+        Ok(())
+    }
+
+    pub async fn setup_metrics(&self) -> Result<(), MachineError> {
+        let path: &PathBuf;
+        if self.cfg.metrics_fifo.is_some() {
+            path = self.cfg.metrics_fifo.as_ref().unwrap();
+        } else if self.cfg.metrics_path.is_some() {
+            path = self.cfg.metrics_path.as_ref().unwrap();
+        } else {
+            info!("VMM metrics disabled");
+            return Ok(());
+        }
+        let metrics = Metrics::default().with_metrics_path(path);
+        self.agent.put_metrics(&metrics).await.map_err(|e| {
+            debug!("Configured VMM metrics to {}", path.display());
+            MachineError::Agent(format!("Setup metrics with agent error: {}", e.to_string()))
+        })?;
+        Ok(())
+    }
+
     /// wait_for_socket waits for the given file to exist
     pub async fn wait_for_socket(&self, timeout_in_secs: u64) -> Result<(), MachineError> {
         if self.cfg.socket_path.is_none() {
-            return Err(MachineError::Setup(
+            return Err(MachineError::FileError(
                 "socket path not provided in the configuration".to_string(),
             ));
         }
@@ -474,7 +691,7 @@ impl Machine {
         )
         .await
         .map_err(|_| {
-            MachineError::Setup(format!(
+            MachineError::Initialize(format!(
                 "firecracker fail to create socket at the given path after {} seconds",
                 timeout_in_secs
             ))
@@ -484,16 +701,21 @@ impl Machine {
     }
 
     /// create_boot_source creates a boot source and configure it to microVM
-    pub async fn create_boot_source(&self, image_path: PathBuf, initrd_path: PathBuf, kernel_args: String) -> Result<(), MachineError> {
+    pub async fn create_boot_source(
+        &self,
+        image_path: PathBuf,
+        initrd_path: PathBuf,
+        kernel_args: String,
+    ) -> Result<(), MachineError> {
         let bsrc = BootSource {
             kernel_image_path: image_path,
             initrd_path: Some(initrd_path),
             boot_args: Some(kernel_args),
         };
 
-        self.agent.put_guest_boot_source(bsrc).await.map_err(|e| {
+        self.agent.put_guest_boot_source(&bsrc).await.map_err(|e| {
             info!("PutGuestBootSource: {}", e.to_string());
-            MachineError::Configure(format!("PutGuestBootSource: {}", e.to_string()))
+            MachineError::Initialize(format!("PutGuestBootSource: {}", e.to_string()))
         })?;
 
         debug!("PutGuestBootSource successful");
@@ -501,9 +723,13 @@ impl Machine {
     }
 
     /// create_network_interface creates network interface
-    pub async fn create_network_interface(&self, iface: NetworkInterface, iid: i64) -> Result<(), MachineError> {
+    pub async fn create_network_interface(
+        &self,
+        iface: NetworkInterface,
+        iid: i64,
+    ) -> Result<(), MachineError> {
         let iface_id = iid.to_string();
-        
+
         todo!()
     }
 
@@ -520,7 +746,7 @@ impl Machine {
         };
 
         self.agent
-            .patch_guest_network_interface_by_id(iface)
+            .patch_guest_network_interface_by_id(&iface)
             .await
             .map_err(|e| {
                 error!(
@@ -539,7 +765,7 @@ impl Machine {
         Ok(())
     }
     /// attach_drive attaches a secondary block device.
-    pub async fn attach_drive(&self, dev: Drive) -> Result<(), MachineError> {
+    pub async fn attach_drive(&self, dev: &Drive) -> Result<(), MachineError> {
         let host_path = dev.get_path_on_host();
         info!(
             "Attaching drive {}, slot {}, root {}",
@@ -553,7 +779,7 @@ impl Machine {
                 host_path.display(),
                 e.to_string()
             );
-            MachineError::Configure(format!(
+            MachineError::Agent(format!(
                 "Attach drive failed: {}: {}",
                 host_path.display(),
                 e.to_string()
@@ -564,20 +790,72 @@ impl Machine {
         Ok(())
     }
 
+    pub async fn attach_drives(&mut self, drives: &Vec<Drive>) -> Result<(), MachineError> {
+        let mut err: Vec<(usize, MachineError)> = Vec::new();
+        for (i, dev) in drives.iter().enumerate() {
+            match self.attach_drive(dev).await {
+                Ok(_) => (),
+                Err(e) => err.push((i, e)),
+            }
+        }
+        if err.is_empty() {
+            return Ok(());
+        }
+        let mut e_string = String::new();
+        for (i, e) in err {
+            e_string = format!(
+                "{},{{ error when putting {}-th vsock: {} }}",
+                e_string,
+                i,
+                e.to_string()
+            );
+        }
+        Err(MachineError::Agent(format!(
+            "add_vsocks errors with: {}",
+            e_string
+        )))
+    }
+
     /// add_vsock adds a vsock to the instance
     pub async fn add_vsock(&mut self, vsock: &Vsock) -> Result<(), MachineError> {
         self.agent.put_guest_vsock(vsock).await.map_err(|e| {
-            MachineError::Configure(format!("PutGuestVsock returned: {}", e.to_string()))
+            MachineError::Agent(format!("PutGuestVsock returned: {}", e.to_string()))
         })?;
-        info!("attch vsock {} successful", vsock.uds_path);
+        info!("attch vsock {} successful", vsock.uds_path.display());
         Ok(())
+    }
+
+    pub async fn add_vsocks(&mut self, vsocks: &Vec<Vsock>) -> Result<(), MachineError> {
+        let mut err: Vec<(usize, MachineError)> = Vec::new();
+        for (i, dev) in vsocks.iter().enumerate() {
+            match self.add_vsock(dev).await {
+                Ok(_) => (),
+                Err(e) => err.push((i, e)),
+            }
+        }
+        if err.is_empty() {
+            return Ok(());
+        }
+        let mut e_string = String::new();
+        for (i, e) in err {
+            e_string = format!(
+                "{},{{ error when putting {}-th vsock: {} }}",
+                e_string,
+                i,
+                e.to_string()
+            );
+        }
+        Err(MachineError::Agent(format!(
+            "add_vsocks errors with: {}",
+            e_string
+        )))
     }
 
     /// set_mmds_config sets the machine's mmds system
     pub async fn set_mmds_config(&self, address: Ipv4Addr) -> Result<(), MachineError> {
         let mut mmds_config = MmdsConfig::default();
         mmds_config.ipv4_address = Some(address.to_string());
-        self.agent.put_mmds_config(mmds_config).await.map_err(|e| {
+        self.agent.put_mmds_config(&mmds_config).await.map_err(|e| {
             error!(
                 "Setting mmds configuration failed: {}: {}",
                 address.to_string(),
@@ -597,7 +875,7 @@ impl Machine {
     /// set_metadata sets the machine's metadata for MDDS
     pub async fn set_metadata(&self, metadata: impl Metadata) -> Result<(), MachineError> {
         self.agent
-            .put_mmds(metadata.to_raw_string().map_err(|e| {
+            .put_mmds(&metadata.to_raw_string().map_err(|e| {
                 error!("Setting metadata: {}", e.to_string());
                 MachineError::Agent(format!("Setting metadata: {}", e.to_string()))
             })?)
@@ -614,7 +892,7 @@ impl Machine {
     /// update_metadata patches the machine's metadata for MDDS
     pub async fn update_matadata(&self, metadata: impl Metadata) -> Result<(), MachineError> {
         self.agent
-            .patch_mmds(metadata.to_raw_string().map_err(|e| {
+            .patch_mmds(&metadata.to_raw_string().map_err(|e| {
                 error!(
                     "Updating metadata failed parsing parameter to string: {}",
                     e.to_string()
@@ -669,7 +947,7 @@ impl Machine {
             rate_limiter: None,
         };
         self.agent
-            .patch_guest_drive_by_id(partial_drive)
+            .patch_guest_drive_by_id(&partial_drive)
             .await
             .map_err(|e| {
                 error!("PatchGuestDrive failed: {}", e.to_string());
@@ -705,7 +983,7 @@ impl Machine {
         };
 
         self.agent
-            .create_snapshot(snapshot_params)
+            .create_snapshot(&snapshot_params)
             .await
             .map_err(|e| {
                 error!("failed to create a snapshot of the VM: {}", e.to_string());
@@ -731,7 +1009,7 @@ impl Machine {
             stats_polling_interval_s: Some(stats_polling_interval_s),
         };
 
-        self.agent.put_balloon(balloon).await.map_err(|e| {
+        self.agent.put_balloon(&balloon).await.map_err(|e| {
             error!("Create balloon device failed: {}", e.to_string());
             MachineError::Agent(format!("Create balloon device failed: {}", e.to_string()))
         })?;
@@ -754,7 +1032,7 @@ impl Machine {
     pub async fn update_balloon(&self, amount_mib: i64) -> Result<(), MachineError> {
         let balloon_update = BalloonUpdate { amount_mib };
         self.agent
-            .patch_balloon(balloon_update)
+            .patch_balloon(&balloon_update)
             .await
             .map_err(|e| {
                 error!("Update balloon device failed: {}", e.to_string());
@@ -785,7 +1063,7 @@ impl Machine {
             stats_polling_interval_s,
         };
         self.agent
-            .patch_balloon_stats_interval(balloon_stats_update)
+            .patch_balloon_stats_interval(&balloon_stats_update)
             .await
             .map_err(|e| {
                 error!("UpdateBalloonStats failed: {}", e.to_string());

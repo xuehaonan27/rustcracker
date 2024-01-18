@@ -16,7 +16,7 @@ hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1.0"
 hyper-socket = "0.2.0"
 async-channel = "2.1.1"
-nix = { version = "0.27.1", features = ["fs", "user"] }
+nix = { version = "0.27.1", features = ["fs", "user", "signal"] }
 log = "0.4.20"
 env_logger = "0.10.1" # + auto-color + color + humantime + regex
 uuid = { version = "1.6.1", features = ["v4", "fast-rng", "macro-diagnostics"] }

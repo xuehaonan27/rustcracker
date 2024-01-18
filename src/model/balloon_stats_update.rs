@@ -15,6 +15,8 @@ use crate::utils::Json;
 /// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BalloonStatsUpdate {
+    /// Interval in seconds between refreshing statistics.
+    #[serde(rename = "stats_polling_interval_s")]
     pub stats_polling_interval_s: i64,
 }
 impl<'a> Json<'a> for BalloonStatsUpdate {

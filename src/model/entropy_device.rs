@@ -4,9 +4,11 @@ use crate::utils::Json;
 
 use super::rate_limiter::RateLimiter;
 
+/// Defines an entropy device.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct EntropyDevice {
-    rate_limiter: Option<RateLimiter>,
+    #[serde(rename = "rate_limiter")]
+    pub rate_limiter: Option<RateLimiter>,
 }
 
 impl<'a> Json<'a> for EntropyDevice {

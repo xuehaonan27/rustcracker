@@ -2,40 +2,40 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{utils::Json, client::machine::MachineError};
+use crate::utils::Json;
 
-use super::{rate_limiter::RateLimiter, kernel_args::KernelArgs};
-// NetworkInterface Defines a network interface.
+use super::rate_limiter::RateLimiter;
+/// Defines a network interface.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NetworkInterface {
-    // If this field is set, the device model will reply to
-    // HTTP GET requests sent to the MMDS address via this interface.
-    // In this case, both ARP requests for 169.254.169.254 and TCP
-    // segments heading to the same address are intercepted by the
-    // device model, and do not reach the associated TAP device.
-    // allow_mmds_requests: Option<bool>,
+    /// If this field is set, the device model will reply to
+    /// HTTP GET requests sent to the MMDS address via this interface.
+    /// In this case, both ARP requests for 169.254.169.254 and TCP
+    /// segments heading to the same address are intercepted by the
+    /// device model, and do not reach the associated TAP device.
+    /// allow_mmds_requests: Option<bool>,
 
-    // guest mac
+    /// guest mac
     #[serde(rename = "guest_mac", skip_serializing_if = "Option::is_none")]
-    guest_mac: Option<String>,
+    pub guest_mac: Option<String>,
 
-    // Host level path for the guest network interface
-    // Required: true
+    /// Host level path for the guest network interface
+    /// Required: true
     #[serde(rename = "host_dev_name")]
-    host_dev_name: PathBuf,
+    pub host_dev_name: PathBuf,
 
-    // iface id
-    // Required: true
+    /// iface id
+    /// Required: true
     #[serde(rename = "iface_id")]
-    iface_id: String,
+    pub iface_id: String,
 
-    // rx rate limiter
+    /// rx rate limiter
     #[serde(rename = "rx_rate_limiter", skip_serializing_if = "Option::is_none")]
-    rx_rate_limiter: Option<RateLimiter>,
+    pub rx_rate_limiter: Option<RateLimiter>,
 
-    // tx rate limiter
+    /// tx rate limiter
     #[serde(rename = "tx_rate_limiter", skip_serializing_if = "Option::is_none")]
-    tx_rate_limiter: Option<RateLimiter>,
+    pub tx_rate_limiter: Option<RateLimiter>,
 }
 
 impl<'a> Json<'a> for NetworkInterface {
@@ -90,10 +90,5 @@ impl NetworkInterface {
     pub fn with_tx_rate_limiter(mut self, limiter: RateLimiter) -> Self {
         self.tx_rate_limiter = Some(limiter);
         self
-    }
-
-    pub fn validate(kernel_args: KernelArgs) -> Result<(), MachineError> {
-        
-        todo!()
     }
 }
