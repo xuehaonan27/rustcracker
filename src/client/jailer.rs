@@ -59,22 +59,22 @@ impl StdioTypes {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct JailerConfig {
     // GID the jailer switches to as it execs the target binary.
-    pub(super) gid: Option<usize>,
+    pub gid: Option<u32>,
 
     // UID the jailer switches to as it execs the target binary.
-    pub(super) uid: Option<usize>,
+    pub uid: Option<u32>,
 
     // ID is the unique VM identification string, which may contain alphanumeric
     // characters and hyphens. The maximum id length is currently 64 characters
-    pub(super) id: Option<String>,
+    pub id: Option<String>,
 
     // NumaNode represents the NUMA node the process gets assigned to.
-    pub(super) numa_node: Option<usize>,
+    pub numa_node: Option<usize>,
 
     // ExecFile is the path to the Firecracker binary that will be exec-ed by
     // the jailer. The user can provide a path to any binary, but the interaction
     // with the jailer is mostly Firecracker specific.
-    pub(super) exec_file: Option<PathBuf>,
+    pub exec_file: Option<PathBuf>,
 
     // JailerBinary specifies the jailer binary to be used for setting up the
     // Firecracker VM jail. If the value contains no path separators, it will
@@ -84,35 +84,35 @@ pub struct JailerConfig {
     // os/exec.Command.
     //
     // If not specified it defaults to "jailer".
-    pub(super) jailer_binary: Option<PathBuf>,
+    pub jailer_binary: Option<PathBuf>,
 
     // ChrootBaseDir represents the base folder where chroot jails are built. The
     // default is /srv/jailer
-    pub(super) chroot_base_dir: Option<PathBuf>,
+    pub chroot_base_dir: Option<PathBuf>,
 
     //  Daemonize is set to true, call setsid() and redirect STDIN, STDOUT, and
     //  STDERR to /dev/null
-    pub(super) daemonize: Option<bool>,
+    pub daemonize: Option<bool>,
 
     // ChrootStrategy will dictate how files are transfered to the root drive.
-    pub(super) chroot_strategy: Option<HandlersAdapter>,
+    pub chroot_strategy: Option<HandlersAdapter>,
 
     // Stdout specifies the IO writer for STDOUT to use when spawning the jailer.
     // pub(crate) stdout: Option<std::process::Stdio>,
-    pub(super) stdout: Option<StdioTypes>,
+    pub stdout: Option<StdioTypes>,
 
     // Stderr specifies the IO writer for STDERR to use when spawning the jailer.
-    pub(super) stderr: Option<StdioTypes>,
+    pub stderr: Option<StdioTypes>,
 
     // Stdin specifies the IO reader for STDIN to use when spawning the jailer.
-    pub(super) stdin: Option<StdioTypes>,
+    pub stdin: Option<StdioTypes>,
 }
 
 pub struct JailerCommandBuilder {
     bin: PathBuf,
     id: String,
-    uid: usize,
-    gid: usize,
+    uid: u32,
+    gid: u32,
     exec_file: PathBuf,
     node: usize,
 
@@ -205,13 +205,13 @@ impl JailerCommandBuilder {
     }
 
     // with_uid will set the specified uid to the builder.
-    pub fn with_uid(mut self, uid: &usize) -> Self {
+    pub fn with_uid(mut self, uid: &u32) -> Self {
         self.uid = *uid;
         self
     }
 
     // with_gid will set the specified gid to the builder.
-    pub fn with_gid(mut self, gid: &usize) -> Self {
+    pub fn with_gid(mut self, gid: &u32) -> Self {
         self.gid = *gid;
         self
     }
@@ -299,7 +299,7 @@ impl JailerCommandBuilder {
 
     pub fn build(self) -> std::process::Command {
         let mut cmd = std::process::Command::new(&self.bin);
-        let cmd = cmd.args(self.args());
+        cmd.args(self.args());
         if let Some(stdin) = self.stdin {
             cmd.stdin(stdin);
         }
@@ -309,16 +309,17 @@ impl JailerCommandBuilder {
         if let Some(stderr) = self.stderr {
             cmd.stderr(stderr);
         }
-        std::mem::replace(cmd, std::process::Command::new(""))
+        // std::mem::replace(cmd, std::process::Command::new(""))
+        cmd
     }
 }
 
 /// jail will set up proper handlers and remove configuration validation due to
 /// stating of files
-pub fn jail(m: &mut Machine, mut cfg: Config) -> Result<(), MachineError> {
+pub fn jail(m: &mut Machine, cfg: &mut Config) -> Result<(), MachineError> {
     let machine_socket_path: PathBuf;
-    if let Some(socket_path) = cfg.socket_path {
-        machine_socket_path = socket_path;
+    if let Some(socket_path) = &cfg.socket_path {
+        machine_socket_path = socket_path.to_path_buf();
     } else {
         machine_socket_path = DEFAULT_SOCKET_PATH.into();
     }

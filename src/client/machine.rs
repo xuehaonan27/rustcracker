@@ -1,11 +1,20 @@
-use std::{net::Ipv4Addr, path::PathBuf};
+use std::{net::Ipv4Addr, path::PathBuf, sync::Once};
 
 use async_trait::async_trait;
 
 use log::{debug, error, info, trace, warn};
 use serde::{Deserialize, Serialize};
+use tokio::sync::oneshot::Receiver;
 
 use crate::{
+    client::{
+        command_builder::VMMCommandBuilder,
+        handler::{
+            CleaningUpSocketHandlerName, Handler, ValidateCfgHandlerName,
+            ValidateJailerCfgHandlerName,
+        },
+        jailer::jail,
+    },
     model::{
         self,
         balloon::Balloon,
@@ -16,9 +25,10 @@ use crate::{
         drive::Drive,
         instance_action_info::InstanceActionInfo,
         instance_info::InstanceInfo,
+        kernel_args::KernelArgs,
         logger::{LogLevel, Logger},
         machine_configuration::MachineConfiguration,
-        metrics::{self, Metrics},
+        metrics::Metrics,
         mmds_config::MmdsConfig,
         network_interface::NetworkInterface,
         partial_drive::PartialDrive,
@@ -28,12 +38,14 @@ use crate::{
         vm::{VM_STATE_PAUSED, VM_STATE_RESUMED},
         vsock::Vsock,
     },
-    utils::{Json, Metadata},
+    utils::Metadata,
 };
 
 use super::{
-    agent::{Agent, AgentError},
-    jailer::{JailerConfig, StdioTypes}, handler::Handlers,
+    agent::Agent,
+    handler::{HandlerList, Handlers},
+    jailer::{JailerConfig, StdioTypes},
+    signals::Signal,
 };
 
 const USER_AGENT: &'static str = "rustfire";
@@ -104,7 +116,7 @@ pub struct Config {
 
     // NetworkInterfaces specifies the tap devices that should be made available
     // to the microVM.
-    pub network_interfaces: Option<Vec<model::network_interface::NetworkInterface>>,
+    pub network_interfaces: Option<Vec<NetworkInterface>>,
 
     // FifoLogWriter is an io.Writer(Stdio) that is used to redirect the contents of the
     // fifo log to the writer.
@@ -137,7 +149,7 @@ pub struct Config {
 
     // ForwardSignals is an optional list of signals to catch and forward to
     // firecracker. If not provided, the default signals will be used.
-    // forward_signals: Vec<>,
+    pub forward_signals: Option<Vec<Signal>>,
 
     // SeccompLevel specifies whether seccomp filters should be installed and how
     // restrictive they should be. Possible values are:
@@ -177,6 +189,7 @@ impl Default for Config {
             net_ns: None,
             seccomp_level: None,
             mmds_address: None,
+            forward_signals: None,
         }
     }
 }
@@ -313,7 +326,7 @@ pub struct Machine {
     // callbacks that should be run when the machine is being torn down
     cleanup_once: std::sync::Once,
 
-    cleanup_funcs: Vec<Option<Box<dyn FnOnce() -> Result<(), MachineError>>>>,
+    cleanup_funcs: HandlerList,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -370,13 +383,41 @@ pub trait MachineTrait {
 /// 保证绝对终止firecracker进程.
 ///
 /// 可以使用tokio::select!和channel完成exit_ch的编写
-/// 
+///
 /// 将所有put操作全部pub(super)防止user直接调用
 impl Machine {
+    /// default returns a blanck machine which should be configured
+    /// and one should never call this function so set as private.
+    /// The reason why I do not want to impl Default for Machine
+    /// is the same. Just keep it private.
+    fn default(recv: Receiver<MachineMessage>) -> Self {
+        Machine {
+            handlers: Handlers::default(),
+            cfg: Config::default(),
+            agent: Agent::blank(),
+            cmd: None,
+            child_process: None,
+            pid: None,
+            logger: None,
+            machine_config: MachineConfiguration::default(),
+            start_once: Once::new(),
+            exit_ch: recv,
+            fatalerr: None,
+            cleanup_once: Once::new(),
+            cleanup_funcs: HandlerList::blank(),
+        }
+    }
+
     /// new initializes a new Machine instance and performs validation of the
     /// provided Config.
-    pub fn new(mut cfg: Config) -> Result<Machine, MachineError> {
-        // create a channel for communicate with microVM
+    pub fn new(
+        mut cfg: Config,
+        recv: Receiver<MachineMessage>,
+        agent_request_timeout: u64,
+        agent_init_timeout: u64,
+    ) -> Result<Machine, MachineError> {
+        // create a channel for communicating with microVM (stopping microVM)
+        let mut machine = Self::default(recv);
 
         // set vmid for microVM
         if cfg.vmid.is_none() {
@@ -385,13 +426,87 @@ impl Machine {
         }
 
         // set default handlers for microVM
-        // let mut m_handlers = DEFAULT_HANDLERS;
+        // let mut machine_handlers = Handlers::default();
 
-        // if cfg.jailer_cfg.is_some() {
-        //     // m_handlers.validation.push(JailerConfigValidationHandler);
+        if cfg.jailer_cfg.is_some() {
+            // jailing the microVM if jailer config provided
+            // validate jailer config
+            machine
+                .handlers
+                .validation
+                .append(vec![Handler::JailerConfigValidationHandler {
+                    name: ValidateJailerCfgHandlerName,
+                }]);
+            // jail the machine
+            jail(&mut machine, &mut cfg)?;
+        } else {
+            // microVM without jailer
+            machine
+                .handlers
+                .validation
+                .append(vec![Handler::ConfigValidationHandler {
+                    name: ValidateCfgHandlerName,
+                }]);
 
-        // }
-        todo!()
+            // TODO: another command building process
+            // machine.cmd
+            let c = VMMCommandBuilder::default()
+                .with_socket_path(cfg.socket_path.as_ref().unwrap())
+                .with_args(vec![
+                    "--seccomp-level".to_string(),
+                    cfg.seccomp_level
+                        .unwrap_or(SECCOMP_LEVEL_DISABLE)
+                        .to_string(),
+                    "--id".to_string(),
+                    cfg.vmid.as_ref().unwrap().to_string(),
+                ])
+                .build();
+            machine.cmd = Some(c.into());
+        }
+
+        if machine.logger.is_none() {
+            let logger = env_logger::builder();
+            machine.logger = Some(logger);
+        }
+
+        machine.agent = Agent::new(
+            cfg.socket_path.as_ref().ok_or(MachineError::Initialize(
+                "no socket_path provided in the config".to_string(),
+            ))?,
+            agent_request_timeout,
+            agent_init_timeout,
+        );
+
+        // TODO: forward_signals
+        if cfg.forward_signals.is_none() {
+            cfg.forward_signals = Some(vec![
+                Signal::SIGINT,
+                Signal::SIGQUIT,
+                Signal::SIGTERM,
+                Signal::SIGHUP,
+                Signal::SIGABRT,
+            ]);
+        }
+
+        machine.machine_config = cfg
+            .machine_cfg
+            .as_ref()
+            .ok_or(MachineError::Initialize(
+                "no machine_config provided in the config".to_string(),
+            ))?
+            .to_owned();
+
+        machine.cfg = cfg;
+
+        // TODO: netns setting
+        /*
+        if cfg.NetNS == "" && cfg.NetworkInterfaces.cniInterface() != nil {
+            m.Cfg.NetNS = m.defaultNetNSPath()
+        }
+        */
+        todo!();
+
+        Ok(machine)
     }
 
     /// logger set a appropriate logger for logging hypervisor message
@@ -441,7 +556,7 @@ impl Machine {
         todo!();
 
         // run functions according to handlers
-        todo!(); 
+        todo!();
 
         self.start_instance().await?;
         Ok(())
@@ -523,34 +638,57 @@ impl Machine {
         }
         debug!("start_vmm: starting {:#?}", self.cmd.as_ref().unwrap());
 
+        let start_result;
+
         if self.cfg.net_ns.is_some() && self.cfg.jailer_cfg.is_none() {
             // If the VM needs to be started in a netns but no jailer netns was configured,
             // start the vmm child process in the netns directly here.
-            todo!()
+            todo!();
             // 这里有对于netns的设置, 然后启动进程
+            start_result = self.cmd.as_mut().unwrap().spawn();
         } else {
             // Else, just start the process normally as it's either not in a netns or will
             // be placed in one by the jailer process instead.
-            self.child_process = Some(self.cmd.as_mut().unwrap().spawn().map_err(|e| {
-                error!(
-                    "start_vmm: fail to start the firecracker process: {}",
-                    e.to_string()
-                );
-                MachineError::Execute(format!(
-                    "start_vmm: fail to start the firecracker process: {}",
-                    e.to_string()
-                ))
-            })?);
+            start_result = self.cmd.as_mut().unwrap().spawn();
             // 并且在Machine里面存储pid
         }
 
-        // 增加一个移除socket文件的清理函数
+        if let Err(e) = start_result {
+            error!("start_vmm: Failed to start vmm: {}", e.to_string());
+            self.fatalerr = Some(MachineError::Execute(format!(
+                "start_vmm: Failed to start vmm: {}",
+                e.to_string()
+            )));
+            self.exit_ch.close();
+
+            return Err(MachineError::Execute(format!(
+                "start_vmm: Failed to start vmm: {}",
+                e.to_string()
+            )));
+        } else {
+            self.child_process = Some(start_result.unwrap());
+        }
+        debug!(
+            "start_vmm: VMM started socket path is: {}",
+            self.cfg.socket_path.as_ref().unwrap().display()
+        );
+
+        // add a handler that could clean up the socket file
+        self.cleanup_funcs
+            .append(vec![Handler::CleaningUpSocketHandler {
+                name: CleaningUpSocketHandlerName,
+                socket_path: self.cfg.socket_path.as_ref().unwrap().to_path_buf(),
+            }]);
 
         // 一个显式地单独的协程等待进程结束. 可以用std::process下面的wait等等.
         // 查看退出码
         // 逐个call保存的clean_up_funcs
 
         // 本协程继续
+        self.setup_signals().await?;
+        debug!("start_vmm: signals set successful");
+        self.wait_for_socket(self.agent.firecracker_init_timeout)
+            .await?;
         todo!(); // setup_signals
                  // Wait for firecracker to initialize:
 
@@ -567,11 +705,17 @@ impl Machine {
     /// stop_vmm stops the current VMM by sending a SIGKILL
     pub async fn stop_vmm(&mut self) -> Result<(), MachineError> {
         debug!("stop_vmm: sending sigkill to firecracker");
+
+        // sending a SIGTERM
         // if self.cmd.is_some() && self.child_process.is_some() {
-        //     let pid = self.child_process.as_ref().unwrap().id();
+        //     let pid = self.child_process.as_ref().unwrap().id().ok_or(MachineError::Execute("stop_vmm: no pid found, maybe VMM already stopped".to_string()))?;
         //     let res = nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid as i32), nix::sys::signal::SIGTERM);
-        //     if res.is_err() &&
+        //     if let Err(e) = res {
+
+        //     }
         // }
+
+        //
         if self.cmd.is_some() && self.child_process.is_some() {
             let pid = self.pid;
             self.child_process
@@ -593,21 +737,25 @@ impl Machine {
     }
 
     pub async fn do_clean_up(&mut self) -> Result<(), MachineError> {
+        let mut marker = true;
         self.cleanup_once.call_once(|| {
-            self.cleanup_funcs.reverse();
-            self.cleanup_funcs.iter_mut().for_each(|f| {
-                let f = f.take();
-                if f.is_some() {
-
-                }
-            });
+            marker = false;
         });
+        if marker {
+            return Err(MachineError::Cleaning(
+                "Cannot cleaning up twice".to_string(),
+            ));
+        }
+        let clean_up_handlers = self.cleanup_funcs.to_owned();
+        self.cleanup_funcs.reverse();
+        clean_up_handlers.run(self).await?;
+
         Ok(())
     }
 
     /// create_machine put the machine configuration to firecracker
     /// and refresh(by get from firecracker) the machine configuration stored in `self`
-    pub async fn create_machine(&mut self) -> Result<(), MachineError> {
+    pub(super) async fn create_machine(&mut self) -> Result<(), MachineError> {
         self.agent
             .put_machine_configuration(self.cfg.machine_cfg.as_ref().unwrap())
             .await
@@ -639,7 +787,7 @@ impl Machine {
     }
 
     /// Set up a signal handler to pass through to firecracker
-    pub async fn setup_signals(&self) -> Result<(), MachineError> {
+    pub(super) async fn setup_signals(&self) -> Result<(), MachineError> {
         // judge whether forward_signals field in config exists
 
         debug!("Setting up signal handler: {}", todo!());
@@ -647,15 +795,22 @@ impl Machine {
         todo!()
     }
 
-    pub async fn setup_network(&self) -> Result<(), MachineError> {
+    pub(super) async fn setup_network(&self) -> Result<(), MachineError> {
         todo!()
     }
 
-    pub async fn setup_kernel_args(&self) -> Result<(), MachineError> {
+    pub(super) async fn setup_kernel_args(&mut self) -> Result<(), MachineError> {
+        let kernel_args = KernelArgs::from(self.cfg.kernel_args.as_ref().unwrap().to_owned());
+
+        // If any network interfaces have a static IP configured, we need to set the "ip=" boot param.
+        // Validation that we are not overriding an existing "ip=" setting happens in the network validation
+
+        todo!();
+        self.cfg.kernel_args = Some(kernel_args.to_string());
         todo!()
     }
 
-    pub async fn create_fifo(&self, path: &PathBuf) -> Result<(), MachineError> {
+    pub(super) async fn create_fifo(&self, path: &PathBuf) -> Result<(), MachineError> {
         debug!("Creating FIFO {}", path.display());
         nix::unistd::mkfifo(path, nix::sys::stat::Mode::S_IRWXU).map_err(|e| {
             error!("Failed to create log fifo: {}", e.to_string());
@@ -665,7 +820,7 @@ impl Machine {
         Ok(())
     }
 
-    pub async fn setup_logging(&self) -> Result<(), MachineError> {
+    pub(super) async fn setup_logging(&self) -> Result<(), MachineError> {
         let path: &PathBuf;
         if self.cfg.log_fifo.is_some() {
             path = self.cfg.log_fifo.as_ref().unwrap();
@@ -700,7 +855,7 @@ impl Machine {
         Ok(())
     }
 
-    pub async fn setup_metrics(&self) -> Result<(), MachineError> {
+    pub(super) async fn setup_metrics(&self) -> Result<(), MachineError> {
         let path: &PathBuf;
         if self.cfg.metrics_fifo.is_some() {
             path = self.cfg.metrics_fifo.as_ref().unwrap();
@@ -719,7 +874,7 @@ impl Machine {
     }
 
     /// wait_for_socket waits for the given file to exist
-    pub async fn wait_for_socket(&self, timeout_in_secs: u64) -> Result<(), MachineError> {
+    async fn wait_for_socket(&self, timeout_in_secs: u64) -> Result<(), MachineError> {
         if self.cfg.socket_path.is_none() {
             return Err(MachineError::FileError(
                 "socket path not provided in the configuration".to_string(),
@@ -746,7 +901,7 @@ impl Machine {
     }
 
     /// create_boot_source creates a boot source and configure it to microVM
-    pub async fn create_boot_source(
+    pub(super) async fn create_boot_source(
         &self,
         image_path: &PathBuf,
         initrd_path: &PathBuf,
@@ -768,7 +923,7 @@ impl Machine {
     }
 
     /// create_network_interface creates network interface
-    pub async fn create_network_interface(
+    pub(super) async fn create_network_interface(
         &self,
         iface: NetworkInterface,
         iid: i64,
@@ -778,7 +933,7 @@ impl Machine {
         todo!()
     }
 
-    pub async fn create_network_interfaces(&self) -> Result<(), MachineError> {
+    pub(super) async fn create_network_interfaces(&self) -> Result<(), MachineError> {
         todo!()
     }
 
@@ -879,7 +1034,9 @@ impl Machine {
 
     pub(super) async fn add_vsocks(&self) -> Result<(), MachineError> {
         if self.cfg.vsock_devices.is_none() {
-            return Err(MachineError::Validation("no vsock devices provided".to_string()));
+            return Err(MachineError::Validation(
+                "no vsock devices provided".to_string(),
+            ));
         }
         let mut err: Vec<(usize, MachineError)> = Vec::new();
         for (i, dev) in self.cfg.vsock_devices.as_ref().unwrap().iter().enumerate() {
@@ -907,21 +1064,24 @@ impl Machine {
     }
 
     /// set_mmds_config sets the machine's mmds system
-    pub async fn set_mmds_config(&self, address: &Ipv4Addr) -> Result<(), MachineError> {
+    pub(super) async fn set_mmds_config(&self, address: &Ipv4Addr) -> Result<(), MachineError> {
         let mut mmds_config = MmdsConfig::default();
         mmds_config.ipv4_address = Some(address.to_string());
-        self.agent.put_mmds_config(&mmds_config).await.map_err(|e| {
-            error!(
-                "Setting mmds configuration failed: {}: {}",
-                address.to_string(),
-                e.to_string()
-            );
-            MachineError::Agent(format!(
-                "Setting mmds configuration failed: {}: {}",
-                address.to_string(),
-                e.to_string()
-            ))
-        })?;
+        self.agent
+            .put_mmds_config(&mmds_config)
+            .await
+            .map_err(|e| {
+                error!(
+                    "Setting mmds configuration failed: {}: {}",
+                    address.to_string(),
+                    e.to_string()
+                );
+                MachineError::Agent(format!(
+                    "Setting mmds configuration failed: {}: {}",
+                    address.to_string(),
+                    e.to_string()
+                ))
+            })?;
 
         debug!("SetMmdsConfig successful");
         Ok(())

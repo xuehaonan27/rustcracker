@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use hyper::{Body, Client, Method, Request};
-use hyperlocal::UnixConnector;
+use hyperlocal::{UnixClientExt, UnixConnector};
 use log::{debug, error, trace};
 
 use crate::{
@@ -33,6 +33,9 @@ use crate::{
     utils::Json,
 };
 
+pub const DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS: u64 = 500;
+pub const DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS: u64 = 10;
+
 #[derive(thiserror::Error, Debug)]
 pub enum AgentError {
     #[error("Could not initate worksapce for machine, reason: {0}")]
@@ -54,9 +57,29 @@ pub enum AgentError {
 pub struct Agent {
     socket_path: PathBuf,
     client: Client<UnixConnector>,
+    firecracker_request_timeout: u64,
+    pub(super) firecracker_init_timeout: u64,
 }
 
 impl Agent {
+    pub(super) fn blank() -> Self {
+        Agent {
+            socket_path: "".into(),
+            client: Client::unix(),
+            firecracker_request_timeout: DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS,
+            firecracker_init_timeout: DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS,
+        }
+    }
+
+    pub fn new(socket_path: &PathBuf, request_timeout: u64, init_timeout: u64) -> Self {
+        Agent {
+            socket_path: socket_path.to_path_buf(),
+            client: Client::unix(),
+            firecracker_request_timeout: request_timeout,
+            firecracker_init_timeout: init_timeout,
+        }
+    }
+
     async fn send_request(
         &self,
         url: hyper::Uri,

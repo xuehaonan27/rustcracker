@@ -21,77 +21,85 @@ use serde::{Deserialize, Serialize};
 
 pub trait HandlerName {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct StartVMMHandlerName;
 impl HandlerName for StartVMMHandlerName {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct BootstrapLoggingHandlerName;
 impl HandlerName for BootstrapLoggingHandlerName {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CreateLogFilesHandlerName;
 impl HandlerName for CreateLogFilesHandlerName {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CreateMachineHandlerName;
 impl HandlerName for CreateMachineHandlerName {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CreateBootSourceHandlerName;
 impl HandlerName for CreateBootSourceHandlerName {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct AttachDrivesHandlerName;
 impl HandlerName for AttachDrivesHandlerName {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CreateNetworkInterfacesHandlerName;
 impl HandlerName for CreateNetworkInterfacesHandlerName {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct AddVsocksHandlerName;
 impl HandlerName for AddVsocksHandlerName {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SetMetadataHandlerName;
 impl HandlerName for SetMetadataHandlerName {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ConfigMmdsHandlerName;
 impl HandlerName for ConfigMmdsHandlerName {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct LinkFilesToRootFSHandlerName;
 impl HandlerName for LinkFilesToRootFSHandlerName {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SetupNetworkHandlerName;
 impl HandlerName for SetupNetworkHandlerName {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SetupKernelArgsHandlerName;
 impl HandlerName for SetupKernelArgsHandlerName {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CreateBalloonHandlerName;
 impl HandlerName for CreateBalloonHandlerName {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ValidateCfgHandlerName;
 impl HandlerName for ValidateCfgHandlerName {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ValidateJailerCfgHandlerName;
 impl HandlerName for ValidateJailerCfgHandlerName {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ValidateNetworkCfgHandlerName;
 impl HandlerName for ValidateNetworkCfgHandlerName {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct CleaningUpNetworkHandlerName;
+impl HandlerName for CleaningUpNetworkHandlerName {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct CleaningUpSocketHandlerName;
+impl HandlerName for CleaningUpSocketHandlerName {}
+
 /// Handler are records that's put into Machine instances,
 /// instructing preparations and cleanings.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum Handler {
     /// ConfigValidationHandler is used to validate that required fields are
     /// present. This validator is to be used when the jailer is turned off.
@@ -197,10 +205,23 @@ pub enum Handler {
         name: LinkFilesToRootFSHandlerName,
         kernel_image_file_name: PathBuf,
     },
+
+    /// CleaningUpNetworkHandler will clean up network configurations.
+    CleaningUpNetworkHandler {
+        name: CleaningUpNetworkHandlerName,
+    },
+
+    /// CleaningUpSocketHandler will remove the socket at `socket_path`
+    CleaningUpSocketHandler {
+        name: CleaningUpSocketHandlerName,
+        socket_path: PathBuf,
+    },
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HandlerList(Vec<Handler>);
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Handlers {
     pub validation: HandlerList,
     pub fcinit: HandlerList,
@@ -269,6 +290,8 @@ impl Handler {
             Handler::ConfigMmdsHandler { name } => name.type_id(),
             Handler::NewCreateBalloonHandler { name, .. } => name.type_id(),
             Handler::LinkFilesHandler { name, .. } => name.type_id(),
+            Handler::CleaningUpNetworkHandler { name } => name.type_id(),
+            Handler::CleaningUpSocketHandler { name, .. } => name.type_id(),
         }
     }
     pub async fn func(&self, m: &mut Machine) -> Result<(), MachineError> {
@@ -555,6 +578,28 @@ impl Handler {
 
                 Ok(())
             }
+            Handler::CleaningUpNetworkHandler { .. } => {
+                todo!()
+            }
+            Handler::CleaningUpSocketHandler {
+                name: _,
+                socket_path,
+            } => {
+                std::fs::remove_file(socket_path).map_err(|e| {
+                    MachineError::Cleaning(format!(
+                        "fail to remove the socket at {}: {}",
+                        socket_path.display(),
+                        e.to_string()
+                    ))
+                })?;
+                if let Ok(_) = std::fs::metadata(socket_path) {
+                    return Err(MachineError::Cleaning(
+                        format!("fail to remove the socket at {}, maybe a dir, non-exist file or permission deny",
+                            socket_path.display())
+                    ));
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -645,6 +690,9 @@ async fn capture_fifo_to_file(
 }
 
 impl HandlerList {
+    pub(super) fn blank() -> Self {
+        HandlerList(Vec::new())
+    }
     pub fn default_fcinit_handler_list() -> Self {
         HandlerList(vec![
             Handler::SetupNetworkHandler {
@@ -769,6 +817,11 @@ impl HandlerList {
     /// clear clears all named handler in the list
     pub fn clear(&mut self) {
         self.0.clear();
+    }
+
+    /// reverse will reverse the handlers stored in the list
+    pub fn reverse(&mut self) {
+        self.0.reverse();
     }
 
     /// run will execute each instruction in the handler list. If an error occurs in
