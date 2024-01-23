@@ -118,7 +118,7 @@ pub struct JailerCommandBuilder {
 
     // optional params
     chroot_base_dir: Option<PathBuf>,
-    net_ns: Option<String>,
+    net_ns: Option<PathBuf>,
     daemonize: Option<bool>,
     fircracker_args: Option<Vec<String>>,
 
@@ -171,7 +171,7 @@ impl JailerCommandBuilder {
 
         if let Some(net_ns) = &self.net_ns {
             args.push("--netns".into());
-            args.push(net_ns.to_string());
+            args.push(net_ns.to_string_lossy().to_string());
         }
 
         if let Some(true) = self.daemonize {
@@ -240,7 +240,7 @@ impl JailerCommandBuilder {
     // with_net_ns will set the given path to the net namespace of the builder. This
     // represents the path to a network namespace handle and will be used to join
     // the associated network namepsace.
-    pub fn with_net_ns(mut self, path: impl Into<String>) -> Self {
+    pub fn with_net_ns(mut self, path: impl Into<PathBuf>) -> Self {
         self.net_ns = Some(path.into());
         self
     }

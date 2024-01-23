@@ -13,9 +13,8 @@ use super::{
 
 use log::{debug, error, warn};
 use nix::{
-    fcntl::{self, OFlag},
+    fcntl::OFlag,
     sys::stat::Mode,
-    unistd,
 };
 use serde::{Deserialize, Serialize};
 
@@ -90,12 +89,20 @@ pub struct ValidateNetworkCfgHandlerName;
 impl HandlerName for ValidateNetworkCfgHandlerName {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct CleaningUpNetworkHandlerName;
-impl HandlerName for CleaningUpNetworkHandlerName {}
+pub struct CleaningUpNetworkNamespaceHandlerName;
+impl HandlerName for CleaningUpNetworkNamespaceHandlerName {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct CleaningUpCNIHandlerName;
+impl HandlerName for CleaningUpCNIHandlerName {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct CleaningUpSocketHandlerName;
 impl HandlerName for CleaningUpSocketHandlerName {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct CleaningUpFileHandlerName;
+impl HandlerName for CleaningUpFileHandlerName {}
 
 /// Handler are records that's put into Machine instances,
 /// instructing preparations and cleanings.
@@ -206,9 +213,14 @@ pub enum Handler {
         kernel_image_file_name: PathBuf,
     },
 
-    /// CleaningUpNetworkHandler will clean up network configurations.
-    CleaningUpNetworkHandler {
-        name: CleaningUpNetworkHandlerName,
+    /// CleaningUpNetworkHandler will clean up network namespace configurations.
+    CleaningUpNetworkNamespaceHandler {
+        name: CleaningUpNetworkNamespaceHandlerName,
+    },
+
+    /// CleaningUpCNIHandler will clean up CNI configurations.
+    CleaningUpCNIHandler {
+        name: CleaningUpCNIHandlerName,
     },
 
     /// CleaningUpSocketHandler will remove the socket at `socket_path`
@@ -216,10 +228,16 @@ pub enum Handler {
         name: CleaningUpSocketHandlerName,
         socket_path: PathBuf,
     },
+
+    /// CleaningUpFileHandler will remove the file at `file_path`
+    CleaningUpFileHandler {
+        name: CleaningUpFileHandlerName,
+        file_path: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct HandlerList(Vec<Handler>);
+pub struct HandlerList(pub Vec<Handler>);
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Handlers {
@@ -290,8 +308,10 @@ impl Handler {
             Handler::ConfigMmdsHandler { name } => name.type_id(),
             Handler::NewCreateBalloonHandler { name, .. } => name.type_id(),
             Handler::LinkFilesHandler { name, .. } => name.type_id(),
-            Handler::CleaningUpNetworkHandler { name } => name.type_id(),
+            Handler::CleaningUpNetworkNamespaceHandler { name } => name.type_id(),
+            Handler::CleaningUpCNIHandler { name } => name.type_id(),
             Handler::CleaningUpSocketHandler { name, .. } => name.type_id(),
+            Handler::CleaningUpFileHandler { name, .. } => name.type_id(),
         }
     }
     pub async fn func(&self, m: &mut Machine) -> Result<(), MachineError> {
@@ -372,13 +392,14 @@ impl Handler {
             Handler::NetworkConfigValidationHandler { .. } => m.cfg.validate_network(),
             Handler::StartVMMHandler { .. } => m.start_vmm().await,
             Handler::CreateLogFilesHandler { .. } => {
-                create_fifo_or_file(m, &m.cfg.metrics_fifo, &m.cfg.metrics_path)?;
-                create_fifo_or_file(&m, &m.cfg.log_fifo, &m.cfg.log_path)?;
+                m.create_log_fifo_or_file()?;
+                m.create_metrics_fifo_or_file()?;
                 if m.cfg.fifo_log_writer.is_some() {
-                    // 将microVM输出重定向到log fifo和log path
+                    // 将firecracker子进程输出复制到log fifo和log path
                     todo!()
                 }
-                todo!()
+                debug!("Created metrics and logging fifos");
+                Ok(())
             }
             Handler::BootstrapLoggingHandler { .. } => {
                 m.setup_logging().await?;
@@ -578,7 +599,10 @@ impl Handler {
 
                 Ok(())
             }
-            Handler::CleaningUpNetworkHandler { .. } => {
+            Handler::CleaningUpNetworkNamespaceHandler { .. } => {
+                todo!()
+            }
+            Handler::CleaningUpCNIHandler { .. } => {
                 todo!()
             }
             Handler::CleaningUpSocketHandler {
@@ -600,6 +624,22 @@ impl Handler {
                 }
                 Ok(())
             }
+            Handler::CleaningUpFileHandler { name: _, file_path } => {
+                std::fs::remove_file(file_path).map_err(|e| {
+                    MachineError::Cleaning(format!(
+                        "fail to remove the file at {}: {}",
+                        file_path.display(),
+                        e.to_string()
+                    ))
+                })?;
+                if let Ok(_) = std::fs::metadata(file_path) {
+                    return Err(MachineError::Cleaning(
+                        format!("fail to remove the file at {}, maybe a dir, non-exist file or permission deny",
+                            file_path.display())
+                    ));
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -611,55 +651,6 @@ cleanup functions
 关闭metrics通道, 移除metrics文件
 
 */
-
-fn create_fifo_or_file(
-    machine: &Machine,
-    fifo: &Option<PathBuf>,
-    path: &Option<PathBuf>,
-) -> Result<(), MachineError> {
-    if let Some(fifo) = fifo {
-        unistd::mkfifo(fifo, Mode::S_IRUSR | Mode::S_IWUSR).map_err(|e| {
-            MachineError::FileError(format!(
-                "cannot make fifo at {}: {}",
-                fifo.display(),
-                e.to_string()
-            ))
-        })?;
-
-        todo!();
-        /*
-        m.cleanupFuncs = append(m.cleanupFuncs,
-            func() error {
-                if err := os.Remove(fifo); !os.IsNotExist(err) {
-                    return err
-                }
-                return nil
-            },
-        )
-         */
-
-        Ok(())
-    } else if let Some(path) = path {
-        let raw_fd = fcntl::open(
-            path,
-            fcntl::OFlag::O_RDWR | fcntl::OFlag::O_CREAT | fcntl::OFlag::O_APPEND,
-            Mode::S_IRUSR | Mode::S_IWUSR,
-        )
-        .map_err(|e| MachineError::FileError(format!("cannot make file: {}", e.to_string())))?;
-        unistd::close(raw_fd).map_err(|e| {
-            MachineError::FileError(format!(
-                "fail to close file at {}: {}",
-                path.display(),
-                e.to_string()
-            ))
-        })?;
-        Ok(())
-    } else {
-        Err(MachineError::FileError(
-            "create_fifo_or_file: parameters wrong".into(),
-        ))
-    }
-}
 
 async fn capture_fifo_to_file(
     machine: &mut Machine,
@@ -685,6 +676,9 @@ async fn capture_fifo_to_file(
         ))
     })?;
     let fifo_pipe = unsafe { std::fs::File::from_raw_fd(fifo_raw_fd) };
+    debug!("Capturing {} to writer", fifo_path.display());
+
+    
 
     todo!()
 }

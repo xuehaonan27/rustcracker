@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct KernelArgs(HashMap<String, Option<String>>);
+pub struct KernelArgs(pub HashMap<String, Option<String>>);
 
 // serialize the kernelArgs back to a string that can be provided
 // to the kernel

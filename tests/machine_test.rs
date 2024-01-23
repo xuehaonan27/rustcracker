@@ -61,6 +61,14 @@ impl Default for TestArgs {
     }
 }
 
+fn init() {
+    let _ = env_logger::builder().is_test(true).try_init();
+}
+
+fn check_kvm() -> Result<(), MachineError> {
+    todo!()
+}
+
 fn copy_file(from: &PathBuf, to: &PathBuf, uid: u32, gid: u32) -> Result<(), MachineError> {
     std::fs::copy(from, to).map_err(|e| {
         MachineError::FileError(format!(
@@ -82,6 +90,8 @@ fn copy_file(from: &PathBuf, to: &PathBuf, uid: u32, gid: u32) -> Result<(), Mac
 
 #[test]
 fn test_new_machine() {
+    init();
+
     let config: Config = Config::default()
         .with_machine_config(
             MachineConfiguration::default()
@@ -91,8 +101,9 @@ fn test_new_machine() {
                 .set_hyperthreading(false),
         )
         .set_disable_validation(true);
-    let (_send, recv) = oneshot::channel();
-    let m = Machine::new(config, recv, 10, 100);
+    let (_send, exit_recv) = async_channel::bounded(64);
+    let (_send, sig_recv) = async_channel::bounded(64);
+    let m = Machine::new(config, exit_recv, sig_recv, 10, 100);
     let _m = match m {
         Ok(m) => m,
         Err(e) => panic!("failed to create new machine: {}", e),
@@ -101,6 +112,8 @@ fn test_new_machine() {
 
 #[test]
 fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
+    init();
+
     let test_args = TestArgs::default();
     let log_path = test_args
         .test_data_log_path
@@ -117,7 +130,7 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
     let jailer_uid = 123;
     let jailer_gid = 100;
 
-    // use /tmp directory
+    // use temp directory
     let tmpdir = std::env::temp_dir().join("jailer-test");
 
     let vmlinux_path = tmpdir.join("vmlinux");
@@ -274,6 +287,31 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
         )));
     }
 
+    for drive in cfg.drives.as_ref().unwrap() {
+        let drive_image_info = std::fs::metadata(&drive.path_on_host).map_err(|e| MachineError::FileError(format!(
+            "failed to stat drive: {}", e.to_string()
+        )))?;
+
+        if drive_image_info.uid() != jailer_uid || drive_image_info.gid() != jailer_gid {
+            return Err(MachineError::FileError(format!(
+                "Drive does not have the proper uid or gid\nTo fix this simply run:\nsudo chown {}:{} {}",
+                jailer_uid, jailer_gid, drive.path_on_host.display()    
+            )))
+        }
+    }
+
+    let (_send, exit_recv) = async_channel::bounded(64);
+    let (_send, sig_recv) = async_channel::bounded(64);
+    let mut m = Machine::new(cfg, exit_recv, sig_recv, 10, 60).map_err(|e| MachineError::Initialize(format!(
+        "Failed to start VMM: {}", e.to_string()
+    )))?;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async move {
+        m.start().await.map_err(|e| MachineError::Execute(format!("failed to start VMM: {}", e.to_string()))).expect("fail to start VMM");
+        m.stop_vmm().await.expect("cannot stop vmm");
+    });
+
     // Closing:
     nix::unistd::close(fw).map_err(|e| {
         MachineError::FileError(format!(
@@ -316,5 +354,21 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
     nix::unistd::close(log_fd).map_err(|e| {
         MachineError::FileError(format!("double closing log file: {}", e.to_string()))
     })?;
+
+    let info = std::fs::metadata(&captured_log);
+    assert!(info.is_err());
+
     Ok(())
+}
+
+#[test]
+fn test_micro_vm_execution() -> Result<(), MachineError> {
+    init();
+    Ok(())
+}
+
+#[test]
+fn test_start_vmm() {
+    init();
+    
 }
