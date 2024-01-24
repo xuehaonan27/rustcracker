@@ -40,7 +40,11 @@ use crate::{
 };
 
 use super::{
-    agent::Agent, handler::{CleaningUpFileHandlerName, HandlerList, Handlers}, jailer::{JailerConfig, StdioTypes}, network::UniNetworkInterfaces, signals::Signal
+    agent::Agent,
+    handler::{CleaningUpFileHandlerName, HandlerList, Handlers},
+    jailer::{JailerConfig, StdioTypes},
+    network::UniNetworkInterfaces,
+    signals::Signal,
 };
 
 const USER_AGENT: &'static str = "rustfire";
@@ -116,7 +120,7 @@ pub struct Config {
     // FifoLogWriter is an io.Writer(Stdio) that is used to redirect the contents of the
     // fifo log to the writer.
     // pub(crate) fifo_log_writer: Option<std::process::Stdio>,
-    pub fifo_log_writer: Option<StdioTypes>,
+    pub fifo_log_writer: Option<i32>,
 
     // VsockDevices specifies the vsock devices that should be made available to
     // the microVM.
@@ -313,10 +317,10 @@ pub struct Machine {
     /// exit_ch is a channel which gets closed when the VMM exits
     /// implemented with async_channel, which will receive the instruction
     /// sent by outside and share the message between different async listeners
-    /// who will take some measures upon receiving a message, e.g. StopVMM, 
+    /// who will take some measures upon receiving a message, e.g. StopVMM,
     /// which could totally stop the execution of microVM and firecracker process,
     /// and instruct listeners to do some cleaning up, setting the fatalerr, etc.
-    /// 
+    ///
     /// other operations, such as getting instance information, making a snapshot
     /// of the instance or patching a new balloon device, could simply done by
     /// calling the public method of the instance.
@@ -366,7 +370,9 @@ pub enum MachineMessage {
     /// Machine or sent from the Machine. Users should never try sending
     /// this by exit_ch sender, which won't be handled.
     InternalError,
-    SignalSent {signum: u32},
+    SignalSent {
+        signum: u32,
+    },
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -425,7 +431,10 @@ impl Machine {
     /// and one should never call this function so set as private.
     /// The reason why I do not want to impl Default for Machine
     /// is the same. Just keep it private.
-    fn default(exit_recv: async_channel::Receiver<MachineMessage>, sig_recv: async_channel::Receiver<MachineMessage>) -> Self {
+    fn default(
+        exit_recv: async_channel::Receiver<MachineMessage>,
+        sig_recv: async_channel::Receiver<MachineMessage>,
+    ) -> Self {
         let (i_send, i_recv) = async_channel::bounded(64);
         Machine {
             handlers: Handlers::default(),
@@ -445,6 +454,14 @@ impl Machine {
             cleanup_once: Once::new(),
             cleanup_funcs: HandlerList::blank(),
         }
+    }
+
+    pub fn get_log_file(&self) -> Option<PathBuf> {
+        self.cfg.log_fifo.to_owned()
+    }
+
+    pub fn set_command(&mut self, cmd: tokio::process::Command) {
+        self.cmd = Some(cmd);
     }
 
     /// new initializes a new Machine instance and performs validation of the
@@ -539,17 +556,30 @@ impl Machine {
         machine.cfg = cfg.to_owned();
 
         // temp: use default network namespace path
-        let default_netns_path: PathBuf = DEFAULT_NETNS_DIR.into();
-        default_netns_path.join(machine.cfg.vmid.as_ref().unwrap());
+        let mut default_netns_path: PathBuf = DEFAULT_NETNS_DIR.into();
+        default_netns_path = default_netns_path.join(machine.cfg.vmid.as_ref().unwrap());
 
         // netns setting
         // if there's no network namespace set, then use default net namespace path
-        if cfg.net_ns.is_none() && cfg.network_interfaces.is_some() && cfg.network_interfaces.as_ref().unwrap().cni_interface().is_some() {
+        if cfg.net_ns.is_none()
+            && cfg.network_interfaces.is_some()
+            && cfg
+                .network_interfaces
+                .as_ref()
+                .unwrap()
+                .cni_interface()
+                .is_some()
+        {
             machine.cfg.net_ns = Some(default_netns_path);
         }
 
         debug!("Called Machine::new");
         Ok(machine)
+    }
+
+    /// clear_validation clear validation handlers of this machine
+    pub fn clear_validation(&mut self) {
+        self.handlers.validation.clear();
     }
 
     /// logger set a appropriate logger for logging hypervisor message
@@ -620,8 +650,9 @@ impl Machine {
                 ))
             })?;
             return Err(MachineError::Execute(format!(
-                            "Machine::start failed due to {}", e
-                        )));
+                "Machine::start failed due to {}",
+                e
+            )));
         }
         Ok(())
     }
@@ -647,7 +678,7 @@ impl Machine {
                     error!("fail to do cleaning up: {}", e);
                     MachineError::Execute(format!("fail to do cleaning up: {}", e))
                 })?;
-                
+
                 self.exit_ch.close();
                 self.sig_ch.close();
             }
@@ -668,7 +699,7 @@ impl Machine {
                 todo!()
             }
         }
-        
+
         Ok(())
     }
 
@@ -718,7 +749,7 @@ impl Machine {
     }
 
     /// start_vmm starts the firecracker vmm process and configures logging.
-    pub(super) async fn start_vmm(&mut self) -> Result<(), MachineError> {
+    pub async fn start_vmm(&mut self) -> Result<(), MachineError> {
         if self.cfg.socket_path.is_none() {
             error!("start_vmm: no socket path provided");
             return Err(MachineError::FileError(
@@ -743,7 +774,7 @@ impl Machine {
         if self.cfg.net_ns.is_some() && self.cfg.jailer_cfg.is_none() {
             // If the VM needs to be started in a netns but no jailer netns was configured,
             // start the vmm child process in the netns directly here.
-            
+
             /*
             err = ns.WithNetNSPath(m.Cfg.NetNS, func(_ ns.NetNS) error {
                 return startCmd()
@@ -817,15 +848,29 @@ impl Machine {
         Ok(())
     }
 
-    /// stop_vmm stops the current VMM by sending a SIGKILL
+    /// stop_vmm stops the current VMM by sending a SIGTERM
     pub async fn stop_vmm(&mut self) -> Result<(), MachineError> {
         debug!("stop_vmm: sending sigkill to firecracker");
 
         // sending a SIGTERM
         if self.cmd.is_some() && self.child_process.is_some() {
-            let pid = self.child_process.as_ref().unwrap().id().ok_or(MachineError::Execute("stop_vmm: no pid found, maybe VMM already stopped".to_string()))?;
-            nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid as i32), nix::sys::signal::SIGTERM).map_err(|e| {
-                error!("fail to send SIGTERM to firecracker process {}, reason: {}", pid, e);
+            let pid = self
+                .child_process
+                .as_ref()
+                .unwrap()
+                .id()
+                .ok_or(MachineError::Execute(
+                    "stop_vmm: no pid found, maybe VMM already stopped".to_string(),
+                ))?;
+            nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(pid as i32),
+                nix::sys::signal::SIGTERM,
+            )
+            .map_err(|e| {
+                error!(
+                    "fail to send SIGTERM to firecracker process {}, reason: {}",
+                    pid, e
+                );
                 MachineError::Execute(format!(
                     "fail to send SIGTERM to firecracker process {}, reason: {}",
                     pid, e
@@ -851,6 +896,31 @@ impl Machine {
         // }
 
         debug!("stop_vmm: no firecracker process running, not sending as signal");
+        Ok(())
+    }
+
+    /// stop_vmm_force stops the current VMM by sending a SIGKILL
+    pub async fn stop_vmm_force(&mut self) -> Result<(), MachineError> {
+        debug!("stop_vmm_force: sending sigkill to firecracker");
+
+        // sending a SIGKILL
+        if self.cmd.is_some() && self.child_process.is_some() {
+            let pid = self.pid;
+            self.child_process
+                .as_mut()
+                .unwrap()
+                .kill()
+                .await
+                .map_err(|e| {
+                    error!("vmm process already finished!");
+                    MachineError::Execute(format!(
+                        "firecracker process already finished, pid: {:?}",
+                        pid
+                    ))
+                })?;
+        }
+
+        debug!("stop_vmm_force: no firecracker process running, not sending as signal");
         Ok(())
     }
 
@@ -915,13 +985,25 @@ impl Machine {
 
     pub(super) async fn setup_network(&mut self) -> Result<(), MachineError> {
         if self.cfg.network_interfaces.is_none() {
-            return Err(MachineError::Initialize("fail to set up networks, no network interfaces provided in configuration".to_string()))
+            return Err(MachineError::Initialize(
+                "fail to set up networks, no network interfaces provided in configuration"
+                    .to_string(),
+            ));
         }
-        
-        let funcs = self.cfg.network_interfaces.as_ref().unwrap().setup_network(&self.cfg.vmid, &self.cfg.net_ns).map_err(|e| {
-            error!("something wrong when setting up network: {}", e.to_string());
-            MachineError::Initialize(format!("something wrong when setting up network: {}", e.to_string()))
-        })?;
+
+        let funcs = self
+            .cfg
+            .network_interfaces
+            .as_ref()
+            .unwrap()
+            .setup_network(&self.cfg.vmid, &self.cfg.net_ns)
+            .map_err(|e| {
+                error!("something wrong when setting up network: {}", e.to_string());
+                MachineError::Initialize(format!(
+                    "something wrong when setting up network: {}",
+                    e.to_string()
+                ))
+            })?;
 
         self.cleanup_funcs.append(funcs.0);
 
@@ -933,16 +1015,38 @@ impl Machine {
 
         // If any network interfaces have a static IP configured, we need to set the "ip=" boot param.
         // Validation that we are not overriding an existing "ip=" setting happens in the network validation
-        if let Some(static_ip_interface) = self.cfg.network_interfaces.as_ref().unwrap().static_ip_interface() {
-            if static_ip_interface.static_configuration.as_ref().unwrap().ip_configuration.is_none() {
-                return Err(MachineError::Initialize(format!("missing ip configuration in static network interface {:#?}", static_ip_interface)));
+        if let Some(static_ip_interface) = self
+            .cfg
+            .network_interfaces
+            .as_ref()
+            .unwrap()
+            .static_ip_interface()
+        {
+            if static_ip_interface
+                .static_configuration
+                .as_ref()
+                .unwrap()
+                .ip_configuration
+                .is_none()
+            {
+                return Err(MachineError::Initialize(format!(
+                    "missing ip configuration in static network interface {:#?}",
+                    static_ip_interface
+                )));
             } else {
-                let s = static_ip_interface.static_configuration.as_ref().unwrap().ip_configuration.as_ref().unwrap().ip_boot_param();
+                let s = static_ip_interface
+                    .static_configuration
+                    .as_ref()
+                    .unwrap()
+                    .ip_configuration
+                    .as_ref()
+                    .unwrap()
+                    .ip_boot_param();
                 kernel_args.0.insert("ip".to_string(), Some(s));
             }
         }
         self.cfg.kernel_args = Some(kernel_args.to_string());
-        
+
         Ok(())
     }
 
@@ -956,7 +1060,6 @@ impl Machine {
         Ok(())
     }
 
-
     pub(super) fn create_log_fifo_or_file(&mut self) -> Result<(), MachineError> {
         if let Some(fifo) = &self.cfg.log_fifo {
             unistd::mkfifo(fifo, Mode::S_IRUSR | Mode::S_IWUSR).map_err(|e| {
@@ -967,8 +1070,7 @@ impl Machine {
                 ))
             })?;
 
-            self
-                .cleanup_funcs
+            self.cleanup_funcs
                 .append(vec![Handler::CleaningUpFileHandler {
                     name: CleaningUpFileHandlerName,
                     file_path: fifo.to_owned(),
@@ -1007,8 +1109,7 @@ impl Machine {
                 ))
             })?;
 
-            self
-                .cleanup_funcs
+            self.cleanup_funcs
                 .append(vec![Handler::CleaningUpFileHandler {
                     name: CleaningUpFileHandlerName,
                     file_path: fifo.to_owned(),
@@ -1371,7 +1472,7 @@ impl Machine {
     pub async fn update_guest_drive(
         &self,
         drive_id: String,
-        path_on_host: String,
+        path_on_host: PathBuf,
     ) -> Result<(), MachineError> {
         let partial_drive = PartialDrive {
             drive_id,
@@ -1505,4 +1606,229 @@ impl Machine {
         debug!("UpdateBalloonStats successful");
         Ok(())
     }
+}
+
+pub mod test_utils {
+    use std::{collections::HashMap, path::PathBuf};
+
+    use log::info;
+
+    use crate::{
+        model::{drive::Drive, vsock::Vsock},
+        utils::{make_socket_path, TestArgs},
+    };
+
+    use super::{Config, Machine, MachineError};
+
+    pub async fn test_create_machine(m: &mut Machine) -> Result<(), MachineError> {
+        m.create_machine().await?;
+        Ok(())
+    }
+
+    pub fn test_machine_config_application(
+        m: &mut Machine,
+        expected_values: &Config,
+    ) -> Result<(), MachineError> {
+        assert_eq!(
+            expected_values.machine_cfg.as_ref().unwrap().vcpu_count,
+            m.machine_config.vcpu_count
+        );
+        assert_eq!(
+            expected_values.machine_cfg.as_ref().unwrap().mem_size_mib,
+            m.machine_config.mem_size_mib
+        );
+        Ok(())
+    }
+
+    pub async fn test_create_boot_source(
+        m: &mut Machine,
+        vmlinux_path: &PathBuf,
+    ) -> Result<(), MachineError> {
+        // panic=0: This option disables reboot-on-panic behavior for the kernel. We
+        //          use this option as we might run the tests without a real root
+        //          filesystem available to the guest.
+        // Kernel command-line options can be found in the kernel source tree at
+        // Documentation/admin-guide/kernel-parameters.txt.
+        let kernel_args = "ro console=ttyS0 noapic reboot=k panic=0 pci=off nomodules".to_string();
+        m.create_boot_source(vmlinux_path, &"".to_string().into(), &kernel_args)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn test_update_guest_drive(m: &mut Machine) -> Result<(), MachineError> {
+        let path = TestArgs::test_data_path().join("drive-3.img");
+        m.update_guest_drive("2".to_string(), path).await?;
+        Ok(())
+    }
+
+    // pub async fn test_update_guest_network_interface(m: &mut Machine) -> Result<(), MachineError> {
+    //     todo!()
+    // }
+
+    // pub async fn test_create_network_interface_by_id(m: &mut Machine) -> Result<(), MachineError> {
+    //     todo!()
+    // }
+
+    pub async fn test_attach_root_drive(m: &mut Machine) -> Result<(), MachineError> {
+        let drive = Drive {
+            drive_id: "0".to_string(),
+            is_root_device: true,
+            is_read_only: true,
+            path_on_host: TestArgs::test_root_fs(),
+            partuuid: None,
+            cache_type: None,
+            rate_limiter: None,
+            io_engine: None,
+            socket: None,
+        };
+        m.attach_drive(&drive).await?;
+
+        Ok(())
+    }
+
+    pub async fn test_attch_secondary_drive(m: &mut Machine) -> Result<(), MachineError> {
+        let drive = Drive {
+            drive_id: "0".to_string(),
+            is_root_device: true,
+            is_read_only: true,
+            path_on_host: TestArgs::test_root_fs(),
+            partuuid: None,
+            cache_type: None,
+            rate_limiter: None,
+            io_engine: None,
+            socket: None,
+        };
+        m.attach_drive(&drive).await?;
+        Ok(())
+    }
+
+    pub async fn test_attach_vsock(m: &mut Machine) -> Result<(), MachineError> {
+        let time_stamp = std::time::SystemTime::now().elapsed().unwrap().as_nanos();
+        let dev = Vsock {
+            vsock_id: Some("1".to_string()),
+            guest_cid: 3,
+            uds_path: [time_stamp.to_string(), ".vsock".to_string()]
+                .iter()
+                .collect(),
+        };
+        m.add_vsock(&dev).await?;
+
+        Ok(())
+    }
+
+    pub async fn test_start_instance(m: &mut Machine) -> Result<(), MachineError> {
+        m.start_instance().await?;
+        Ok(())
+    }
+
+    pub async fn test_stop_vmm(m: &mut Machine) -> Result<(), MachineError> {
+        m.stop_vmm().await?;
+        Ok(())
+    }
+
+    pub async fn test_shutdown(m: &mut Machine) -> Result<(), MachineError> {
+        m.shutdown().await?;
+        Ok(())
+    }
+
+    pub async fn test_wait_for_socket() -> Result<(), MachineError> {
+        let socket_path = make_socket_path("test_wait_for_socket");
+        let (exit_send, exit_recv) = async_channel::bounded(64);
+        let (sig_send, sig_recv) = async_channel::bounded(64);
+        let cfg = Config {
+            socket_path: Some(socket_path),
+            ..Default::default()
+        };
+        let m = Machine::new(cfg, exit_recv, sig_recv, 10, 60)?;
+        m.wait_for_socket(10).await?;
+        Ok(())
+    }
+
+    pub async fn test_set_metadata(m: &mut Machine) -> Result<(), MachineError> {
+        let mut metadata = HashMap::new();
+        metadata.insert("key", "value");
+
+        let s = serde_json::to_string(&metadata).map_err(|e| {
+            MachineError::Execute(format!("fail to serialize HashMap: {}", e.to_string()))
+        })?;
+        m.set_metadata(&s).await?;
+        Ok(())
+    }
+
+    pub async fn test_update_metadata(m: &mut Machine) -> Result<(), MachineError> {
+        let mut metadata = HashMap::new();
+        metadata.insert("patch_key", "patch_value");
+
+        let s = serde_json::to_string(&metadata).map_err(|e| {
+            MachineError::Execute(format!("fail to serialize HashMap: {}", e.to_string()))
+        })?;
+        m.update_matadata(&s).await?;
+        Ok(())
+    }
+
+    pub async fn test_get_metadata(m: &mut Machine) -> Result<(), MachineError> {
+        let s: String = m.get_metadata().await?;
+        info!("get_metadata: {}", s);
+        Ok(())
+    }
+
+    pub async fn test_get_instance_info(m: &mut Machine) -> Result<(), MachineError> {
+        let instance = m.describe_instance_info().await?;
+        if instance.app_name == "".to_string() {
+            Err(MachineError::Execute("invalid instance app name".to_string()))
+        } else if instance.id == "".to_string() {
+            Err(MachineError::Execute("invalid instance id".to_string()))
+        } else if instance.vmm_version == "".to_string() {
+            Err(MachineError::Execute("invalid vmm version".to_string()))
+        } else {
+            Ok(())
+        }
+    }
+
+    // pub async fn test_log_files()
+
+    pub async fn test_socket_path_set() -> Result<(), MachineError> {
+        let socket_path: PathBuf = "foo/bar".into();
+        let (_exit_send, exit_recv) = async_channel::bounded(64);
+        let (_sig_send, sig_recv) = async_channel::bounded(64);
+        let cfg = Config {
+            socket_path: Some(socket_path.to_owned()),
+            ..Default::default()
+        };
+        let m = Machine::new(cfg, exit_recv, sig_recv, 10, 60)?;
+        let mut found = false;
+        let mut iter = m.cmd.as_ref().unwrap().as_std().get_args();
+        loop {
+            let s = iter.next();
+            if s.is_none() {
+                break;
+            } else if s.unwrap() != "--api-sock" {
+                continue;
+            } else {
+                found = true;
+                let arg = iter.next();
+                if arg.is_none() {
+                    return Err(MachineError::Initialize(format!("no socket path provided after `--api-sock`")))
+                } else if arg.unwrap() != socket_path {
+                    return Err(MachineError::Initialize(format!("Incorrect socket path: {:#?}", arg.unwrap())))
+                }
+                break;
+            }
+        }
+        if !found {
+            return Err(MachineError::Initialize("fail to find socket path".to_string()))
+        }
+        Ok(())
+    }
+
+    // pub async fn test_pid() -> Result<(), MachineError> {
+    //     let (_exit_send, exit_recv) = async_channel::bounded(64);
+    //     let (_sig_send, sig_recv) = async_channel::bounded(64);
+    //     let cfg = Config::default();
+    //     let m = Machine::new(cfg, exit_recv, sig_recv, 10, 60)?;
+        
+
+    //     Ok(())
+    // }
 }

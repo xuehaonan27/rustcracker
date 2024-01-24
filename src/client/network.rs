@@ -17,7 +17,7 @@ const DEFAULT_CNI_CACHE_DIR: &'static str = "/var/lib/cni";
 /// UniNetworkInterfaces is a slice of NetworkInterface objects that a VM will be
 /// configured to use.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UniNetworkInterfaces(Vec<UniNetworkInterface>);
+pub struct UniNetworkInterfaces(pub Vec<UniNetworkInterface>);
 
 /// UniNetworkInterface represents a Firecracker microVM's network interface.
 /// It can be configured either with static parameters set via StaticConfiguration
@@ -34,13 +34,13 @@ pub struct UniNetworkInterface {
     pub cni_configuration: Option<CNIConfiguration>,
 
     /// AllowMMDS makes the Firecracker MMDS available on this network interface.
-    pub allow_mmds: bool,
+    pub allow_mmds: Option<bool>,
 
     /// InRateLimiter limits the incoming bytes.
-    pub in_rate_limiter: RateLimiter,
+    pub in_rate_limiter: Option<RateLimiter>,
 
     /// OutRateLimiter limits the outgoing bytes.
-    pub out_rate_limiter: RateLimiter,
+    pub out_rate_limiter: Option<RateLimiter>,
 }
 
 /// CNIConfiguration specifies the CNI parameters that will be used to generate

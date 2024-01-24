@@ -1,97 +1,27 @@
-use std::{os::unix::fs::MetadataExt, path::PathBuf};
+use std::{env::temp_dir, os::unix::fs::MetadataExt, path::PathBuf};
 
 use nix::{
     fcntl::OFlag,
     sys::stat::Mode,
-    unistd::{Gid, Uid},
+    unistd::{access, AccessFlags, Gid, Uid},
 };
 use rustfire::{
     client::{
-        handler::HandlersAdapter,
-        jailer::{JailerConfig, StdioTypes},
-        machine::{Config, Machine, MachineError},
-    },
-    model::{
+        command_builder::VMMCommandBuilder, handler::{AttachDrivesHandlerName, CreateBootSourceHandlerName, CreateMachineHandlerName, Handler, HandlersAdapter}, jailer::{JailerConfig, StdioTypes}, machine::{test_utils::test_attach_root_drive, Config, Machine, MachineError}, network::{StaticNetworkConfiguration, UniNetworkInterface, UniNetworkInterfaces}
+    }, model::{
         cpu_template::{self, CPUTemplate, CPUTemplateString},
         drive::Drive,
         logger::LogLevel,
         machine_configuration::MachineConfiguration,
-    },
+    }, utils::{check_kvm, copy_file, init, make_socket_path, TestArgs, DEFAULT_JAILER_BINARY, FIRECRACKER_BINARY_PATH}
 };
+use log::{error, info};
 use tokio::sync::oneshot;
 
-const FIRECRACKER_BINARY_PATH: &'static str = "firecracker";
-const FIRECRACKER_BINARY_OVERRIDE_ENV: &'static str = "FC_TEST_BIN";
-const DEFAULT_JAILER_BINARY: &'static str = "jailer";
-const JAILER_BINARY_OVERRIDE_ENV: &'static str = "FC_TEST_JAILER_BIN";
-const DEFUALT_TUNTAP_NAME: &'static str = "fc-test-tap0";
-const TUNTAP_OVERRIDE_ENV: &'static str = "FC_TEST_TAP";
-const TEST_DATA_PATH_ENV: &'static str = "FC_TEST_DATA_PATH";
-const SUDO_UID: &'static str = "SUDO_UID";
-const SUDO_GID: &'static str = "SUDO_GID";
-
-struct TestArgs {
-    pub(crate) skip_tuntap: bool,
-    pub(crate) test_data_path: PathBuf,
-    pub(crate) test_data_log_path: PathBuf,
-    pub(crate) test_data_bin: PathBuf,
-
-    pub(crate) test_root_fs: PathBuf,
-
-    pub(crate) test_balloon_memory: i64,
-    pub(crate) test_balloon_new_memory: i64,
-    pub(crate) test_balloon_deflate_on_oon: bool,
-    pub(crate) test_stats_polling_interval_s: i64,
-    pub(crate) test_new_stats_polling_intervals: i64,
-}
-impl Default for TestArgs {
-    fn default() -> Self {
-        Self {
-            skip_tuntap: false,
-            test_data_path: "./testdata".into(),
-            test_data_log_path: "logs".into(),
-            test_data_bin: "bin".into(),
-            test_root_fs: "root-drive.img".into(),
-            test_balloon_memory: 10,
-            test_balloon_new_memory: 6,
-            test_balloon_deflate_on_oon: true,
-            test_stats_polling_interval_s: 1,
-            test_new_stats_polling_intervals: 6,
-        }
-    }
-}
-
-fn init() {
-    let _ = env_logger::builder().is_test(true).try_init();
-}
-
-fn check_kvm() -> Result<(), MachineError> {
-    todo!()
-}
-
-fn copy_file(from: &PathBuf, to: &PathBuf, uid: u32, gid: u32) -> Result<(), MachineError> {
-    std::fs::copy(from, to).map_err(|e| {
-        MachineError::FileError(format!(
-            "copy_file: Fail to copy file from {} to {}: {}",
-            from.display(),
-            to.display(),
-            e.to_string()
-        ))
-    })?;
-    nix::unistd::chown(to, Some(Uid::from_raw(uid)), Some(Gid::from_raw(gid))).map_err(|e| {
-        MachineError::FileError(format!(
-            "copy_file: Fail to chown file {}: {}",
-            to.display(),
-            e.to_string()
-        ))
-    })?;
-    Ok(())
-}
-
 #[test]
-fn test_new_machine() {
+fn test_new_machine() -> Result<(), MachineError> { 
     init();
-
+    check_kvm()?;
     let config: Config = Config::default()
         .with_machine_config(
             MachineConfiguration::default()
@@ -103,20 +33,16 @@ fn test_new_machine() {
         .set_disable_validation(true);
     let (_send, exit_recv) = async_channel::bounded(64);
     let (_send, sig_recv) = async_channel::bounded(64);
-    let m = Machine::new(config, exit_recv, sig_recv, 10, 100);
-    let _m = match m {
-        Ok(m) => m,
-        Err(e) => panic!("failed to create new machine: {}", e),
-    };
+    Machine::new(config, exit_recv, sig_recv, 10, 100)?;
+    Ok(())
 }
 
 #[test]
 fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
     init();
-
-    let test_args = TestArgs::default();
-    let log_path = test_args
-        .test_data_log_path
+    check_kvm()?;
+    let log_path = TestArgs::
+        test_data_log_path()
         .join("test_jailer_micro_vm_execution");
     std::fs::create_dir_all(&log_path).map_err(|e| {
         MachineError::FileError(format!(
@@ -135,7 +61,7 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
 
     let vmlinux_path = tmpdir.join("vmlinux");
     copy_file(
-        &test_args.test_data_path.join("vmlinux"),
+        &TestArgs::test_data_path().join("vmlinux"),
         &vmlinux_path,
         jailer_uid,
         jailer_gid,
@@ -143,7 +69,7 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
 
     let root_drive_path = tmpdir.join("root-drive.img");
     copy_file(
-        &test_args.test_root_fs,
+        &TestArgs::test_root_fs(),
         &root_drive_path,
         jailer_uid,
         jailer_gid,
@@ -169,20 +95,6 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
     let log_fifo = tmpdir.join("firecracker.log");
     let metrics_fifo = tmpdir.join("firecracker-metrics");
     let captured_log = tmpdir.join("writer.fifo");
-
-    // let fw = std::fs::OpenOptions::new()
-    //     .create(true)
-    //     .read(true)
-    //     .write(true)
-    //     .mode(0o600)
-    //     .open(&captured_log)
-    //     .map_err(|e| {
-    //         MachineError::FileError(format!(
-    //             "fail to open the path {}: {}",
-    //             captured_log.display(),
-    //             e.to_string(),
-    //         ))
-    //     })?;
 
     let fw = nix::fcntl::open(
         &captured_log,
@@ -236,13 +148,13 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
             socket: None,
         }]),
         jailer_cfg: Some(JailerConfig {
-            jailer_binary: Some(test_args.test_data_path.join(DEFAULT_JAILER_BINARY)),
+            jailer_binary: Some(TestArgs::test_data_path().join(DEFAULT_JAILER_BINARY)),
             gid: Some(jailer_gid),
             uid: Some(jailer_uid),
             numa_node: Some(0),
             id: Some(id.to_string()),
             chroot_base_dir: Some(jail_test_path.to_owned()),
-            exec_file: Some(test_args.test_data_path.join(FIRECRACKER_BINARY_PATH)),
+            exec_file: Some(TestArgs::test_data_path().join(FIRECRACKER_BINARY_PATH)),
             chroot_strategy: Some(HandlersAdapter::NaiveChrootStrategy {
                 rootfs: "".into(),
                 kernel_image_path: vmlinux_path.to_owned(),
@@ -252,7 +164,7 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
             daemonize: None,
             stdin: None,
         }),
-        fifo_log_writer: Some(StdioTypes::FromRawFd { fd: fw }),
+        fifo_log_writer: Some(fw),
         metrics_path: None,
         metrics_fifo: None,
         initrd_path: None,
@@ -364,11 +276,237 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
 #[test]
 fn test_micro_vm_execution() -> Result<(), MachineError> {
     init();
+    check_kvm()?;
+    let ncpus = 2;
+    let cpu_template = CPUTemplateString::T2;
+    let mem_sz = 256;
+
+    let dir = std::env::temp_dir();
+    let socket_path = dir.join("test_micro_vm_execution.sock");
+    let log_fifo = dir.join("firecracker.log");
+    let metrics_fifo = dir.join("firecracker-metrics");
+    let captured_log = dir.join("writer.fifo");
+    let fw = nix::fcntl::open(&captured_log, OFlag::O_CREAT | OFlag::O_RDWR, Mode::S_IRUSR | Mode::S_IWUSR).map_err(|e| {
+        MachineError::FileError(format!(
+            "fail to open file {}: {}", captured_log.display(), e.to_string()
+        ))
+    })?;
+    let vmlinux_path = dir.join("vmlinux");
+    let network_ifaces = UniNetworkInterfaces(vec![
+        UniNetworkInterface {
+            static_configuration: Some(StaticNetworkConfiguration{mac_address:"01-23-45-67-89-AB-CD-EF".to_string(),host_dev_name:Some("tap0".to_string()),ip_configuration: None}),
+            cni_configuration: None,
+            allow_mmds: None,
+            in_rate_limiter: None,
+            out_rate_limiter: None,
+        }
+    ]);
+
+    let cfg = Config {
+        socket_path: Some(socket_path.to_owned()),
+        log_fifo: Some(log_fifo),
+        log_path: None,
+        log_level: Some(LogLevel::Debug),
+        metrics_fifo: Some(metrics_fifo),
+        metrics_path: None,
+        machine_cfg: Some(MachineConfiguration {
+        vcpu_count: ncpus,
+        cpu_template: Some(CPUTemplate(cpu_template)),
+        ht_enabled: Some(false),
+        mem_size_mib: mem_sz,
+        track_dirty_pages: None,
+                }),
+        disable_validation: true,
+        network_interfaces: Some(network_ifaces),
+        fifo_log_writer: Some(fw),
+
+        kernel_args: None,
+        kernel_image_path: None,
+        initrd_path: None,
+        drives: None,
+        vsock_devices: None,
+        jailer_cfg: None,
+        vmid: None,
+        net_ns: None,
+        forward_signals: None,
+        seccomp_level: None,
+        mmds_address: None,
+    };
+
+    let cmd = VMMCommandBuilder::new().with_socket_path(&socket_path).with_bin(&TestArgs::get_firecracker_binary_path()).build();
+
+    let (_send, exit_recv) = async_channel::bounded(64);
+    let (_send, sig_recv) = async_channel::bounded(64);
+    let mut m = Machine::new(cfg, exit_recv, sig_recv, 10, 500)?;
+
+    m.clear_validation();
+    let rt = tokio::runtime::Runtime::new().map_err(|e| MachineError::Execute(format!(
+        "fail to create tokio runtime: {}", e.to_string()
+    )))?;
+    rt.block_on(async move {
+        if m.start_vmm().await.is_err() {
+            error!("fail to start vmm");
+            return;
+        }
+
+        test_attach_root_drive(&mut m).await;
+
+        if m.wait().await.is_err() {
+
+        }
+        if m.stop_vmm().await.is_err() {
+            
+        }
+    });
+
+    nix::unistd::close(fw).map_err(|e| {
+        MachineError::FileError(format!(
+            "double closing {}: {}",
+            captured_log.display(),
+            e.to_string()
+        ))
+    })?;
+
+    std::fs::remove_dir_all(&dir).map_err(|e| {
+        MachineError::FileError(format!(
+            "fail to remove dir at {}: {}",
+            dir.display(),
+            e.to_string()
+        ))
+    })?;
     Ok(())
 }
 
 #[test]
-fn test_start_vmm() {
+fn test_start_vmm() -> Result<(), MachineError> {
     init();
+    check_kvm()?;
+    let socket_path = make_socket_path("test_start_vmm");
+
+    let cfg = Config {
+        socket_path: Some(socket_path.to_owned()),
+        ..Default::default()
+    };
+
+    let cmd = VMMCommandBuilder::new().with_socket_path(&socket_path).with_bin(&TestArgs::get_firecracker_binary_path()).build();
     
+    let (exit_send, exit_recv) = async_channel::bounded(64);
+    let (sig_send, sig_recv) = async_channel::bounded(64);
+    let mut m = Machine::new(cfg, exit_recv, sig_recv, 10, 60)?;
+    m.set_command(cmd.into());
+
+    m.clear_validation();
+
+    let rt = tokio::runtime::Runtime::new().map_err(|e| {
+        MachineError::Initialize("fail to create tokio runtime".to_string())
+    })?;
+
+    let (send, recv) = tokio::sync::oneshot::channel();
+    rt.block_on(async move {
+        tokio::select! {
+            output = m.start_vmm() => {
+                send.send(output).unwrap();
+            }
+            _ = tokio::time::sleep(tokio::time::Duration::from_millis(250)) => {
+                info!("firecracker ran for 250ms and still start_vmm doesn't return");
+                m.stop_vmm().await.expect("fail to stop_vmm!");
+            }
+        };
+
+        // stop_vmm force anyway
+        _ = m.stop_vmm_force();
+    });
+
+    let msg = recv.blocking_recv().unwrap();
+    info!("start_vmm sent: {:#?}", msg);
+
+    // close channels
+    exit_send.close();
+    sig_send.close();
+
+    // delete socket path
+    std::fs::remove_file(&socket_path).map_err(|e| {
+        MachineError::FileError(format!("fail to remove socket {}: {}", socket_path.display(), e.to_string()))
+    })?;
+
+    Ok(())
+}
+
+#[test]
+fn test_log_and_metrics() -> Result<(), MachineError> {
+    init();
+    check_kvm()?;
+
+    // let tests = vec![];
+    todo!()
+}
+
+// fn test_log_and_metrics_func()
+
+#[test]
+fn test_start_once() -> Result<(), MachineError> {
+    init();
+    check_kvm()?;
+
+    let socket_path = make_socket_path("test_start_one");
+
+    let cfg = Config {
+        socket_path: Some(socket_path.to_owned()),
+        disable_validation: true,
+        kernel_image_path: Some(TestArgs::get_vmlinux_path()?),
+        machine_cfg: Some(MachineConfiguration{
+            vcpu_count: 1,
+            mem_size_mib: 64,
+            cpu_template: Some(CPUTemplate(CPUTemplateString::T2)),
+            ht_enabled: Some(false),
+            track_dirty_pages: None,
+        }),
+        ..Default::default()
+    };
+
+    let cmd = VMMCommandBuilder::new().with_socket_path(&socket_path).with_bin(&TestArgs::get_firecracker_binary_path()).build();
+    let (exit_send, exit_recv) = async_channel::bounded(64);
+    let (sig_send, sig_recv) = async_channel::bounded(64);
+    let mut m = Machine::new(cfg, exit_recv, sig_recv, 10, 60)?;
+    m.set_command(cmd.into());
+
+    let rt = tokio::runtime::Runtime::new().map_err(|e| {
+        MachineError::Initialize("fail to create tokio runtime".to_string())
+    })?;
+
+    let (send1, recv1) = tokio::sync::oneshot::channel();
+    let (send2, recv2) = tokio::sync::oneshot::channel();
+
+    rt.block_on(async move {
+        tokio::select! {
+            output = m.start() => {
+                let res = m.start().await;
+                assert!(res.is_err());
+                send1.send(output).unwrap();
+                send2.send(res).unwrap();
+            }
+            _ = tokio::time::sleep(tokio::time::Duration::from_millis(250)) => {
+                info!("firecracker ran for 250ms and still start doesn't return");
+                m.stop_vmm().await.expect("fail to stop_vmm!");
+            }
+        }
+
+        _ = m.stop_vmm_force();
+    });
+
+    let msg1 = recv1.blocking_recv().unwrap();
+    info!("start1 sent: {:#?}", msg1);
+    let msg2 = recv2.blocking_recv().unwrap();
+    info!("start2 sent: {:#?}", msg2);
+
+    // close channels
+    exit_send.close();
+    sig_send.close();
+
+    // delete socket path
+    std::fs::remove_file(&socket_path).map_err(|e| {
+        MachineError::FileError(format!("fail to remove socket {}: {}", socket_path.display(), e.to_string()))
+    })?;
+
+    Ok(())
 }
