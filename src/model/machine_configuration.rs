@@ -11,10 +11,11 @@ use super::cpu_template::CPUTemplate;
 /// // CPU template set to C3, 8 virtual CPU, memory
 /// // size set to 1024 MiB, hyperthreading enabled and
 /// // dirty pages tracking disabled.
-/// use Rustcracker::model::machine_configuration::MachineConfiguration;
+/// use rustfire::model::machine_configuration::MachineConfiguration;
+/// use rustfire::model::cpu_template::{CPUTemplate, CPUTemplateString};
 /// let machine_config =
 ///     MachineConfiguration::default()
-///         .with_cpu_template("C3")
+///         .with_cpu_template(&CPUTemplate(CPUTemplateString::C3))
 ///         .with_vcpu_count(8)
 ///         .with_mem_size_mib(1024)
 ///         .set_hyperthreading(true)

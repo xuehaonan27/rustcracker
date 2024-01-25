@@ -98,6 +98,7 @@ impl VMMCommandBuilder {
     pub fn build(self) -> std::process::Command {
         let mut cmd = std::process::Command::new(self.bin());
         if self.socket_path.is_some() {
+            cmd.arg("--api-sock");
             cmd.arg(self.socket_path.as_ref().unwrap());
         }
         if self.args.is_some() {

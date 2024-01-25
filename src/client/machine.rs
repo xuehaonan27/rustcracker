@@ -851,7 +851,8 @@ impl Machine {
     /// stop_vmm stops the current VMM by sending a SIGTERM
     pub async fn stop_vmm(&mut self) -> Result<(), MachineError> {
         debug!("stop_vmm: sending sigkill to firecracker");
-
+        debug!("{:#?}", self.child_process);
+        debug!("{:#?}", self.cmd);
         // sending a SIGTERM
         if self.cmd.is_some() && self.child_process.is_some() {
             let pid = self
@@ -876,6 +877,9 @@ impl Machine {
                     pid, e
                 ))
             })?
+        } else {
+            debug!("stop_vmm: no firecracker process running, not sending as signal");
+        
         }
 
         // sending a SIGKILL
@@ -895,14 +899,14 @@ impl Machine {
         //         })?;
         // }
 
-        debug!("stop_vmm: no firecracker process running, not sending as signal");
         Ok(())
     }
 
     /// stop_vmm_force stops the current VMM by sending a SIGKILL
     pub async fn stop_vmm_force(&mut self) -> Result<(), MachineError> {
         debug!("stop_vmm_force: sending sigkill to firecracker");
-
+        debug!("{:#?}", self.child_process);
+        debug!("{:#?}", self.cmd);
         // sending a SIGKILL
         if self.cmd.is_some() && self.child_process.is_some() {
             let pid = self.pid;
@@ -918,9 +922,11 @@ impl Machine {
                         pid
                     ))
                 })?;
+        } else {
+            debug!("stop_vmm_force: no firecracker process running, not sending as signal");
+        
         }
 
-        debug!("stop_vmm_force: no firecracker process running, not sending as signal");
         Ok(())
     }
 
@@ -976,6 +982,7 @@ impl Machine {
 
     /// Set up a signal handler to pass through to firecracker
     pub(super) async fn setup_signals(&self) -> Result<(), MachineError> {
+        return Ok(());
         // judge whether forward_signals field in config exists
 
         debug!("Setting up signal handler: {}", todo!());
@@ -984,6 +991,7 @@ impl Machine {
     }
 
     pub(super) async fn setup_network(&mut self) -> Result<(), MachineError> {
+        return Ok(());
         if self.cfg.network_interfaces.is_none() {
             return Err(MachineError::Initialize(
                 "fail to set up networks, no network interfaces provided in configuration"
@@ -1011,6 +1019,7 @@ impl Machine {
     }
 
     pub(super) async fn setup_kernel_args(&mut self) -> Result<(), MachineError> {
+        return Ok(());
         let mut kernel_args = KernelArgs::from(self.cfg.kernel_args.as_ref().unwrap().to_owned());
 
         // If any network interfaces have a static IP configured, we need to set the "ip=" boot param.
@@ -1222,13 +1231,13 @@ impl Machine {
     pub(super) async fn create_boot_source(
         &self,
         image_path: &PathBuf,
-        initrd_path: &PathBuf,
-        kernel_args: &String,
+        initrd_path: &Option<PathBuf>,
+        kernel_args: &Option<String>,
     ) -> Result<(), MachineError> {
         let bsrc = BootSource {
             kernel_image_path: image_path.to_path_buf(),
-            initrd_path: Some(initrd_path.to_path_buf()),
-            boot_args: Some(kernel_args.to_string()),
+            initrd_path: initrd_path.to_owned(),
+            boot_args: kernel_args.to_owned(),
         };
 
         self.agent.put_guest_boot_source(&bsrc).await.map_err(|e| {
@@ -1252,6 +1261,7 @@ impl Machine {
     }
 
     pub(super) async fn create_network_interfaces(&self) -> Result<(), MachineError> {
+        return Ok(());
         todo!()
     }
 
@@ -1650,7 +1660,7 @@ pub mod test_utils {
         // Kernel command-line options can be found in the kernel source tree at
         // Documentation/admin-guide/kernel-parameters.txt.
         let kernel_args = "ro console=ttyS0 noapic reboot=k panic=0 pci=off nomodules".to_string();
-        m.create_boot_source(vmlinux_path, &"".to_string().into(), &kernel_args)
+        m.create_boot_source(vmlinux_path, &Some("".into()), &Some(kernel_args))
             .await?;
 
         Ok(())

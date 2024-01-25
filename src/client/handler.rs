@@ -396,7 +396,7 @@ impl Handler {
                 m.create_metrics_fifo_or_file()?;
                 if m.cfg.fifo_log_writer.is_some() {
                     // 将firecracker子进程输出复制到log fifo和log path
-                    todo!()
+                    // todo!()
                 }
                 debug!("Created metrics and logging fifos");
                 Ok(())
@@ -412,8 +412,8 @@ impl Handler {
             Handler::CreateBootSourceHandler { .. } => {
                 m.create_boot_source(
                     m.cfg.kernel_image_path.as_ref().unwrap(),
-                    m.cfg.initrd_path.as_ref().unwrap(),
-                    m.cfg.kernel_args.as_ref().unwrap(),
+                    &m.cfg.initrd_path,
+                    &m.cfg.kernel_args,
                 )
                 .await
             }

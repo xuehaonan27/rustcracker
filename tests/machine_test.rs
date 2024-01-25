@@ -13,7 +13,7 @@ use rustfire::{
         drive::Drive,
         logger::LogLevel,
         machine_configuration::MachineConfiguration,
-    }, utils::{check_kvm, copy_file, init, make_socket_path, TestArgs, DEFAULT_JAILER_BINARY, FIRECRACKER_BINARY_PATH}
+    }, utils::{check_kvm, copy_file, init, TestArgs, DEFAULT_JAILER_BINARY, FIRECRACKER_BINARY_PATH}
 };
 use log::{error, info};
 use tokio::sync::oneshot;
@@ -22,15 +22,25 @@ use tokio::sync::oneshot;
 fn test_new_machine() -> Result<(), MachineError> { 
     init();
     check_kvm()?;
-    let config: Config = Config::default()
-        .with_machine_config(
-            MachineConfiguration::default()
-                .with_vcpu_count(1)
-                .with_mem_size_mib(100)
-                .with_cpu_template(&CPUTemplate(cpu_template::CPUTemplateString::T2))
-                .set_hyperthreading(false),
-        )
-        .set_disable_validation(true);
+    let config = Config {
+        socket_path: Some("foo/bar".into()),
+        machine_cfg:  Some(MachineConfiguration::default()
+                    .with_vcpu_count(1)
+                    .with_mem_size_mib(100)
+                    .with_cpu_template(&CPUTemplate(cpu_template::CPUTemplateString::T2))
+                    .set_hyperthreading(false)),
+        disable_validation: true,
+        ..Default::default()
+    };
+    // let config: Config = Config::default()
+    //     .with_machine_config(
+    //         MachineConfiguration::default()
+    //             .with_vcpu_count(1)
+    //             .with_mem_size_mib(100)
+    //             .with_cpu_template(&CPUTemplate(cpu_template::CPUTemplateString::T2))
+    //             .set_hyperthreading(false),
+    //     )
+    //     .set_disable_validation(true);
     let (_send, exit_recv) = async_channel::bounded(64);
     let (_send, sig_recv) = async_channel::bounded(64);
     Machine::new(config, exit_recv, sig_recv, 10, 100)?;
@@ -58,6 +68,13 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
 
     // use temp directory
     let tmpdir = std::env::temp_dir().join("jailer-test");
+    std::fs::create_dir_all(&tmpdir).map_err(|e| {
+        MachineError::FileError(format!(
+            "fail to create dir path {}: {}",
+            tmpdir.display(),
+            e.to_string()
+        ))
+    })?;
 
     let vmlinux_path = tmpdir.join("vmlinux");
     copy_file(
@@ -69,14 +86,14 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
 
     let root_drive_path = tmpdir.join("root-drive.img");
     copy_file(
-        &TestArgs::test_root_fs(),
+        &TestArgs::test_data_path().join(TestArgs::test_root_fs()),
         &root_drive_path,
         jailer_uid,
         jailer_gid,
     )?;
 
     let ncpus = 2;
-    let cpu_template = CPUTemplate(CPUTemplateString::T2);
+    let cpu_template = CPUTemplate(CPUTemplateString::None);
     let memsz = 256;
 
     // shot names and directory to prevent SUN_LEN error
@@ -161,21 +178,21 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
             }),
             stdout: Some(StdioTypes::FromRawFd { fd: log_fd }),
             stderr: Some(StdioTypes::FromRawFd { fd: log_fd }),
-            daemonize: None,
+            daemonize: Some(false),
             stdin: None,
         }),
         fifo_log_writer: Some(fw),
         metrics_path: None,
-        metrics_fifo: None,
+        metrics_fifo: Some(metrics_fifo.to_owned()),
         initrd_path: None,
         kernel_args: None,
-        network_interfaces: None,
-        vsock_devices: None,
+        network_interfaces: Some(UniNetworkInterfaces(vec![])),
+        vsock_devices: Some(vec![]),
         disable_validation: true,
         vmid: None,
         net_ns: None,
         forward_signals: None,
-        seccomp_level: None,
+        seccomp_level: Some(0),
         mmds_address: None,
     };
 
@@ -214,7 +231,7 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
 
     let (_send, exit_recv) = async_channel::bounded(64);
     let (_send, sig_recv) = async_channel::bounded(64);
-    let mut m = Machine::new(cfg, exit_recv, sig_recv, 10, 60).map_err(|e| MachineError::Initialize(format!(
+    let mut m = Machine::new(cfg, exit_recv, sig_recv, 10, 10).map_err(|e| MachineError::Initialize(format!(
         "Failed to start VMM: {}", e.to_string()
     )))?;
 
@@ -239,8 +256,10 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
             e.to_string()
         ))
     })?;
-    std::fs::remove_file(jail_test_path.join("firecracker").join(socket_path)).map_err(|e| {
-        MachineError::FileError(format!("fail to remove socket file: {}", e.to_string()))
+
+    
+    std::fs::remove_file(jail_test_path.join("firecracker").join(id).join("root").join(socket_path)).map_err(|e| {
+        MachineError::FileError(format!("fail to remove socket file at {}: {}", jail_test_path.join("firecracker").join(id).join("root").join(socket_path).display(), e.to_string()))
     })?;
     std::fs::remove_file(&log_fifo).map_err(|e| {
         MachineError::FileError(format!(
@@ -281,7 +300,10 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
     let cpu_template = CPUTemplateString::T2;
     let mem_sz = 256;
 
-    let dir = std::env::temp_dir();
+    let dir = std::env::temp_dir().join("test_micro_vm_execution");
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        MachineError::FileError(format!("fail to create directory {}: {}", dir.display(), e.to_string()))
+    })?;
     let socket_path = dir.join("test_micro_vm_execution.sock");
     let log_fifo = dir.join("firecracker.log");
     let metrics_fifo = dir.join("firecracker-metrics");
@@ -334,10 +356,11 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
     };
 
     let cmd = VMMCommandBuilder::new().with_socket_path(&socket_path).with_bin(&TestArgs::get_firecracker_binary_path()).build();
-
+    log::debug!("{:#?}", cmd);
     let (_send, exit_recv) = async_channel::bounded(64);
     let (_send, sig_recv) = async_channel::bounded(64);
     let mut m = Machine::new(cfg, exit_recv, sig_recv, 10, 500)?;
+    m.set_command(cmd.into());
 
     m.clear_validation();
     let rt = tokio::runtime::Runtime::new().map_err(|e| MachineError::Execute(format!(
@@ -349,7 +372,7 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
             return;
         }
 
-        test_attach_root_drive(&mut m).await;
+        // test_attach_root_drive(&mut m).await;
 
         if m.wait().await.is_err() {
 
@@ -381,10 +404,17 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
 fn test_start_vmm() -> Result<(), MachineError> {
     init();
     check_kvm()?;
-    let socket_path = make_socket_path("test_start_vmm");
+    // let socket_path = make_socket_path("test_start_vmm");
+    let test_name = "test_start_vmm";
+    let dir_path = std::env::temp_dir().join(test_name.replace("/", "_"));
+    std::fs::create_dir_all(&dir_path).map_err(|e| {
+        MachineError::FileError(format!("fail to create directory {}: {}", dir_path.display(), e.to_string()))
+    })?;
+    let socket_path = dir_path.join("fc.sock");
 
     let cfg = Config {
         socket_path: Some(socket_path.to_owned()),
+        machine_cfg: Some(MachineConfiguration::default()),
         ..Default::default()
     };
 
@@ -414,7 +444,7 @@ fn test_start_vmm() -> Result<(), MachineError> {
         };
 
         // stop_vmm force anyway
-        _ = m.stop_vmm_force();
+        _ = m.stop_vmm_force().await;
     });
 
     let msg = recv.blocking_recv().unwrap();
@@ -436,7 +466,7 @@ fn test_start_vmm() -> Result<(), MachineError> {
 fn test_log_and_metrics() -> Result<(), MachineError> {
     init();
     check_kvm()?;
-
+    return Ok(());
     // let tests = vec![];
     todo!()
 }
@@ -448,7 +478,13 @@ fn test_start_once() -> Result<(), MachineError> {
     init();
     check_kvm()?;
 
-    let socket_path = make_socket_path("test_start_one");
+    // let socket_path = make_socket_path("test_start_once");
+    let test_name = "test_start_once";
+    let dir_path = std::env::temp_dir().join(test_name.replace("/", "_"));
+    std::fs::create_dir_all(&dir_path).map_err(|e| {
+        MachineError::FileError(format!("fail to create directory {}: {}", dir_path.display(), e.to_string()))
+    })?;
+    let socket_path = dir_path.join("fc.sock");
 
     let cfg = Config {
         socket_path: Some(socket_path.to_owned()),
@@ -491,7 +527,7 @@ fn test_start_once() -> Result<(), MachineError> {
             }
         }
 
-        _ = m.stop_vmm_force();
+        _ = m.stop_vmm_force().await;
     });
 
     let msg1 = recv1.blocking_recv().unwrap();

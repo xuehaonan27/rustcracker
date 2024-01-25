@@ -160,8 +160,8 @@ impl JailerCommandBuilder {
             self.gid.to_string(),
             "--exec-file".into(),
             self.exec_file.to_string_lossy().to_string(),
-            "--node".into(),
-            self.node.to_string(),
+            // "--node".into(),
+            // self.node.to_string(),
         ];
 
         if let Some(chroot_base_dir) = &self.chroot_base_dir {
@@ -436,13 +436,13 @@ pub fn jail(m: &mut Machine, cfg: &mut Config) -> Result<(), MachineError> {
             )
             .with_daemonize(jailer_cfg.daemonize.as_ref().unwrap())
             .with_firecracker_args(vec![
-                "--seccomp-level".to_string(),
-                cfg.seccomp_level.unwrap().to_string(),
+                // "--seccomp-level".to_string(),
+                // cfg.seccomp_level.unwrap().to_string(),
                 "--api-sock".to_string(),
                 machine_socket_path.to_string_lossy().to_string(),
-            ])
-            .with_stdout(stdout)
-            .with_stderr(stderr);
+            ]);
+            // .with_stdout(stdout)
+            // .with_stderr(stderr);
 
         if let Some(jailer_binary) = &jailer_cfg.jailer_binary {
             builder = builder.with_bin(jailer_binary);
