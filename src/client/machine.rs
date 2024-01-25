@@ -850,7 +850,7 @@ impl Machine {
 
     /// stop_vmm stops the current VMM by sending a SIGTERM
     pub async fn stop_vmm(&mut self) -> Result<(), MachineError> {
-        debug!("stop_vmm: sending sigkill to firecracker");
+        debug!("stop_vmm: sending sigterm to firecracker");
         debug!("{:#?}", self.child_process);
         debug!("{:#?}", self.cmd);
         // sending a SIGTERM

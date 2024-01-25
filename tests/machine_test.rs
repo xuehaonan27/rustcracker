@@ -7,7 +7,7 @@ use nix::{
 };
 use rustfire::{
     client::{
-        command_builder::VMMCommandBuilder, handler::{AttachDrivesHandlerName, CreateBootSourceHandlerName, CreateMachineHandlerName, Handler, HandlersAdapter}, jailer::{JailerConfig, StdioTypes}, machine::{test_utils::test_attach_root_drive, Config, Machine, MachineError}, network::{StaticNetworkConfiguration, UniNetworkInterface, UniNetworkInterfaces}
+        command_builder::VMMCommandBuilder, handler::{AttachDrivesHandlerName, CreateBootSourceHandlerName, CreateMachineHandlerName, Handler, HandlersAdapter}, jailer::{JailerConfig, StdioTypes}, machine::{test_utils::test_attach_root_drive, Config, Machine, MachineError, MachineMessage}, network::{StaticNetworkConfiguration, UniNetworkInterface, UniNetworkInterfaces}
     }, model::{
         cpu_template::{self, CPUTemplate, CPUTemplateString},
         drive::Drive,
@@ -357,7 +357,7 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
 
     let cmd = VMMCommandBuilder::new().with_socket_path(&socket_path).with_bin(&TestArgs::get_firecracker_binary_path()).build();
     log::debug!("{:#?}", cmd);
-    let (_send, exit_recv) = async_channel::bounded(64);
+    let (exit_send, exit_recv) = async_channel::bounded(64);
     let (_send, sig_recv) = async_channel::bounded(64);
     let mut m = Machine::new(cfg, exit_recv, sig_recv, 10, 500)?;
     m.set_command(cmd.into());
@@ -367,19 +367,26 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
         "fail to create tokio runtime: {}", e.to_string()
     )))?;
     rt.block_on(async move {
-        if m.start_vmm().await.is_err() {
-            error!("fail to start vmm");
-            return;
-        }
-
-        // test_attach_root_drive(&mut m).await;
-
-        if m.wait().await.is_err() {
-
-        }
-        if m.stop_vmm().await.is_err() {
-            
-        }
+        let join_handle = tokio::spawn(async move {
+            if m.start_vmm().await.is_err() {
+                error!("fail to start vmm");
+                panic!("fail to start vmm");
+            }
+    
+            // test_attach_root_drive(&mut m).await;
+    
+            if m.wait().await.is_err() {
+                error!("fail to wait vmm");
+                panic!("fail to wait vmm");
+            }
+            if m.stop_vmm().await.is_err() {
+                error!("fail to stop vmm");
+            }
+        });
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+        exit_send.send(MachineMessage::StopVMM).await.unwrap();
+        info!("exit message sent");
+        tokio::join!(join_handle).0.unwrap();
     });
 
     nix::unistd::close(fw).map_err(|e| {
