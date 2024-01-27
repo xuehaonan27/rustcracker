@@ -6,6 +6,8 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+use log::{debug, info, error};
+
 use crate::model::{kernel_args::KernelArgs, rate_limiter::RateLimiter};
 
 use super::handler::HandlerList;
@@ -208,12 +210,12 @@ impl UniNetworkInterfaces {
 
     // setupNetwork will invoke CNI if needed for any interfaces
     pub fn setup_network(&self, vmid: &Option<String>, net_ns_path: &Option<PathBuf>) -> Result<HandlerList, UniNetworkInterfaceError> {
-
+        let cleanup_funcs = HandlerList::blank();
         // Get the network interface with CNI configuration or, if there is none,
 	    // just return right away.
         let cni_network_interface = self.cni_interface();
         if cni_network_interface.is_none() {
-            todo!()
+            return Ok(cleanup_funcs);
         }
         let mut cni_network_interface = cni_network_interface.unwrap();
         
@@ -224,6 +226,19 @@ impl UniNetworkInterfaces {
 
         // Make sure the netns is setup. If the path doesn't yet exist, it will be
 	    // initialized with a new empty netns.
+        let netns_cleanup_funs = cni_network_interface.cni_configuration.as_ref().unwrap().initialize_net_ns().map_err(|e| {
+            error!(target: "UniNetworkInterfaces:setup_network", "failed to initialize netns");
+            UniNetworkInterfaceError::Configuration("failed to initialize netns".to_string())
+        })?;
+
+        let cni_result = cni_network_interface.cni_configuration.as_ref().unwrap().invoke_cni().map_err(|e| {
+            error!(target: "UniNetworkInterfaces::setup_network", "failure when invoking CNI");
+            UniNetworkInterfaceError::Configuration("failure when invoking CNI".to_string())
+        })?;
+
+        // If static configuration is not already set for the network device, fill it out
+        // by parsing the CNI result object according to the specifications detailed in the
+        // vmconf package docs.
 
         todo!()
     }

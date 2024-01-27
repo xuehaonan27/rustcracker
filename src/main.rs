@@ -367,7 +367,7 @@ fn test_start_vmm() -> Result<(), MachineError> {
 
     // delete socket path
     std::fs::remove_file(&socket_path).map_err(|e| {
-        MachineError::FileError(format!("fail to remove socket {}: {}", socket_path.display(), e.to_string()))
+        MachineError::FileRemoving(format!("fail to remove socket {}: {}", socket_path.display(), e.to_string()))
     })?;
 
     Ok(())
@@ -435,7 +435,7 @@ fn test_start_once() -> Result<(), MachineError> {
 
     // delete socket path
     std::fs::remove_file(&socket_path).map_err(|e| {
-        MachineError::FileError(format!("fail to remove socket {}: {}", socket_path.display(), e.to_string()))
+        MachineError::FileRemoving(format!("fail to remove socket {}: {}", socket_path.display(), e.to_string()))
     })?;
 
     Ok(())

@@ -9,10 +9,7 @@ use rustfire::{
     client::{
         command_builder::VMMCommandBuilder, handler::{AttachDrivesHandlerName, CreateBootSourceHandlerName, CreateMachineHandlerName, Handler, HandlersAdapter}, jailer::{JailerConfig, StdioTypes}, machine::{test_utils::test_attach_root_drive, Config, Machine, MachineError, MachineMessage}, network::{StaticNetworkConfiguration, UniNetworkInterface, UniNetworkInterfaces}
     }, model::{
-        cpu_template::{self, CPUTemplate, CPUTemplateString},
-        drive::Drive,
-        logger::LogLevel,
-        machine_configuration::MachineConfiguration,
+        cpu_template::{self, CPUTemplate, CPUTemplateString}, drive::Drive, logger::LogLevel, machine_configuration::MachineConfiguration, network_interface::NetworkInterface
     }, utils::{check_kvm, copy_file, init, TestArgs, DEFAULT_JAILER_BINARY, FIRECRACKER_BINARY_PATH}
 };
 use log::{error, info};
@@ -55,7 +52,7 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
         test_data_log_path()
         .join("test_jailer_micro_vm_execution");
     std::fs::create_dir_all(&log_path).map_err(|e| {
-        MachineError::FileError(format!(
+        MachineError::FileCreation(format!(
             "fail to create log path {}: {}",
             log_path.display(),
             e.to_string()
@@ -69,7 +66,7 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
     // use temp directory
     let tmpdir = std::env::temp_dir().join("jailer-test");
     std::fs::create_dir_all(&tmpdir).map_err(|e| {
-        MachineError::FileError(format!(
+        MachineError::FileCreation(format!(
             "fail to create dir path {}: {}",
             tmpdir.display(),
             e.to_string()
@@ -100,7 +97,7 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
     let id = "b";
     let jail_test_path = tmpdir.to_owned();
     std::fs::create_dir_all(&jail_test_path).map_err(|e| {
-        MachineError::FileError(format!(
+        MachineError::FileCreation(format!(
             "fail to create log path {}: {}",
             jail_test_path.display(),
             e.to_string()
@@ -116,13 +113,13 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
     let fw = nix::fcntl::open(
         &captured_log,
         OFlag::O_CREAT | OFlag::O_RDWR,
-        Mode::from_bits(0o600).ok_or(MachineError::FileError(format!(
+        Mode::from_bits(0o600).ok_or(MachineError::FileAccess(format!(
             "fail to convert '600' to Mode: {}",
             captured_log.display(),
         )))?,
     )
     .map_err(|e| {
-        MachineError::FileError(format!(
+        MachineError::FileAccess(format!(
             "fail to open th path {}: {}",
             captured_log.display(),
             e.to_string()
@@ -132,12 +129,12 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
     let log_fd = nix::fcntl::open(
         &log_path.join("test_jailer_micro_vm_execution.log"),
         OFlag::O_CREAT | OFlag::O_RDWR,
-        Mode::from_bits(0o666).ok_or(MachineError::FileError(
+        Mode::from_bits(0o666).ok_or(MachineError::FileAccess(
             "fail to convert '0o666' to Mode".to_string(),
         ))?,
     )
     .map_err(|e| {
-        MachineError::FileError(format!("failed to create log file: {}", e.to_string()))
+        MachineError::FileCreation(format!("failed to create log file: {}", e.to_string()))
     })?;
 
     let cfg = Config {
@@ -186,7 +183,7 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
         metrics_fifo: Some(metrics_fifo.to_owned()),
         initrd_path: None,
         kernel_args: None,
-        network_interfaces: Some(UniNetworkInterfaces(vec![])),
+        network_interfaces: Some(vec![]),
         vsock_devices: Some(vec![]),
         disable_validation: true,
         vmid: None,
@@ -197,7 +194,7 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
     };
 
     std::fs::metadata(&vmlinux_path).map_err(|e| {
-        MachineError::FileError(format!(
+        MachineError::FileMissing(format!(
             "Cannot find vmlinux file: {}\nVerify that you have a vmlinux file at {}",
             e.to_string(),
             vmlinux_path.display()
@@ -206,23 +203,23 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
 
     let kernel_image_info =
         std::fs::metadata(cfg.kernel_image_path.as_ref().unwrap()).map_err(|e| {
-            MachineError::FileError(format!("failed to stat kernel image: {}", e.to_string()))
+            MachineError::FileMissing(format!("failed to stat kernel image: {}", e.to_string()))
         })?;
 
     if kernel_image_info.uid() != jailer_uid || kernel_image_info.gid() != jailer_gid {
-        return Err(MachineError::FileError(format!(
+        return Err(MachineError::FileAccess(format!(
             "Kernel image does not have the proper UID or GID\nTo fix this simply run:\nsudo chown {}:{} {}",
             jailer_uid, jailer_gid, cfg.kernel_image_path.as_ref().unwrap().display()
         )));
     }
 
     for drive in cfg.drives.as_ref().unwrap() {
-        let drive_image_info = std::fs::metadata(&drive.path_on_host).map_err(|e| MachineError::FileError(format!(
+        let drive_image_info = std::fs::metadata(&drive.path_on_host).map_err(|e| MachineError::FileAccess(format!(
             "failed to stat drive: {}", e.to_string()
         )))?;
 
         if drive_image_info.uid() != jailer_uid || drive_image_info.gid() != jailer_gid {
-            return Err(MachineError::FileError(format!(
+            return Err(MachineError::FileAccess(format!(
                 "Drive does not have the proper uid or gid\nTo fix this simply run:\nsudo chown {}:{} {}",
                 jailer_uid, jailer_gid, drive.path_on_host.display()    
             )))
@@ -243,14 +240,14 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
 
     // Closing:
     nix::unistd::close(fw).map_err(|e| {
-        MachineError::FileError(format!(
+        MachineError::FileRemoving(format!(
             "double closing {}: {}",
             captured_log.display(),
             e.to_string()
         ))
     })?;
     std::fs::remove_file(&captured_log).map_err(|e| {
-        MachineError::FileError(format!(
+        MachineError::FileRemoving(format!(
             "fail to remove file {}: {}",
             captured_log.display(),
             e.to_string()
@@ -259,31 +256,31 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
 
     
     std::fs::remove_file(jail_test_path.join("firecracker").join(id).join("root").join(socket_path)).map_err(|e| {
-        MachineError::FileError(format!("fail to remove socket file at {}: {}", jail_test_path.join("firecracker").join(id).join("root").join(socket_path).display(), e.to_string()))
+        MachineError::FileRemoving(format!("fail to remove socket file at {}: {}", jail_test_path.join("firecracker").join(id).join("root").join(socket_path).display(), e.to_string()))
     })?;
     std::fs::remove_file(&log_fifo).map_err(|e| {
-        MachineError::FileError(format!(
+        MachineError::FileRemoving(format!(
             "fail to remove log fifo file at {}: {}",
             log_fifo.display(),
             e.to_string()
         ))
     })?;
     std::fs::remove_file(&metrics_fifo).map_err(|e| {
-        MachineError::FileError(format!(
+        MachineError::FileRemoving(format!(
             "fail to remove metrics fifo file at {}: {}",
             metrics_fifo.display(),
             e.to_string()
         ))
     })?;
     std::fs::remove_dir_all(&tmpdir).map_err(|e| {
-        MachineError::FileError(format!(
+        MachineError::FileRemoving(format!(
             "fail to remove dir at {}: {}",
             tmpdir.display(),
             e.to_string()
         ))
     })?;
     nix::unistd::close(log_fd).map_err(|e| {
-        MachineError::FileError(format!("double closing log file: {}", e.to_string()))
+        MachineError::FileRemoving(format!("double closing log file: {}", e.to_string()))
     })?;
 
     let info = std::fs::metadata(&captured_log);
@@ -302,27 +299,34 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
 
     let dir = std::env::temp_dir().join("test_micro_vm_execution");
     std::fs::create_dir_all(&dir).map_err(|e| {
-        MachineError::FileError(format!("fail to create directory {}: {}", dir.display(), e.to_string()))
+        MachineError::FileCreation(format!("fail to create directory {}: {}", dir.display(), e.to_string()))
     })?;
     let socket_path = dir.join("test_micro_vm_execution.sock");
     let log_fifo = dir.join("firecracker.log");
     let metrics_fifo = dir.join("firecracker-metrics");
     let captured_log = dir.join("writer.fifo");
     let fw = nix::fcntl::open(&captured_log, OFlag::O_CREAT | OFlag::O_RDWR, Mode::S_IRUSR | Mode::S_IWUSR).map_err(|e| {
-        MachineError::FileError(format!(
+        MachineError::FileAccess(format!(
             "fail to open file {}: {}", captured_log.display(), e.to_string()
         ))
     })?;
     let vmlinux_path = dir.join("vmlinux");
-    let network_ifaces = UniNetworkInterfaces(vec![
-        UniNetworkInterface {
-            static_configuration: Some(StaticNetworkConfiguration{mac_address:"01-23-45-67-89-AB-CD-EF".to_string(),host_dev_name:Some("tap0".to_string()),ip_configuration: None}),
-            cni_configuration: None,
-            allow_mmds: None,
-            in_rate_limiter: None,
-            out_rate_limiter: None,
-        }
-    ]);
+    // let network_ifaces = UniNetworkInterfaces(vec![
+    //     UniNetworkInterface {
+    //         static_configuration: Some(StaticNetworkConfiguration{mac_address:"01-23-45-67-89-AB-CD-EF".to_string(),host_dev_name:Some("tap0".to_string()),ip_configuration: None}),
+    //         cni_configuration: None,
+    //         allow_mmds: None,
+    //         in_rate_limiter: None,
+    //         out_rate_limiter: None,
+    //     }
+    // ]);
+    let network_ifaces = NetworkInterface {
+        guest_mac: Some("01-23-45-67-89-AB-CD-EF".to_string()),
+        host_dev_name: "tap0".into(),
+        iface_id: "0".to_string(),
+        rx_rate_limiter: None,
+        tx_rate_limiter: None,
+    };
 
     let cfg = Config {
         socket_path: Some(socket_path.to_owned()),
@@ -339,7 +343,7 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
         track_dirty_pages: None,
                 }),
         disable_validation: true,
-        network_interfaces: Some(network_ifaces),
+        network_interfaces: Some(vec![network_ifaces]),
         fifo_log_writer: Some(fw),
 
         kernel_args: None,
@@ -390,7 +394,7 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
     });
 
     nix::unistd::close(fw).map_err(|e| {
-        MachineError::FileError(format!(
+        MachineError::FileRemoving(format!(
             "double closing {}: {}",
             captured_log.display(),
             e.to_string()
@@ -398,7 +402,7 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
     })?;
 
     std::fs::remove_dir_all(&dir).map_err(|e| {
-        MachineError::FileError(format!(
+        MachineError::FileRemoving(format!(
             "fail to remove dir at {}: {}",
             dir.display(),
             e.to_string()
@@ -415,7 +419,7 @@ fn test_start_vmm() -> Result<(), MachineError> {
     let test_name = "test_start_vmm";
     let dir_path = std::env::temp_dir().join(test_name.replace("/", "_"));
     std::fs::create_dir_all(&dir_path).map_err(|e| {
-        MachineError::FileError(format!("fail to create directory {}: {}", dir_path.display(), e.to_string()))
+        MachineError::FileCreation(format!("fail to create directory {}: {}", dir_path.display(), e.to_string()))
     })?;
     let socket_path = dir_path.join("fc.sock");
 
@@ -463,7 +467,7 @@ fn test_start_vmm() -> Result<(), MachineError> {
 
     // delete socket path
     std::fs::remove_file(&socket_path).map_err(|e| {
-        MachineError::FileError(format!("fail to remove socket {}: {}", socket_path.display(), e.to_string()))
+        MachineError::FileRemoving(format!("fail to remove socket {}: {}", socket_path.display(), e.to_string()))
     })?;
 
     Ok(())
@@ -489,7 +493,7 @@ fn test_start_once() -> Result<(), MachineError> {
     let test_name = "test_start_once";
     let dir_path = std::env::temp_dir().join(test_name.replace("/", "_"));
     std::fs::create_dir_all(&dir_path).map_err(|e| {
-        MachineError::FileError(format!("fail to create directory {}: {}", dir_path.display(), e.to_string()))
+        MachineError::FileCreation(format!("fail to create directory {}: {}", dir_path.display(), e.to_string()))
     })?;
     let socket_path = dir_path.join("fc.sock");
 
@@ -548,7 +552,7 @@ fn test_start_once() -> Result<(), MachineError> {
 
     // delete socket path
     std::fs::remove_file(&socket_path).map_err(|e| {
-        MachineError::FileError(format!("fail to remove socket {}: {}", socket_path.display(), e.to_string()))
+        MachineError::FileRemoving(format!("fail to remove socket {}: {}", socket_path.display(), e.to_string()))
     })?;
 
     Ok(())

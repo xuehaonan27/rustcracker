@@ -80,14 +80,14 @@ async fn start_and_wait_vm(m: &mut Machine) -> Result<(), MachineError> {
 
     let log_fifo = m
         .get_log_file()
-        .ok_or(MachineError::FileError("no log file provided".to_string()))?;
+        .ok_or(MachineError::ArgWrong("no log file provided".to_string()))?;
     let file = std::fs::File::open(&log_fifo).map_err(|e| {
         error!(
             "fail to open file {}: {}",
             log_fifo.display(),
             e.to_string()
         );
-        MachineError::FileError(format!(
+        MachineError::FileAccess(format!(
             "fail to open file {}: {}",
             log_fifo.display(),
             e.to_string()

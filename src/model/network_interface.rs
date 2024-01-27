@@ -91,4 +91,8 @@ impl NetworkInterface {
         self.tx_rate_limiter = Some(limiter);
         self
     }
+
+    pub fn ip_boot_param(&self) -> String {
+        todo!()
+    }
 }

@@ -335,7 +335,7 @@ pub fn jail(m: &mut Machine, cfg: &mut Config) -> Result<(), MachineError> {
                     .unwrap()
                     .as_path()
                     .file_name()
-                    .ok_or(MachineError::FileError(
+                    .ok_or(MachineError::ArgWrong(
                         "malformed firecracker exec file name".to_string(),
                     ))?
                     .into(),
@@ -353,7 +353,7 @@ pub fn jail(m: &mut Machine, cfg: &mut Config) -> Result<(), MachineError> {
                     .unwrap()
                     .as_path()
                     .file_name()
-                    .ok_or(MachineError::FileError(
+                    .ok_or(MachineError::ArgWrong(
                         "malformed firecracker exec file name".to_string(),
                     ))?
                     .into(),
@@ -380,7 +380,7 @@ pub fn jail(m: &mut Machine, cfg: &mut Config) -> Result<(), MachineError> {
                         options.mode(0o644);
                         options.open(&path).map_err(|e| {
                             error!("fail to open file at {}: {}", path.display(), e.to_string());
-                            MachineError::FileError(format!(
+                            MachineError::FileAccess(format!(
                                 "fail to open file at {}: {}",
                                 path.display(),
                                 e.to_string()
@@ -408,7 +408,7 @@ pub fn jail(m: &mut Machine, cfg: &mut Config) -> Result<(), MachineError> {
                         options.mode(0o644);
                         options.open(&path).map_err(|e| {
                             error!("fail to open file at {}: {}", path.display(), e.to_string());
-                            MachineError::FileError(format!(
+                            MachineError::FileAccess(format!(
                                 "fail to open file at {}: {}",
                                 path.display(),
                                 e.to_string()
@@ -466,7 +466,7 @@ pub fn jail(m: &mut Machine, cfg: &mut Config) -> Result<(), MachineError> {
                         options.mode(0o644);
                         options.open(&path).map_err(|e| {
                             error!("fail to open file at {}: {}", path.display(), e.to_string());
-                            MachineError::FileError(format!(
+                            MachineError::FileAccess(format!(
                                 "fail to open file at {}: {}",
                                 path.display(),
                                 e.to_string()

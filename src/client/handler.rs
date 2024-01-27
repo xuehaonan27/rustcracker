@@ -260,7 +260,7 @@ impl HandlersAdapter {
         match self {
             // AdaptHandlers will inject the LinkFilesHandler into the handler list.
             HandlersAdapter::NaiveChrootStrategy {
-                rootfs,
+                rootfs: _,
                 kernel_image_path,
             } => {
                 if !handlers.fcinit.has(CreateLogFilesHandlerName.type_id()) {
@@ -275,7 +275,7 @@ impl HandlersAdapter {
                         kernel_image_file_name: kernel_image_path
                             .as_path()
                             .file_name()
-                            .ok_or(MachineError::FileError(format!(
+                            .ok_or(MachineError::ArgWrong(format!(
                                 "fail to get file base name from {}",
                                 kernel_image_path.display()
                             )))?
@@ -441,7 +441,7 @@ impl Handler {
                 kernel_image_file_name,
             } => {
                 if m.cfg.jailer_cfg.is_none() {
-                    return Err(MachineError::FileError(
+                    return Err(MachineError::ArgWrong(
                         "jailer config was not set for use".to_string(),
                     ));
                 }
@@ -463,7 +463,7 @@ impl Handler {
                         .unwrap()
                         .as_path()
                         .file_name()
-                        .ok_or(MachineError::FileError(format!(
+                        .ok_or(MachineError::ArgWrong(format!(
                             "malformed firecracker exec file name"
                         )))?
                         .into(),
@@ -489,7 +489,7 @@ impl Handler {
                 )
                 .map_err(|e| {
                     error!("fail to copy kernel image to root fs: {}", e.to_string());
-                    MachineError::FileError(format!(
+                    MachineError::FileAccess(format!(
                         "fail to copy kernel image to root fs: {}",
                         e.to_string()
                     ))
@@ -506,7 +506,7 @@ impl Handler {
                         .unwrap()
                         .as_path()
                         .file_name()
-                        .ok_or(MachineError::FileError(format!("malformed initrd path")))?
+                        .ok_or(MachineError::ArgWrong(format!("malformed initrd path")))?
                         .into();
                     std::fs::hard_link(
                         &m.cfg.initrd_path.as_mut().unwrap(),
@@ -514,7 +514,7 @@ impl Handler {
                     )
                     .map_err(|e| {
                         error!("fail to copy initrd device to root fs: {}", e.to_string());
-                        MachineError::FileError(format!(
+                        MachineError::FileAccess(format!(
                             "fail to copy initrd device to root fs: {}",
                             e.to_string()
                         ))
@@ -527,7 +527,7 @@ impl Handler {
                     let drive_file_name: PathBuf = host_path
                         .as_path()
                         .file_name()
-                        .ok_or(MachineError::FileError(
+                        .ok_or(MachineError::ArgWrong(
                             "malformed drive file name".to_string(),
                         ))?
                         .into();
@@ -538,7 +538,7 @@ impl Handler {
                     )
                     .map_err(|e| {
                         error!("fail to copy drives to root fs: {}", e.to_string());
-                        MachineError::FileError(format!(
+                        MachineError::FileAccess(format!(
                             "fail to copy drives to root fs: {}",
                             e.to_string()
                         ))
@@ -565,7 +565,7 @@ impl Handler {
                         .unwrap()
                         .as_path()
                         .file_name()
-                        .ok_or(MachineError::FileError("malformed fifo path".to_string()))?
+                        .ok_or(MachineError::ArgWrong("malformed fifo path".to_string()))?
                         .into();
                     std::fs::hard_link(
                         fifo_path.as_mut().unwrap(),
@@ -573,7 +573,7 @@ impl Handler {
                     )
                     .map_err(|e| {
                         error!("fail to copy fifo file to root fs: {}", e.to_string());
-                        MachineError::FileError(format!(
+                        MachineError::FileAccess(format!(
                             "fail to copy fifo file to root fs: {}",
                             e.to_string()
                         ))
@@ -590,7 +590,7 @@ impl Handler {
                     )
                     .map_err(|e| {
                         error!("fail to chown: {}", e.to_string());
-                        MachineError::FileError(format!("fail to chown: {}", e.to_string()))
+                        MachineError::FileAccess(format!("fail to chown: {}", e.to_string()))
                     })?;
 
                     // update fifoPath as jailer works relative to the chroot dir
@@ -669,7 +669,7 @@ async fn capture_fifo_to_file(
             fifo_path.display(),
             e.to_string()
         );
-        MachineError::FileError(format!(
+        MachineError::FileAccess(format!(
             "Failed to open fifo path at {}, errno: {}",
             fifo_path.display(),
             e.to_string()

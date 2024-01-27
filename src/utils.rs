@@ -103,7 +103,7 @@ impl TestArgs {
 
     pub fn get_vmlinux_path() -> Result<PathBuf, MachineError> {
         let vmlinux_path = Self::test_data_path().join("./vmlinux");
-        std::fs::metadata(&vmlinux_path).map_err(|e| {MachineError::FileError(format!(
+        std::fs::metadata(&vmlinux_path).map_err(|e| {MachineError::FileMissing(format!(
             "Cannot find vmlinux file: {}\nVerify that you have a vmlinux file at {} or set the {} environment variable to the correct location",
             e.to_string(), vmlinux_path.display(), TEST_DATA_PATH_ENV,
         ))})?;
@@ -148,14 +148,14 @@ pub fn init() {
 pub fn check_kvm() -> Result<(), MachineError> {
     access("/dev/kvm", AccessFlags::W_OK).map_err(|e| {
         error!("/dev/kvm is not writable");
-        MachineError::FileError("/dev/kvm is not writable".to_string())
+        MachineError::FileAccess("/dev/kvm is not writable".to_string())
     })?;
     Ok(())
 }
 
 pub fn copy_file(from: &PathBuf, to: &PathBuf, uid: u32, gid: u32) -> Result<(), MachineError> {
     std::fs::copy(from, to).map_err(|e| {
-        MachineError::FileError(format!(
+        MachineError::FileAccess(format!(
             "copy_file: Fail to copy file from {} to {}: {}",
             from.display(),
             to.display(),
@@ -163,7 +163,7 @@ pub fn copy_file(from: &PathBuf, to: &PathBuf, uid: u32, gid: u32) -> Result<(),
         ))
     })?;
     nix::unistd::chown(to, Some(Uid::from_raw(uid)), Some(Gid::from_raw(gid))).map_err(|e| {
-        MachineError::FileError(format!(
+        MachineError::FileAccess(format!(
             "copy_file: Fail to chown file {}: {}",
             to.display(),
             e.to_string()
