@@ -294,7 +294,7 @@
 use std::error::Error;
 use hyper::{body::HttpBody, Client};
 use hyperlocal::{UnixClientExt, Uri};
-use rustfire::{client::{command_builder::VMMCommandBuilder, machine::{Config, Machine, MachineError}}, model::{cpu_template::{CPUTemplate, CPUTemplateString}, machine_configuration::MachineConfiguration}, utils::{check_kvm, init, make_socket_path, TestArgs}};
+use rustfire::{client::{command_builder::VMMCommandBuilder, machine::{test_utils::start_vmm, Config, Machine, MachineError}}, model::{cpu_template::{CPUTemplate, CPUTemplateString}, machine_configuration::MachineConfiguration}, utils::{check_kvm, init, make_socket_path, TestArgs}};
 use tokio::io::{self, AsyncWriteExt as _};
 use log::{debug, info};
 
@@ -345,7 +345,7 @@ fn test_start_vmm() -> Result<(), MachineError> {
     let (send, recv) = tokio::sync::oneshot::channel();
     rt.block_on(async move {
         tokio::select! {
-            output = m.start_vmm() => {
+            output = start_vmm(&mut m) => {
                 send.send(output).unwrap();
             }
             _ = tokio::time::sleep(tokio::time::Duration::from_millis(250)) => {

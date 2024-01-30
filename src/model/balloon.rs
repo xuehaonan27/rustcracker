@@ -3,7 +3,8 @@
 @Author: Mugen_Cyaegha (Xue Haonan)
 */
 
-use crate::utils::Json;
+use crate::{client::machine::MachineError, utils::Json};
+use log::error;
 use serde::{Deserialize, Serialize};
 
 /// Balloon device descriptor.
@@ -76,5 +77,15 @@ impl Balloon {
     pub fn with_stats_polling_interval_s(mut self, s: i64) -> Self {
         self.stats_polling_interval_s = Some(s);
         self
+    }
+
+    #[must_use="must validate Balloon before putting it to microVm"]
+    pub fn validate(&self) -> Result<(), MachineError> {
+        if self.amount_mib < 0 {
+            error!(target: "Balloon::validate", "cannot assign negative amount of target memory to the Balloon");
+            return Err(MachineError::Validation("cannot assign negative amount of target memory to the Balloon".to_string()))
+        }
+
+        Ok(())
     }
 }

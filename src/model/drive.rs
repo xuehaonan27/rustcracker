@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
+use log::error;
 use serde::{Deserialize, Serialize};
 
-use crate::utils::Json;
+use crate::{client::machine::MachineError, utils::Json};
 
 use super::rate_limiter::RateLimiter;
 
@@ -20,20 +21,18 @@ pub struct Drive {
     #[serde(rename = "partuuid", skip_serializing_if = "Option::is_none")]
     pub partuuid: Option<String>,
 
-
     /// is root device
     /// Required: true
     #[serde(rename = "is_root_device")]
     pub is_root_device: bool,
-    
+
     /// cache type
     /// Represents the caching strategy for the block device.
     #[serde(rename = "cache_type", skip_serializing_if = "Option::is_none")]
     pub cache_type: Option<CacheType>,
 
-
-    /// VirtioBlock specific parameters: 
-    /// Is block read only. 
+    /// VirtioBlock specific parameters:
+    /// Is block read only.
     /// This field is required for virtio-block config and should be omitted for vhost-user-block configuration.
     /// Required: true
     #[serde(rename = "is_read_only")]
@@ -50,7 +49,7 @@ pub struct Drive {
     /// rate limiter
     #[serde(rename = "rate_limiter", skip_serializing_if = "Option::is_none")]
     pub rate_limiter: Option<RateLimiter>,
-    
+
     /// VirtioBlock specific parameters:
     /// Type of the IO engine used by the device. "Async" is supported on
     /// host kernels newer than 5.10.51.
@@ -102,7 +101,7 @@ impl Drive {
 
     pub fn with_drive_id<S>(mut self, id: S) -> Self
     where
-        S: Into<String>
+        S: Into<String>,
     {
         self.drive_id = id.into();
         self
@@ -123,8 +122,7 @@ impl Drive {
         self
     }
 
-    pub fn with_drive_path<S>(mut self, path: impl Into<PathBuf>) -> Self
-    {
+    pub fn with_drive_path<S>(mut self, path: impl Into<PathBuf>) -> Self {
         self.path_on_host = path.into();
         self
     }
@@ -132,7 +130,7 @@ impl Drive {
     pub fn set_drive_path(&mut self, path: impl Into<PathBuf>) {
         self.path_on_host = path.into();
     }
-    
+
     pub fn with_rate_limiter(mut self, limiter: RateLimiter) -> Self {
         self.rate_limiter = Some(limiter);
         self
@@ -148,5 +146,38 @@ impl Drive {
 
     pub fn get_path_on_host(&self) -> PathBuf {
         self.path_on_host.to_owned()
+    }
+
+    #[must_use="must validate Drive before putting it to microVm"]
+    pub fn validate(&self) -> Result<(), MachineError> {
+        if self.drive_id == "".to_string() {
+            error!(target: "Drive::validate", "cannot assign empty id to the drive");
+            return Err(MachineError::Validation(
+                "cannot assign empty id to the drive".to_string(),
+            ));
+        }
+
+        if self.partuuid.is_some() && self.partuuid.as_ref().unwrap() == &"".to_string() {
+            error!(target: "Drive::validate", "cannot assign empty uuid to the drive, leave it None");
+            return Err(MachineError::Validation(
+                "cannot assign empty uuid to the drive, leave it None".to_string(),
+            ));
+        }
+
+        if let Err(e) = std::fs::metadata(&self.path_on_host) {
+            error!(target: "Drive::validate", "fail to stat drive path {}: {}", self.path_on_host.display(), e.to_string());
+            return Err(MachineError::Validation(format!(
+                "fail to stat drive path {}: {}",
+                self.path_on_host.display(),
+                e.to_string()
+            )));
+        }
+
+        if self.socket.is_some() && std::fs::metadata(self.socket.as_ref().unwrap()).is_err() {
+            error!(target: "Drive::validate", "fail to stat drive socket. This field is required for vhost-user-block config should be omitted for virtio-block configuration.");
+            return Err(MachineError::Validation(format!("fail to stat drive socket {}. This field is required for vhost-user-block config should be omitted for virtio-block configuration.", self.path_on_host.display())));
+        }
+
+        Ok(())
     }
 }

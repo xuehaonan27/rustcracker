@@ -30,11 +30,8 @@ use crate::{
         vm::Vm,
         vsock::Vsock,
     },
-    utils::Json,
+    utils::{Json, DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS, DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS},
 };
-
-pub const DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS: u64 = 500;
-pub const DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS: u64 = 10;
 
 #[derive(thiserror::Error, Debug)]
 pub enum AgentError {
@@ -66,8 +63,8 @@ impl Agent {
         Agent {
             socket_path: "".into(),
             client: Client::unix(),
-            firecracker_request_timeout: DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS,
-            firecracker_init_timeout: DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS,
+            firecracker_request_timeout: DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS as u64,
+            firecracker_init_timeout: DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS as u64,
         }
     }
 

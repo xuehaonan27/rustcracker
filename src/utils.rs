@@ -66,21 +66,37 @@ impl Metadata for String {
     }
 }
 
-use std::{collections::HashMap, path::PathBuf};
+use std::path::PathBuf;
 
 use nix::unistd::{access, AccessFlags, Gid, Uid};
 
 use log::error;
 
 pub const FIRECRACKER_BINARY_PATH: &'static str = "firecracker";
-pub const FIRECRACKER_BINARY_OVERRIDE_ENV: &'static str = "FC_TEST_BIN";
+pub const FIRECRACKER_BINARY_OVERRIDE_ENV: &'static str = "FC_BIN";
+
 pub const DEFAULT_JAILER_BINARY: &'static str = "jailer";
-pub const JAILER_BINARY_OVERRIDE_ENV: &'static str = "FC_TEST_JAILER_BIN";
+pub const JAILER_BINARY_OVERRIDE_ENV: &'static str = "FC_JAILER_BIN";
+
 pub const DEFUALT_TUNTAP_NAME: &'static str = "fc-test-tap0";
-pub const TUNTAP_OVERRIDE_ENV: &'static str = "FC_TEST_TAP";
-pub const TEST_DATA_PATH_ENV: &'static str = "FC_TEST_DATA_PATH";
-pub const SUDO_UID: &'static str = "SUDO_UID";
-pub const SUDO_GID: &'static str = "SUDO_GID";
+pub const TUNTAP_OVERRIDE_ENV: &'static str = "FC_TAP";
+
+pub const DATA_PATH_ENV: &'static str = "FC_DATA_PATH";
+pub const SUDO_UID_ENV: &'static str = "SUDO_UID";
+pub const SUDO_GID_ENV: &'static str = "SUDO_GID";
+
+
+pub const DEFAULT_USER_AGENT: &'static str = "rustfire";
+// as specified in http://man7.org/linux/man-pages/man8/ip-netns.8.html
+pub const DEFAULT_NETNS_DIR: &'static str = "/var/run/netns";
+
+// env name to make firecracker init timeout configurable
+pub const FIRECRACKER_INIT_TIMEOUT_ENV: &'static str = "RUSTFIRE_INIT_TIMEOUT_SECONDS";
+pub const DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS: usize = 3;
+
+// env name to make firecracker request timeout configurable
+pub const FIRECRACKER_REQUEST_TIMEOUT_ENV: &'static str = "RUSTFIRE_AGENT_TIMEOUT_SECONDS";
+pub const DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS: usize = 3;
 
 pub struct TestArgs {}
 
@@ -105,7 +121,7 @@ impl TestArgs {
         let vmlinux_path = Self::test_data_path().join("./vmlinux");
         std::fs::metadata(&vmlinux_path).map_err(|e| {MachineError::FileMissing(format!(
             "Cannot find vmlinux file: {}\nVerify that you have a vmlinux file at {} or set the {} environment variable to the correct location",
-            e.to_string(), vmlinux_path.display(), TEST_DATA_PATH_ENV,
+            e.to_string(), vmlinux_path.display(), DATA_PATH_ENV,
         ))})?;
         Ok(vmlinux_path)
     }

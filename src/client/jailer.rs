@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
 };
 
-use log::error;
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -77,12 +77,7 @@ pub struct JailerConfig {
     pub exec_file: Option<PathBuf>,
 
     // JailerBinary specifies the jailer binary to be used for setting up the
-    // Firecracker VM jail. If the value contains no path separators, it will
-    // use the PATH environment variable to get the absolute path of the binary.
-    // If the value contains path separators, the value will be used directly
-    // to exec the jailer. This follows the same conventions as Golang's
-    // os/exec.Command.
-    //
+    // Firecracker VM jail.
     // If not specified it defaults to "jailer".
     pub jailer_binary: Option<PathBuf>,
 
@@ -107,6 +102,53 @@ pub struct JailerConfig {
     // Stdin specifies the IO reader for STDIN to use when spawning the jailer.
     pub stdin: Option<StdioTypes>,
 }
+
+// impl JailerConfig {
+//     /// called by JailerConfigValidationHandler
+//     pub(super) fn validate(&self) -> Result<(), MachineError> {
+//         if self.exec_file.is_none() {
+//             error!(target: "JailerConfig::validate", "should assign firecracker binary");
+//             return Err(MachineError::Validation(format!(
+//                 "should assign firecracker binary"
+//             )));
+//         } else if let Some(path) = self.exec_file.as_ref() {
+//             if let Err(e) = std::fs::metadata(path) {
+//                 error!(target: "JailerConfig::validate", "fail to stat firecracker binary {}: {}", path.display(), e.to_string());
+//                 return Err(MachineError::Validation(format!(
+//                     "fail to stat firecracker binary {}: {}", path.display(), e.to_string()
+//                 )));
+//             }
+//         }
+
+//         let mut path: &PathBuf = &"jailer".into();
+//         if self.jailer_binary.is_none() {
+//             info!(target: "JailerConfig::validate", "no jailer binary specified, using \"jailer\"")
+//         } else {
+//             path = self.jailer_binary.as_ref().unwrap();
+//         }
+//         if let Err(e) = std::fs::metadata(path) {
+//             error!(target: "JailerConfig::validate", "fail to stat jailer binary {}: {}", path.display(), e.to_string());
+//             return Err(MachineError::Validation(format!(
+//                 "fail to stat jailer binary {}: {}", path.display(), e.to_string()
+//             )));
+//         }
+
+//         let mut path: &PathBuf = &"/srv/jailer".into();
+//         if self.chroot_base_dir.is_none() {
+//             info!(target: "JailerConfig::validate", "no chroot base directory specified, using \"/srv/jailer\"")
+//         } else {
+//             path = self.chroot_base_dir.as_ref().unwrap();
+//         }
+//         if let Err(e) = std::fs::metadata(path) {
+//             error!(target: "JailerConfig::validate", "fail to stat chroot base directory {}: {}", path.display(), e.to_string());
+//             return Err(MachineError::Validation(format!(
+//                 "fail to stat chroot base directory {}: {}", path.display(), e.to_string()
+//             )));
+//         }
+
+//         Ok(())
+//     }
+// }
 
 pub struct JailerCommandBuilder {
     bin: PathBuf,

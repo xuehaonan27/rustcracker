@@ -12,10 +12,7 @@ use super::{
 };
 
 use log::{debug, error, warn};
-use nix::{
-    fcntl::OFlag,
-    sys::stat::Mode,
-};
+use nix::{fcntl::OFlag, sys::stat::Mode};
 use serde::{Deserialize, Serialize};
 
 pub trait HandlerName {}
@@ -678,8 +675,6 @@ async fn capture_fifo_to_file(
     let fifo_pipe = unsafe { std::fs::File::from_raw_fd(fifo_raw_fd) };
     debug!("Capturing {} to writer", fifo_path.display());
 
-    
-
     todo!()
 }
 
@@ -723,9 +718,14 @@ impl HandlerList {
     }
 
     pub fn default_validation_handler_list() -> Self {
-        HandlerList(vec![Handler::NetworkConfigValidationHandler {
-            name: ValidateNetworkCfgHandlerName,
-        }])
+        HandlerList(vec![
+            Handler::ConfigValidationHandler {
+                name: ValidateCfgHandlerName,
+            },
+            Handler::NetworkConfigValidationHandler {
+                name: ValidateNetworkCfgHandlerName,
+            },
+        ])
     }
 
     /// prepend will prepend a new set of handlers to the handler list

@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
+use log::error;
 use serde::{Deserialize, Serialize};
 
-use crate::utils::Json;
+use crate::{client::machine::MachineError, utils::Json};
 
 /*
 Vsock Defines a vsock device, backed by a set of Unix Domain Sockets, on the host side.
@@ -66,5 +67,20 @@ impl Default for Vsock {
             uds_path: "".into(),
             vsock_id: None,
         }
+    }
+}
+
+impl Vsock {
+    pub fn validate(&self) -> Result<(), MachineError> {
+        if let Err(e) = std::fs::metadata(&self.uds_path) {
+            error!(target: "Vsock::validate", "fail to stat unix socket path {}: {}", self.uds_path.display(), e.to_string());
+            return Err(MachineError::Validation(format!(
+                "fail to stat unix socket path {}: {}",
+                self.uds_path.display(),
+                e.to_string()
+            )));
+        }
+
+        Ok(())
     }
 }

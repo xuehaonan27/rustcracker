@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
+use log::error;
 use serde::{Deserialize, Serialize};
 
-use crate::utils::Json;
+use crate::{client::machine::MachineError, utils::Json};
 
 /// Boot source descriptor.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -66,5 +67,15 @@ impl BootSource {
     {
         self.initrd_path = Some(path.into());
         self
+    }
+
+    #[must_use="must validate BootSource before putting it to microVm"]
+    pub fn validate(&self) -> Result<(), MachineError> {
+        if let Err(e) = std::fs::metadata(&self.kernel_image_path) {
+            error!(target: "BootSource::validate", "failed to stat kernel image path, {:#?}: {}", self.kernel_image_path, e.to_string());
+            return Err(MachineError::Validation(format!("failed to stat kernel image path, {:#?}: {}", self.kernel_image_path, e.to_string())));
+        }
+
+        Ok(())
     }
 }

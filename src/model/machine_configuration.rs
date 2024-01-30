@@ -1,6 +1,7 @@
+use log::error;
 use serde::{Deserialize, Serialize};
 
-use crate::utils::Json;
+use crate::{client::machine::MachineError, utils::Json};
 
 use super::cpu_template::CPUTemplate;
 
@@ -111,5 +112,23 @@ impl MachineConfiguration {
 
     pub fn get_mem_size_in_mib(&self) -> isize {
         self.mem_size_mib
+    }
+
+    #[must_use="must validate MachineConfiguration before putting it to microVm"]
+    pub fn validate(&self) -> Result<(), MachineError> {
+        if self.vcpu_count < 1 {
+            error!(target: "MachineConfiguration::validate", "machine needs a non-zero vcpu count");
+            return Err(MachineError::Validation(
+                "machine needs a non-zero vcpu count".to_string(),
+            ));
+        }
+        if self.mem_size_mib < 1 {
+            error!(target: "MachineConfiguration::validate", "machine needs a non-zero amount of memory");
+            return Err(MachineError::Validation(
+                "machine needs a non-zero amount of memory".to_string(),
+            ));
+        }
+
+        Ok(())
     }
 }

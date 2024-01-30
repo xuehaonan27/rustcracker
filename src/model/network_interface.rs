@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::utils::Json;
+use crate::{client::machine::MachineError, utils::Json};
 
 use super::rate_limiter::RateLimiter;
 /// Defines a network interface.
@@ -13,7 +13,7 @@ pub struct NetworkInterface {
     /// In this case, both ARP requests for 169.254.169.254 and TCP
     /// segments heading to the same address are intercepted by the
     /// device model, and do not reach the associated TAP device.
-    /// allow_mmds_requests: Option<bool>,
+    // pub allow_mmds_requests: Option<bool>,
 
     /// guest mac
     #[serde(rename = "guest_mac", skip_serializing_if = "Option::is_none")]
@@ -90,9 +90,5 @@ impl NetworkInterface {
     pub fn with_tx_rate_limiter(mut self, limiter: RateLimiter) -> Self {
         self.tx_rate_limiter = Some(limiter);
         self
-    }
-
-    pub fn ip_boot_param(&self) -> String {
-        todo!()
-    }
+    }    
 }

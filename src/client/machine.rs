@@ -9,7 +9,8 @@ use crate::{
     client::{
         command_builder::VMMCommandBuilder,
         handler::{
-            CleaningUpNetworkNamespaceHandlerName, CleaningUpSocketHandlerName, Handler, ValidateCfgHandlerName, ValidateJailerCfgHandlerName
+            CleaningUpNetworkNamespaceHandlerName, CleaningUpSocketHandlerName, Handler,
+            ValidateCfgHandlerName, ValidateJailerCfgHandlerName,
         },
         jailer::jail,
     },
@@ -35,26 +36,16 @@ use crate::{
         vm::{VM_STATE_PAUSED, VM_STATE_RESUMED},
         vsock::Vsock,
     },
-    utils::Metadata,
+    utils::{Metadata, DEFAULT_NETNS_DIR},
 };
 
 use super::{
     agent::Agent,
     handler::{CleaningUpFileHandlerName, HandlerList, Handlers},
     jailer::{JailerConfig, StdioTypes},
-    network::UniNetworkInterfaces,
+    network::{UniNetworkInterface, UniNetworkInterfaces},
     signals::Signal,
 };
-
-const USER_AGENT: &'static str = "rustfire";
-
-// as specified in http://man7.org/linux/man-pages/man8/ip-netns.8.html
-const DEFAULT_NETNS_DIR: &'static str = "/var/run/netns";
-
-// env name to make firecracker init timeout configurable
-const FIRECRACKER_INIT_TIMEOUT_ENV: &'static str = "RUSTFIRE_INIT_TIMEOUT_SECONDS";
-
-const DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS: usize = 3;
 
 type SeccompLevelValue = usize;
 
@@ -114,7 +105,7 @@ pub struct Config {
 
     // NetworkInterfaces specifies the tap devices that should be made available
     // to the microVM.
-    pub network_interfaces: Option<Vec<NetworkInterface>>,
+    pub network_interfaces: Option<UniNetworkInterfaces>,
 
     // FifoLogWriter is an io.Writer(Stdio) that is used to redirect the contents of the
     // fifo log to the writer.
@@ -193,6 +184,7 @@ impl Default for Config {
 }
 
 impl Config {
+    /// called by ConfigValidationHandler
     pub(super) fn validate(&self) -> Result<(), MachineError> {
         if self.disable_validation {
             return Ok(());
@@ -210,6 +202,7 @@ impl Config {
             )));
         }
 
+        // initrd_path being None is allowed
         if self.initrd_path.is_some() {
             if let Err(e) = std::fs::metadata(self.initrd_path.as_ref().unwrap()) {
                 return Err(MachineError::Validation(format!(
@@ -248,51 +241,83 @@ impl Config {
                 "socket {:#?} already exists",
                 self.socket_path
             )));
+        } else {
+            // create socket parent dir
+            let socket_dir_parent = self.socket_path.as_ref().unwrap().parent();
+            if socket_dir_parent.is_none() {
+                return Err(MachineError::Validation(format!(
+                    "invalid directory where the socket is to be generated: {}",
+                    self.socket_path.as_ref().unwrap().display()
+                )));
+            }
+            std::fs::create_dir_all(socket_dir_parent.unwrap()).map_err(|e| {
+                MachineError::FileCreation(format!(
+                    "fail to create socket parent directory {}: {}",
+                    socket_dir_parent.as_ref().unwrap().display(),
+                    e.to_string()
+                ))
+            })?;
         }
 
+        // validate machine configuration
         if self.machine_cfg.is_none() {
             return Err(MachineError::Validation(
                 "no machine configuration provided".to_string(),
             ));
         } else {
-            if self.machine_cfg.as_ref().unwrap().get_vcpu_count() < 1 {
-                return Err(MachineError::Validation(
-                    "machine needs a non-zero vcpu count".to_string(),
-                ));
-            }
-            if self.machine_cfg.as_ref().unwrap().get_mem_size_in_mib() < 1 {
-                return Err(MachineError::Validation(
-                    "machine needs a non-zero amount of memory".to_string(),
-                ));
+            self.machine_cfg.as_ref().unwrap().validate()?;
+        }
+
+        if self.drives.is_some() {
+            for drive in self.drives.as_ref().unwrap() {
+                drive.validate()?;
             }
         }
 
-        if self.net_ns.is_none() {
-            return Err(MachineError::Validation("no network namespace provided".to_string()));
-        }
+        // network interfaces are validated in fn Config::validate_network
 
-        if self.network_interfaces.is_none() || self.network_interfaces.as_ref().unwrap().len() == 0 {
-            return Err(MachineError::Validation("no network interface provided".to_string()));
+        if self.vsock_devices.is_some() {
+            for dev in self.vsock_devices.as_ref().unwrap() {
+                dev.validate()?;
+            }
         }
 
         Ok(())
     }
 
-    // 合并进入validate
+    // called by NetworkConfigValidationHandler
     pub(super) fn validate_network(&self) -> Result<(), MachineError> {
         if self.disable_validation {
             return Ok(());
-        } else {
-            if self.net_ns.is_none() {
-                return Err(MachineError::Validation("no network namespace provided".to_string()));
-            }
-    
-            if self.network_interfaces.is_none() || self.network_interfaces.as_ref().unwrap().len() == 0 {
-                return Err(MachineError::Validation("no network interface provided".to_string()));
-            }
-
-            Ok(())
         }
+        if self.net_ns.is_none() {
+            return Err(MachineError::Validation(
+                "no network namespace provided".to_string(),
+            ));
+        }
+
+        if self.network_interfaces.is_none()
+            || self.network_interfaces.as_ref().unwrap().0.len() == 0
+        {
+            return Err(MachineError::Validation(
+                "no network interface provided".to_string(),
+            ));
+        }
+
+        let s: KernelArgs;
+        if self.kernel_args.is_some() {
+            s = KernelArgs::from(self.kernel_args.as_ref().unwrap().to_owned());
+        } else {
+            s = KernelArgs(std::collections::HashMap::new());
+        }
+        self.network_interfaces.as_ref().unwrap().validate(&s).map_err(|e| {
+            error!(target: "Machine::validate_network", "fail when validating network config {}", e);
+            MachineError::Validation(format!(
+                "fail when validating network config {}", e.to_string()
+            ))
+        })?;
+
+        Ok(())
     }
 
     pub fn with_machine_config(mut self, machine_config: MachineConfiguration) -> Self {
@@ -450,50 +475,14 @@ pub trait MachineTrait {
 /// stop_vmm停止firecracker并做好收尾工作
 ///
 /// 总结: 先调用shutdown, 然后调用firecracker.
-/// 和go实现不同的是, stop_vmm没有选择SIGTERM而是SIGKILL.
-/// 保证绝对终止firecracker进程.
+/// stop_vmm_force发送SIGKILL保证绝对终止firecracker进程.
 ///
 /// 可以使用tokio::select!和channel完成exit_ch的编写
 ///
 /// 将所有put操作全部pub(super)防止user直接调用
+///
+/// functional methods
 impl Machine {
-    /// default returns a blanck machine which should be configured
-    /// and one should never call this function so set as private.
-    /// The reason why I do not want to impl Default for Machine
-    /// is the same. Just keep it private.
-    fn default(
-        exit_recv: async_channel::Receiver<MachineMessage>,
-        sig_recv: async_channel::Receiver<MachineMessage>,
-    ) -> Self {
-        let (i_send, i_recv) = async_channel::bounded(64);
-        Machine {
-            handlers: Handlers::default(),
-            cfg: Config::default(),
-            agent: Agent::blank(),
-            cmd: None,
-            child_process: None,
-            pid: None,
-            logger: None,
-            machine_config: MachineConfiguration::default(),
-            start_once: Once::new(),
-            exit_ch: exit_recv,
-            internal_ch_sender: i_send,
-            internal_ch_receiver: i_recv,
-            sig_ch: sig_recv,
-            fatalerr: None,
-            cleanup_once: Once::new(),
-            cleanup_funcs: HandlerList::blank(),
-        }
-    }
-
-    pub fn get_log_file(&self) -> Option<PathBuf> {
-        self.cfg.log_fifo.to_owned()
-    }
-
-    pub fn set_command(&mut self, cmd: tokio::process::Command) {
-        self.cmd = Some(cmd);
-    }
-
     /// new initializes a new Machine instance and performs validation of the
     /// provided Config.
     pub fn new(
@@ -606,38 +595,6 @@ impl Machine {
         Ok(machine)
     }
 
-    /// clear_validation clear validation handlers of this machine
-    pub fn clear_validation(&mut self) {
-        self.handlers.validation.clear();
-        info!(target: "Machine::clear_validation", "validation handlers cleared");
-    }
-
-    /// logger set a appropriate logger for logging hypervisor message
-    pub fn logger(&mut self) {
-        let logger = env_logger::Builder::new();
-        self.logger = Some(logger);
-        info!(target: "Machine::logger", "logger set");
-    }
-
-    /// PID returns the machine's running process PID or an error if not running
-    #[allow(non_snake_case)]
-    pub fn PID(&self) -> Result<u32, MachineError> {
-        if self.cmd.is_none() || self.child_process.is_none() {
-            return Err(MachineError::Execute("machine is not running".to_string()));
-        }
-
-        // 如果exit_ch有消息, 说明要求停止了
-        // todo!(); // "machine process has exited"
-
-        self.child_process
-            .as_ref()
-            .unwrap()
-            .id()
-            .ok_or(MachineError::Execute(
-                "machine may by not running or already stopped".to_string(),
-            ))
-    }
-
     /// Start actually start a Firecracker microVM.
     /// The context must not be cancelled while the microVM is running.
     ///
@@ -737,25 +694,238 @@ impl Machine {
         Ok(())
     }
 
-    /// start_instance: send InstanceActionInfo::instance_start() to firecracker process.
-    /// Should be called only by Machine::start, after start_vmm has returned successfully.
-    async fn start_instance(&self) -> Result<(), MachineError> {
-        debug!(target: "Machine::start_instance", "called Machine::start_instance");
-        self.agent
-            .create_sync_action(&InstanceActionInfo::instance_start())
-            .await
-            .map_err(|e| {
-                error!(target: "Machine::start_instance", "sending failure: {}", e);
-                MachineError::Execute(e.to_string())
-            })?;
-        info!(target: "Machine::start_instance", "instance start sent");
-        Ok(())
-    }
-
     /// shutdown requests a clean shutdown of the VM by sending CtrlAltDelete on the virtual keyboard
     pub async fn shutdown(&self) -> Result<(), MachineError> {
         debug!(target: "Machine::shutdown", "called Machine::shutdown");
         self.send_ctrl_alt_del().await
+    }
+
+    /// pause pauses the microVM
+    pub async fn pause(&self) -> Result<(), MachineError> {
+        debug!(target: "Machine::pause", "called Machine::pause");
+        self.agent.patch_vm(&VM_STATE_PAUSED).await.map_err(|e| {
+            error!(target: "Machine::pause", "sending failure: {}", e);
+            MachineError::Execute(e.to_string())
+        })?;
+        info!(target: "Machine::pause", "Machine {} paused", self.cfg.vmid.as_ref().unwrap());
+        Ok(())
+    }
+
+    /// resume resumes the microVM from pausing
+    pub async fn resume(&self) -> Result<(), MachineError> {
+        debug!(target: "Machine::resume", "called Machine::resume");
+        self.agent.patch_vm(&VM_STATE_RESUMED).await.map_err(|e| {
+            error!(target: "Machine::resume", "sending failure: {}", e);
+            MachineError::Execute(e.to_string())
+        })?;
+        info!(target: "Machine::resume", "Machine {} resumed", self.cfg.vmid.as_ref().unwrap());
+        Ok(())
+    }
+
+    /// stop_vmm stops the current VMM by sending a SIGTERM
+    pub async fn stop_vmm(&mut self) -> Result<(), MachineError> {
+        debug!(target: "Machine::stop_vmm", "sending sigterm to firecracker");
+
+        // sending a SIGTERM
+        if self.cmd.is_some() && self.child_process.is_some() {
+            let pid = self
+                .child_process
+                .as_ref()
+                .unwrap()
+                .id()
+                .ok_or(MachineError::Execute(
+                    "stop_vmm: no pid found, maybe VMM already stopped".to_string(),
+                ))?;
+            nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(pid as i32),
+                nix::sys::signal::SIGTERM,
+            )
+            .map_err(|e| {
+                error!(
+                    target: "Machine::stop_vmm",
+                    "fail to send SIGTERM to firecracker process {}, reason: {}",
+                    pid, e
+                );
+                MachineError::Execute(format!(
+                    "fail to send SIGTERM to firecracker process {}, reason: {}",
+                    pid, e
+                ))
+            })?
+        } else {
+            info!(target: "Machine::stop_vmm", "no firecracker process running, not sending SIGTERM");
+        }
+
+        Ok(())
+    }
+
+    /// stop_vmm_force stops the current VMM by sending a SIGKILL
+    pub async fn stop_vmm_force(&mut self) -> Result<(), MachineError> {
+        debug!(target: "Machine::stop_vmm_force", "sending sigkill to firecracker");
+
+        // sending a SIGKILL
+        if self.cmd.is_some() && self.child_process.is_some() {
+            let pid = self.pid;
+            self.child_process
+                .as_mut()
+                .unwrap()
+                .kill()
+                .await
+                .map_err(|e| {
+                    error!(target: "Machine::stop_vmm_force", "vmm process already finished!");
+                    MachineError::Execute(format!(
+                        "firecracker process already finished, pid {:?}: {}",
+                        pid, e
+                    ))
+                })?;
+        } else {
+            info!(target: "Machine::stop_vmm_force", "stop_vmm_force: no firecracker process running, not sending SIGKILL");
+        }
+
+        Ok(())
+    }
+}
+
+/// private methods
+impl Machine {
+    /// wait_for_socket waits for the given file to exist
+    async fn wait_for_socket(&self, timeout_in_secs: u64) -> Result<(), MachineError> {
+        if self.cfg.socket_path.is_none() {
+            return Err(MachineError::ArgWrong(
+                "socket path not provided in the configuration".to_string(),
+            ));
+        }
+        tokio::time::timeout(
+            tokio::time::Duration::from_secs(timeout_in_secs),
+            async move {
+                while let Err(_) = tokio::fs::metadata(self.cfg.socket_path.as_ref().unwrap()).await
+                {
+                }
+                debug!("firecracker created socket at the given path");
+            },
+        )
+        .await
+        .map_err(|_| {
+            MachineError::Initialize(format!(
+                "firecracker fail to create socket at the given path after {} seconds",
+                timeout_in_secs
+            ))
+        })?;
+
+        Ok(())
+    }
+
+    /// create_network_interface creates network interface
+    async fn create_network_interface(
+        &self,
+        iface: &UniNetworkInterface,
+        iid: usize,
+    ) -> Result<(), MachineError> {
+        let network_interface = NetworkInterface {
+            guest_mac: Some(
+                iface
+                    .static_configuration
+                    .as_ref()
+                    .unwrap()
+                    .mac_address
+                    .to_owned(),
+            ),
+            // validate it
+            host_dev_name: iface
+                .static_configuration
+                .as_ref()
+                .unwrap()
+                .host_dev_name
+                .as_ref()
+                .unwrap()
+                .to_path_buf(),
+            // validate it
+            iface_id: iid.to_string(),
+            rx_rate_limiter: iface.in_rate_limiter.to_owned(),
+            tx_rate_limiter: iface.out_rate_limiter.to_owned(),
+            // allow_mmds_requests: iface.allow_mmds.to_owned(),
+        };
+        self.agent.put_guest_network_interface_by_id(&network_interface).await.map_err(|e| {
+            error!(target: "Machine::create_network_interface", "PutGuestNetworkInterfaceByID: {}", e);
+            MachineError::Agent(format!("PutGuestNetworkInterfaceByID: {}", e.to_string()))
+        })?;
+
+        debug!(target: "Machine::create_network_interface", "PutGuestNetworkInterfaceByID successful");
+        Ok(())
+    }
+
+    /// attach_drive attaches a secondary block device.
+    async fn attach_drive(&self, dev: &Drive) -> Result<(), MachineError> {
+        let host_path = dev.get_path_on_host();
+        info!(
+            "Attaching drive {}, slot {}, root {}",
+            host_path.display(),
+            dev.get_drive_id(),
+            dev.is_root_device()
+        );
+        self.agent.put_guest_drive_by_id(dev).await.map_err(|e| {
+            error!(
+                "Attach drive failed: {}: {}",
+                host_path.display(),
+                e.to_string()
+            );
+            MachineError::Agent(format!(
+                "Attach drive failed: {}: {}",
+                host_path.display(),
+                e.to_string()
+            ))
+        })?;
+
+        info!("Attached drive {}", host_path.display());
+        Ok(())
+    }
+
+    /// add_vsock adds a vsock to the instance
+    async fn add_vsock(&self, vsock: &Vsock) -> Result<(), MachineError> {
+        self.agent.put_guest_vsock(vsock).await.map_err(|e| {
+            MachineError::Agent(format!("PutGuestVsock returned: {}", e.to_string()))
+        })?;
+        info!("attch vsock {} successful", vsock.uds_path.display());
+        Ok(())
+    }
+
+    async fn do_clean_up(&mut self) -> Result<(), MachineError> {
+        debug!(target: "Machine::do_clean_up", "called Machine::do_clean_up");
+        let mut marker = true;
+        self.cleanup_once.call_once(|| {
+            marker = false;
+        });
+        if marker {
+            error!(target: "Machine::do_clean_up", "cannot call this function more than once");
+            return Err(MachineError::Cleaning(
+                "Cannot cleaning up more than once".to_string(),
+            ));
+        }
+        let clean_up_handlers = self.cleanup_funcs.to_owned();
+        self.cleanup_funcs.reverse();
+        clean_up_handlers.run(self).await?;
+        info!(target: "Machine::do_clean_up", "Machine {} cleaned", self.cfg.vmid.as_ref().unwrap());
+        Ok(())
+    }
+
+    /// Set up a signal handler to pass through to firecracker
+    async fn setup_signals(&self) -> Result<(), MachineError> {
+        debug!(target: "Machine::setup_signals", "called Machine::setup_signals");
+        return Ok(());
+        // judge whether forward_signals field in config exists
+
+        // debug!("Setting up signal handler: {}", todo!());
+
+        // todo!()
+    }
+
+    async fn create_fifo(&self, path: &PathBuf) -> Result<(), MachineError> {
+        debug!("Creating FIFO {}", path.display());
+        nix::unistd::mkfifo(path, nix::sys::stat::Mode::S_IRWXU).map_err(|e| {
+            error!("Failed to create log fifo: {}", e.to_string());
+            MachineError::FileCreation(format!("Failed to create log fifo: {}", e.to_string()))
+        })?;
+
+        Ok(())
     }
 
     /// called by shutdown, which is called by user to perform graceful shutdown
@@ -771,28 +941,99 @@ impl Machine {
         Ok(())
     }
 
-    pub async fn pause(&self) -> Result<(), MachineError> {
-        debug!(target: "Machine::pause", "called Machine::pause");
-        self.agent.patch_vm(&VM_STATE_PAUSED).await.map_err(|e| {
-            error!(target: "Machine::pause", "sending failure: {}", e);
-            MachineError::Execute(e.to_string())
-        })?;
-        info!(target: "Machine::pause", "Machine {} paused", self.cfg.vmid.as_ref().unwrap());
+    /// start_instance: send InstanceActionInfo::instance_start() to firecracker process.
+    /// Should be called only by Machine::start, after start_vmm has returned successfully.
+    async fn start_instance(&self) -> Result<(), MachineError> {
+        debug!(target: "Machine::start_instance", "called Machine::start_instance");
+        self.agent
+            .create_sync_action(&InstanceActionInfo::instance_start())
+            .await
+            .map_err(|e| {
+                error!(target: "Machine::start_instance", "sending failure: {}", e);
+                MachineError::Execute(e.to_string())
+            })?;
+        info!(target: "Machine::start_instance", "instance start sent");
         Ok(())
     }
+}
 
-    pub async fn resume(&self) -> Result<(), MachineError> {
-        debug!(target: "Machine::resume", "called Machine::resume");
-        self.agent.patch_vm(&VM_STATE_RESUMED).await.map_err(|e| {
-            error!(target: "Machine::resume", "sending failure: {}", e);
-            MachineError::Execute(e.to_string())
-        })?;
-        info!(target: "Machine::resume", "Machine {} resumed", self.cfg.vmid.as_ref().unwrap());
-        Ok(())
+/// util methods
+impl Machine {
+    /// default returns a blanck machine which should be configured
+    /// and one should never call this function so set as private.
+    /// The reason why I do not want to impl Default for Machine
+    /// is the same. Just keep it private.
+    fn default(
+        exit_recv: async_channel::Receiver<MachineMessage>,
+        sig_recv: async_channel::Receiver<MachineMessage>,
+    ) -> Self {
+        let (i_send, i_recv) = async_channel::bounded(64);
+        Machine {
+            handlers: Handlers::default(),
+            cfg: Config::default(),
+            agent: Agent::blank(),
+            cmd: None,
+            child_process: None,
+            pid: None,
+            logger: None,
+            machine_config: MachineConfiguration::default(),
+            start_once: Once::new(),
+            exit_ch: exit_recv,
+            internal_ch_sender: i_send,
+            internal_ch_receiver: i_recv,
+            sig_ch: sig_recv,
+            fatalerr: None,
+            cleanup_once: Once::new(),
+            cleanup_funcs: HandlerList::blank(),
+        }
     }
 
+    pub fn get_log_file(&self) -> Option<PathBuf> {
+        self.cfg.log_fifo.to_owned()
+    }
+
+    pub fn set_command(&mut self, cmd: tokio::process::Command) {
+        self.cmd = Some(cmd);
+    }
+
+    /// clear_validation clear validation handlers of this machine
+    pub fn clear_validation(&mut self) {
+        self.handlers.validation.clear();
+        info!(target: "Machine::clear_validation", "validation handlers cleared");
+    }
+
+    /// logger set a appropriate logger for logging hypervisor message
+    pub fn logger(&mut self) {
+        let logger = env_logger::Builder::new();
+        self.logger = Some(logger);
+        info!(target: "Machine::logger", "logger set");
+    }
+
+    /// PID returns the machine's running process PID or an error if not running
+    #[allow(non_snake_case)]
+    pub fn PID(&self) -> Result<u32, MachineError> {
+        if self.cmd.is_none() || self.child_process.is_none() {
+            return Err(MachineError::Execute("machine is not running".to_string()));
+        }
+
+        // 如果exit_ch有消息, 说明要求停止了
+        // todo!(); // "machine process has exited"
+
+        self.child_process
+            .as_ref()
+            .unwrap()
+            .id()
+            .ok_or(MachineError::Execute(
+                "machine may by not running or already stopped".to_string(),
+            ))
+    }
+}
+
+/// method that should be called Handlers
+impl Machine {
+    /// called by StartVMMHandler
     /// start_vmm starts the firecracker vmm process and configures logging.
-    pub async fn start_vmm(&mut self) -> Result<(), MachineError> {
+    pub(super) async fn start_vmm(&mut self) -> Result<(), MachineError> {
         debug!(target: "Machine::start_vmm", "called Machine::start_vmm");
         if self.cfg.socket_path.is_none() {
             error!(target: "Machine::start_vmm", "no socket path provided");
@@ -884,222 +1125,7 @@ impl Machine {
         Ok(())
     }
 
-    /// stop_vmm stops the current VMM by sending a SIGTERM
-    pub async fn stop_vmm(&mut self) -> Result<(), MachineError> {
-        debug!(target: "Machine::stop_vmm", "sending sigterm to firecracker");
-
-        // sending a SIGTERM
-        if self.cmd.is_some() && self.child_process.is_some() {
-            let pid = self
-                .child_process
-                .as_ref()
-                .unwrap()
-                .id()
-                .ok_or(MachineError::Execute(
-                    "stop_vmm: no pid found, maybe VMM already stopped".to_string(),
-                ))?;
-            nix::sys::signal::kill(
-                nix::unistd::Pid::from_raw(pid as i32),
-                nix::sys::signal::SIGTERM,
-            )
-            .map_err(|e| {
-                error!(
-                    target: "Machine::stop_vmm",
-                    "fail to send SIGTERM to firecracker process {}, reason: {}",
-                    pid, e
-                );
-                MachineError::Execute(format!(
-                    "fail to send SIGTERM to firecracker process {}, reason: {}",
-                    pid, e
-                ))
-            })?
-        } else {
-            info!(target: "Machine::stop_vmm", "no firecracker process running, not sending SIGTERM");
-        }
-
-        Ok(())
-    }
-
-    /// stop_vmm_force stops the current VMM by sending a SIGKILL
-    pub async fn stop_vmm_force(&mut self) -> Result<(), MachineError> {
-        debug!(target: "Machine::stop_vmm_force", "sending sigkill to firecracker");
-
-        // sending a SIGKILL
-        if self.cmd.is_some() && self.child_process.is_some() {
-            let pid = self.pid;
-            self.child_process
-                .as_mut()
-                .unwrap()
-                .kill()
-                .await
-                .map_err(|e| {
-                    error!(target: "Machine::stop_vmm_force", "vmm process already finished!");
-                    MachineError::Execute(format!(
-                        "firecracker process already finished, pid {:?}: {}",
-                        pid, e
-                    ))
-                })?;
-        } else {
-            info!(target: "Machine::stop_vmm_force", "stop_vmm_force: no firecracker process running, not sending SIGKILL");
-        }
-
-        Ok(())
-    }
-
-    async fn do_clean_up(&mut self) -> Result<(), MachineError> {
-        debug!(target: "Machine::do_clean_up", "called Machine::do_clean_up");
-        let mut marker = true;
-        self.cleanup_once.call_once(|| {
-            marker = false;
-        });
-        if marker {
-            error!(target: "Machine::do_clean_up", "cannot call this function more than once");
-            return Err(MachineError::Cleaning(
-                "Cannot cleaning up more than once".to_string(),
-            ));
-        }
-        let clean_up_handlers = self.cleanup_funcs.to_owned();
-        self.cleanup_funcs.reverse();
-        clean_up_handlers.run(self).await?;
-        info!(target: "Machine::do_clean_up", "Machine {} cleaned", self.cfg.vmid.as_ref().unwrap());
-        Ok(())
-    }
-
-    /// create_machine put the machine configuration to firecracker
-    /// and refresh(by get from firecracker) the machine configuration stored in `self`
-    pub(super) async fn create_machine(&mut self) -> Result<(), MachineError> {
-        debug!(target: "Machine::create_machine", "called Machine::create_machine");
-        self.agent
-            .put_machine_configuration(self.cfg.machine_cfg.as_ref().unwrap())
-            .await
-            .map_err(|e| {
-                error!(target: "Machine::create_machine", "fail to put machine configuration");
-                MachineError::Initialize(format!(
-                    "PutMachineConfiguration returned {}",
-                    e.to_string()
-                ))
-            })?;
-        debug!(target: "Machine::create_machine", "PutMachineConfiguration returned");
-        self.refresh_machine_configuration().await?;
-        debug!(target: "Machine::create_machine", "exiting create_machine");
-        Ok(())
-    }
-
-    /// refresh_machine_configuration synchronizes our cached representation of the machine configuration
-    /// with that reported by the Firecracker API
-    pub async fn refresh_machine_configuration(&mut self) -> Result<(), MachineError> {
-        debug!(target: "Machine::refresh_machine_configuration", "called Machine::refresh_machine_configuration");
-        let machine_config = self.agent.get_machine_configuration().await.map_err(|e| {
-            error!(target: "Machine::refresh_machine_configuration", "unable to inspect firecracker MachineConfiguration: {}", e);
-            MachineError::Agent(format!(
-                "unable to inspect firecracker MachineConfiguration: {}",
-                e.to_string()
-            ))
-        })?;
-
-        debug!(target: "Machine::refresh_machine_configuration", "got: {:#?}", machine_config);
-        self.machine_config = machine_config;
-        Ok(())
-    }
-
-    /// Set up a signal handler to pass through to firecracker
-    pub(super) async fn setup_signals(&self) -> Result<(), MachineError> {
-        debug!(target: "Machine::setup_signals", "called Machine::setup_signals");
-        return Ok(());
-        // judge whether forward_signals field in config exists
-
-        // debug!("Setting up signal handler: {}", todo!());
-
-        // todo!()
-    }
-
-    pub(super) async fn setup_network(&mut self) -> Result<(), MachineError> {
-        // could assume that network
-        debug!(target: "Machine::setup_network", "called Machine::setup_network");
-
-        
-        // if self.cfg.network_interfaces.is_none() {
-        //     return Err(MachineError::Initialize(
-        //         "fail to set up networks, no network interfaces provided in configuration"
-        //             .to_string(),
-        //     ));
-        // }
-
-        // let funcs = self.cfg.network_interfaces.as_ref().unwrap()
-        //     .setup_network(&self.cfg.vmid, &self.cfg.net_ns)
-        //     .map_err(|e| {
-        //         error!(target: "Machine::setup_network", "something wrong when setting up network: {}", e.to_string());
-        //         MachineError::Initialize(format!(
-        //             "something wrong when setting up network: {}",
-        //             e.to_string()
-        //         ))
-        //     })?;
-        let funcs = Handler::CleaningUpNetworkNamespaceHandler { name: CleaningUpNetworkNamespaceHandlerName };
-
-        self.cleanup_funcs.append(vec![funcs]);
-        info!(target: "Machine::setup_network", "network set");
-        Ok(())
-    }
-
-    pub(super) async fn setup_kernel_args(&mut self) -> Result<(), MachineError> {
-        debug!(target: "Machine::setup_kernel_args", "called setup_kernel_args");
-        let mut kernel_args = KernelArgs::from(self.cfg.kernel_args.as_ref().unwrap().to_owned());
-
-        // If any network interfaces have a static IP configured, we need to set the "ip=" boot param.
-        // Validation that we are not overriding an existing "ip=" setting happens in the network validation
-        // if let Some(static_ip_interface) = self
-        //     .cfg
-        //     .network_interfaces
-        //     .as_ref()
-        //     .unwrap()
-        //     .static_ip_interface()
-        // {
-        //     if static_ip_interface
-        //         .static_configuration
-        //         .as_ref()
-        //         .unwrap()
-        //         .ip_configuration
-        //         .is_none()
-        //     {
-        //         return Err(MachineError::Initialize(format!(
-        //             "missing ip configuration in static network interface {:#?}",
-        //             static_ip_interface
-        //         )));
-        //     } else {
-        //         let s = static_ip_interface
-        //             .static_configuration
-        //             .as_ref()
-        //             .unwrap()
-        //             .ip_configuration
-        //             .as_ref()
-        //             .unwrap()
-        //             .ip_boot_param();
-        //         kernel_args.0.insert("ip".to_string(), Some(s));
-        //     }
-        // }
-        // self.cfg.kernel_args = Some(kernel_args.to_string());
-        if kernel_args.0.contains_key("ip") {
-            return Ok(());
-        }
-        let ip_boot_param = self.cfg.network_interfaces.as_ref().unwrap()[0].ip_boot_param();
-        kernel_args.0.insert("ip".to_string(), Some(ip_boot_param));
-        self.cfg.kernel_args = Some(kernel_args.to_string());
-
-        debug!(target: "Machine::setup_kernel_args", "kernel arguments: {}", self.cfg.kernel_args.as_ref().unwrap());
-        info!(target: "Machine::setup_kernel_args", "kernel arguments set");
-        Ok(())
-    }
-
-    pub(super) async fn create_fifo(&self, path: &PathBuf) -> Result<(), MachineError> {
-        debug!("Creating FIFO {}", path.display());
-        nix::unistd::mkfifo(path, nix::sys::stat::Mode::S_IRWXU).map_err(|e| {
-            error!("Failed to create log fifo: {}", e.to_string());
-            MachineError::FileCreation(format!("Failed to create log fifo: {}", e.to_string()))
-        })?;
-
-        Ok(())
-    }
-
+    /// called by CreateLogFilesHandler
     pub(super) fn create_log_fifo_or_file(&mut self) -> Result<(), MachineError> {
         debug!(target: "Machine::create_log_fifo_or_file", "called create_log_fifo_or_file");
         if let Some(fifo) = &self.cfg.log_fifo {
@@ -1139,12 +1165,16 @@ impl Machine {
             })?;
             Ok(())
         } else {
-            Err(MachineError::FileCreation(
-                "create_log_fifo_or_file: parameters wrong".into(),
-            ))
+            // no log file provided, just return
+            info!(target: "Machine::create_log_fifo_or_file", "no log file path provided, just return");
+            Ok(())
+            // Err(MachineError::FileCreation(
+            //     "create_log_fifo_or_file: parameters wrong".into(),
+            // ))
         }
     }
 
+    /// called by CreateLogFilesHandler
     pub(super) fn create_metrics_fifo_or_file(&mut self) -> Result<(), MachineError> {
         if let Some(fifo) = &self.cfg.metrics_fifo {
             unistd::mkfifo(fifo, Mode::S_IRUSR | Mode::S_IWUSR).map_err(|e| {
@@ -1180,12 +1210,16 @@ impl Machine {
             })?;
             Ok(())
         } else {
-            Err(MachineError::FileCreation(
-                "create_metrics_fifo_or_file: parameters wrong".into(),
-            ))
+            // no metrics path provided, just return
+            info!(target: "Machine::create_metrics_fifo_or_file", "no metrics file path provided, just return");
+            Ok(())
+            // Err(MachineError::FileCreation(
+            //     "create_metrics_fifo_or_file: parameters wrong".into(),
+            // ))
         }
     }
 
+    /// called by BootstrapLoggingHandler
     pub(super) async fn setup_logging(&self) -> Result<(), MachineError> {
         let path: &PathBuf;
         if self.cfg.log_fifo.is_some() {
@@ -1221,6 +1255,7 @@ impl Machine {
         Ok(())
     }
 
+    /// called by BootstrapLoggingHandler
     pub(super) async fn setup_metrics(&self) -> Result<(), MachineError> {
         let path: &PathBuf;
         if self.cfg.metrics_fifo.is_some() {
@@ -1239,33 +1274,28 @@ impl Machine {
         Ok(())
     }
 
-    /// wait_for_socket waits for the given file to exist
-    async fn wait_for_socket(&self, timeout_in_secs: u64) -> Result<(), MachineError> {
-        if self.cfg.socket_path.is_none() {
-            return Err(MachineError::ArgWrong(
-                "socket path not provided in the configuration".to_string(),
-            ));
-        }
-        tokio::time::timeout(
-            tokio::time::Duration::from_secs(timeout_in_secs),
-            async move {
-                while let Err(_) = tokio::fs::metadata(self.cfg.socket_path.as_ref().unwrap()).await
-                {
-                }
-                debug!("firecracker created socket at the given path");
-            },
-        )
-        .await
-        .map_err(|_| {
-            MachineError::Initialize(format!(
-                "firecracker fail to create socket at the given path after {} seconds",
-                timeout_in_secs
-            ))
-        })?;
-
+    /// called by CreateMachineHandler
+    /// create_machine put the machine configuration to firecracker
+    /// and refresh(by get from firecracker) the machine configuration stored in `self`
+    pub(super) async fn create_machine(&mut self) -> Result<(), MachineError> {
+        debug!(target: "Machine::create_machine", "called Machine::create_machine");
+        self.agent
+            .put_machine_configuration(self.cfg.machine_cfg.as_ref().unwrap())
+            .await
+            .map_err(|e| {
+                error!(target: "Machine::create_machine", "fail to put machine configuration");
+                MachineError::Initialize(format!(
+                    "PutMachineConfiguration returned {}",
+                    e.to_string()
+                ))
+            })?;
+        debug!(target: "Machine::create_machine", "PutMachineConfiguration returned");
+        self.refresh_machine_configuration().await?;
+        debug!(target: "Machine::create_machine", "exiting create_machine");
         Ok(())
     }
 
+    /// called by CreateBootSourceHandler
     /// create_boot_source creates a boot source and configure it to microVM
     pub(super) async fn create_boot_source(
         &self,
@@ -1288,128 +1318,14 @@ impl Machine {
         Ok(())
     }
 
-    /// create_network_interface creates network interface
-    pub(super) async fn create_network_interface(
-        &self,
-        iface: &NetworkInterface,
-    ) -> Result<(), MachineError> {
-        self.agent.put_guest_network_interface_by_id(iface).await.map_err(|e| {
-            error!(target: "Machine::create_network_interface", "PutGuestNetworkInterfaceByID: {}", e);
-            MachineError::Agent(format!("PutGuestNetworkInterfaceByID: {}", e.to_string()))
-        })?;
-
-        debug!(target: "Machine::create_network_interface", "PutGuestNetworkInterfaceByID successful");
-        Ok(())
-    }
-
-    pub(super) async fn create_network_interfaces(&self) -> Result<(), MachineError> {
-        for iface in self.cfg.network_interfaces.as_ref().unwrap() {
-            self.create_network_interface(iface).await?;
-        }
-        
-        Ok(())
-    }
-
-    /// update_guest_network_interface_rate_limit modifies the specified network interface's rate limits
-    pub async fn update_guest_network_interface_rate_limit(
-        &self,
-        iface_id: String,
-        rate_limiters: RateLimiterSet,
-    ) -> Result<(), MachineError> {
-        let iface = PartialNetworkInterface {
-            iface_id: iface_id.to_owned(),
-            rx_rate_limiter: rate_limiters.in_rate_limiter,
-            tx_rate_limiter: rate_limiters.out_rate_limiter,
-        };
-
-        self.agent
-            .patch_guest_network_interface_by_id(&iface)
-            .await
-            .map_err(|e| {
-                error!(
-                    "Update network interface failed: {}: {}",
-                    iface_id,
-                    e.to_string()
-                );
-                MachineError::Agent(format!(
-                    "Update network interface failed: {}: {}",
-                    iface_id,
-                    e.to_string()
-                ))
-            })?;
-
-        info!("Updated network interface");
-        Ok(())
-    }
-    /// attach_drive attaches a secondary block device.
-    async fn attach_drive(&self, dev: &Drive) -> Result<(), MachineError> {
-        let host_path = dev.get_path_on_host();
-        info!(
-            "Attaching drive {}, slot {}, root {}",
-            host_path.display(),
-            dev.get_drive_id(),
-            dev.is_root_device()
-        );
-        self.agent.put_guest_drive_by_id(dev).await.map_err(|e| {
-            error!(
-                "Attach drive failed: {}: {}",
-                host_path.display(),
-                e.to_string()
-            );
-            MachineError::Agent(format!(
-                "Attach drive failed: {}: {}",
-                host_path.display(),
-                e.to_string()
-            ))
-        })?;
-
-        info!("Attached drive {}", host_path.display());
-        Ok(())
-    }
-
-    pub(super) async fn attach_drives(&self) -> Result<(), MachineError> {
-        if self.cfg.drives.is_none() {
-            return Err(MachineError::Validation("drives not provided".to_string()));
-        }
-        let mut err: Vec<(usize, MachineError)> = Vec::new();
-        for (i, dev) in self.cfg.drives.as_ref().unwrap().iter().enumerate() {
-            match self.attach_drive(dev).await {
-                Ok(_) => (),
-                Err(e) => err.push((i, e)),
-            }
-        }
-        if err.is_empty() {
-            return Ok(());
-        }
-        let mut e_string = String::new();
-        for (i, e) in err {
-            e_string = format!(
-                "{},{{ error when putting {}-th vsock: {} }}",
-                e_string,
-                i,
-                e.to_string()
-            );
-        }
-        Err(MachineError::Agent(format!(
-            "add_vsocks errors with: {}",
-            e_string
-        )))
-    }
-
-    /// add_vsock adds a vsock to the instance
-    async fn add_vsock(&self, vsock: &Vsock) -> Result<(), MachineError> {
-        self.agent.put_guest_vsock(vsock).await.map_err(|e| {
-            MachineError::Agent(format!("PutGuestVsock returned: {}", e.to_string()))
-        })?;
-        info!("attch vsock {} successful", vsock.uds_path.display());
-        Ok(())
-    }
-
+    /// called by AddVsocksHandler
     pub(super) async fn add_vsocks(&self) -> Result<(), MachineError> {
         if self.cfg.vsock_devices.is_none() {
-            return Err(MachineError::Validation(
-                "no vsock devices provided".to_string(),
-            ));
+            info!(target: "Machine::add_vsocks", "no virtio device socket provided, just return");
+            return Ok(());
+            // return Err(MachineError::Validation(
+            //     "no vsock devices provided".to_string(),
+            // ));
         }
         let mut err: Vec<(usize, MachineError)> = Vec::new();
         for (i, dev) in self.cfg.vsock_devices.as_ref().unwrap().iter().enumerate() {
@@ -1436,6 +1352,144 @@ impl Machine {
         )))
     }
 
+    /// called by AttachDrivesHandler
+    pub(super) async fn attach_drives(&self) -> Result<(), MachineError> {
+        if self.cfg.drives.is_none() {
+            info!(target: "Machine::attach_drives", "no drive provided, just return");
+            return Ok(());
+            // return Err(MachineError::Validation("drives not provided".to_string()));
+        }
+        let mut err: Vec<(usize, MachineError)> = Vec::new();
+        for (i, dev) in self.cfg.drives.as_ref().unwrap().iter().enumerate() {
+            match self.attach_drive(dev).await {
+                Ok(_) => (),
+                Err(e) => err.push((i, e)),
+            }
+        }
+        if err.is_empty() {
+            return Ok(());
+        }
+        let mut e_string = String::new();
+        for (i, e) in err {
+            e_string = format!(
+                "{},{{ error when putting {}-th vsock: {} }}",
+                e_string,
+                i,
+                e.to_string()
+            );
+        }
+        Err(MachineError::Agent(format!(
+            "add_vsocks errors with: {}",
+            e_string
+        )))
+    }
+
+    /// called by CreateNetworkInterfacesHandler
+    pub(super) async fn create_network_interfaces(&self) -> Result<(), MachineError> {
+        if self.cfg.network_interfaces.is_none() {
+            info!(target: "Machine::create_network_interfaces", "no network interface provided, just return");
+            return Ok(());
+        }
+        for (id, iface) in self
+            .cfg
+            .network_interfaces
+            .as_ref()
+            .unwrap()
+            .0
+            .iter()
+            .enumerate()
+        {
+            self.create_network_interface(iface, id).await?;
+        }
+
+        Ok(())
+    }
+
+    /// called by SetupNetworkHandler
+    pub(super) async fn setup_network(&mut self) -> Result<(), MachineError> {
+        // could assume that network
+        debug!(target: "Machine::setup_network", "called Machine::setup_network");
+
+        // if self.cfg.network_interfaces.is_none() {
+        //     return Err(MachineError::Initialize(
+        //         "fail to set up networks, no network interfaces provided in configuration"
+        //             .to_string(),
+        //     ));
+        // }
+
+        // let funcs = self.cfg.network_interfaces.as_ref().unwrap()
+        //     .setup_network(&self.cfg.vmid, &self.cfg.net_ns)
+        //     .map_err(|e| {
+        //         error!(target: "Machine::setup_network", "something wrong when setting up network: {}", e.to_string());
+        //         MachineError::Initialize(format!(
+        //             "something wrong when setting up network: {}",
+        //             e.to_string()
+        //         ))
+        //     })?;
+        let funcs = Handler::CleaningUpNetworkNamespaceHandler {
+            name: CleaningUpNetworkNamespaceHandlerName,
+        };
+
+        self.cleanup_funcs.append(vec![funcs]);
+        info!(target: "Machine::setup_network", "network set");
+        Ok(())
+    }
+
+    /// called by SetupKernelArgsHandler
+    pub(super) async fn setup_kernel_args(&mut self) -> Result<(), MachineError> {
+        debug!(target: "Machine::setup_kernel_args", "called setup_kernel_args");
+        // if no kernel args provided then just return
+        if self.cfg.kernel_args.is_none() {
+            return Ok(());
+        }
+        let mut kernel_args = KernelArgs::from(self.cfg.kernel_args.as_ref().unwrap().to_owned());
+
+        // If any network interfaces have a static IP configured, we need to set the "ip=" boot param.
+        // Validation that we are not overriding an existing "ip=" setting happens in the network validation
+        if let Some(static_ip_interface) = self
+            .cfg
+            .network_interfaces
+            .as_ref()
+            .unwrap()
+            .static_ip_interface()
+        {
+            if static_ip_interface
+                .static_configuration
+                .as_ref()
+                .unwrap()
+                .ip_configuration
+                .is_none()
+            {
+                return Err(MachineError::Initialize(format!(
+                    "missing ip configuration in static network interface {:#?}",
+                    static_ip_interface
+                )));
+            } else {
+                let s = static_ip_interface
+                    .static_configuration
+                    .as_ref()
+                    .unwrap()
+                    .ip_configuration
+                    .as_ref()
+                    .unwrap()
+                    .ip_boot_param();
+                kernel_args.0.insert("ip".to_string(), Some(s));
+            }
+        }
+        self.cfg.kernel_args = Some(kernel_args.to_string());
+        // if kernel_args.0.contains_key("ip") {
+        //     return Ok(());
+        // }
+        // let ip_boot_param = self.cfg.network_interfaces.as_ref().unwrap().ip_boot_param();
+        // kernel_args.0.insert("ip".to_string(), Some(ip_boot_param));
+        // self.cfg.kernel_args = Some(kernel_args.to_string());
+
+        debug!(target: "Machine::setup_kernel_args", "kernel arguments: {}", self.cfg.kernel_args.as_ref().unwrap());
+        info!(target: "Machine::setup_kernel_args", "kernel arguments set");
+        Ok(())
+    }
+
+    /// called by ConfigMmdsHandler
     /// set_mmds_config sets the machine's mmds system
     pub(super) async fn set_mmds_config(&self, address: &Ipv4Addr) -> Result<(), MachineError> {
         let mut mmds_config = MmdsConfig::default();
@@ -1460,6 +1514,32 @@ impl Machine {
         Ok(())
     }
 
+    /// called by NewCreateBalloonHandler
+    /// create_balloon creates a balloon device if one does not exist.
+    pub(super) async fn create_balloon(
+        &self,
+        amount_mib: i64,
+        deflate_on_oom: bool,
+        stats_polling_interval_s: i64,
+    ) -> Result<(), MachineError> {
+        let balloon = Balloon {
+            amount_mib,
+            deflate_on_oom,
+            stats_polling_interval_s: Some(stats_polling_interval_s),
+        };
+
+        self.agent.put_balloon(&balloon).await.map_err(|e| {
+            error!("Create balloon device failed: {}", e.to_string());
+            MachineError::Agent(format!("Create balloon device failed: {}", e.to_string()))
+        })?;
+
+        debug!("Created balloon device successful");
+        Ok(())
+    }
+}
+
+/// useful methods that could be exposed to users
+impl Machine {
     /// set_metadata sets the machine's metadata for MDDS
     pub async fn set_metadata(&self, metadata: &impl Metadata) -> Result<(), MachineError> {
         self.agent
@@ -1584,27 +1664,6 @@ impl Machine {
         Ok(())
     }
 
-    /// create_balloon creates a balloon device if one does not exist.
-    pub(super) async fn create_balloon(
-        &self,
-        amount_mib: i64,
-        deflate_on_oom: bool,
-        stats_polling_interval_s: i64,
-    ) -> Result<(), MachineError> {
-        let balloon = Balloon {
-            amount_mib,
-            deflate_on_oom,
-            stats_polling_interval_s: Some(stats_polling_interval_s),
-        };
-
-        self.agent.put_balloon(&balloon).await.map_err(|e| {
-            error!("Create balloon device failed: {}", e.to_string());
-            MachineError::Agent(format!("Create balloon device failed: {}", e.to_string()))
-        })?;
-
-        debug!("Created balloon device successful");
-        Ok(())
-    }
     /// get_balloon_config gets the current balloon device configuration.
     pub async fn get_balloon_config(&self) -> Result<Balloon, MachineError> {
         let balloon = self.agent.describe_balloon_config().await.map_err(|e| {
@@ -1661,6 +1720,55 @@ impl Machine {
         debug!("UpdateBalloonStats successful");
         Ok(())
     }
+
+    /// update_guest_network_interface_rate_limit modifies the specified network interface's rate limits
+    pub async fn update_guest_network_interface_rate_limit(
+        &self,
+        iface_id: String,
+        rate_limiters: RateLimiterSet,
+    ) -> Result<(), MachineError> {
+        let iface = PartialNetworkInterface {
+            iface_id: iface_id.to_owned(),
+            rx_rate_limiter: rate_limiters.in_rate_limiter,
+            tx_rate_limiter: rate_limiters.out_rate_limiter,
+        };
+
+        self.agent
+            .patch_guest_network_interface_by_id(&iface)
+            .await
+            .map_err(|e| {
+                error!(
+                    "Update network interface failed: {}: {}",
+                    iface_id,
+                    e.to_string()
+                );
+                MachineError::Agent(format!(
+                    "Update network interface failed: {}: {}",
+                    iface_id,
+                    e.to_string()
+                ))
+            })?;
+
+        info!("Updated network interface");
+        Ok(())
+    }
+
+    /// refresh_machine_configuration synchronizes our cached representation of the machine configuration
+    /// with that reported by the Firecracker API
+    pub async fn refresh_machine_configuration(&mut self) -> Result<(), MachineError> {
+        debug!(target: "Machine::refresh_machine_configuration", "called Machine::refresh_machine_configuration");
+        let machine_config = self.agent.get_machine_configuration().await.map_err(|e| {
+            error!(target: "Machine::refresh_machine_configuration", "unable to inspect firecracker MachineConfiguration: {}", e);
+            MachineError::Agent(format!(
+                "unable to inspect firecracker MachineConfiguration: {}",
+                e.to_string()
+            ))
+        })?;
+
+        debug!(target: "Machine::refresh_machine_configuration", "got: {:#?}", machine_config);
+        self.machine_config = machine_config;
+        Ok(())
+    }
 }
 
 pub mod test_utils {
@@ -1674,6 +1782,11 @@ pub mod test_utils {
     };
 
     use super::{Config, Machine, MachineError};
+
+    // expose start_vmm api to test modules
+    pub async fn start_vmm(m: &mut Machine) -> Result<(), MachineError> {
+        m.start_vmm().await
+    }
 
     pub async fn test_create_machine(m: &mut Machine) -> Result<(), MachineError> {
         m.create_machine().await?;

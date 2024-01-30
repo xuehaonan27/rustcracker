@@ -120,7 +120,7 @@ pub struct StaticNetworkConfiguration {
     pub mac_address: String,
 
     /// HostDevName is the name of the tap device the VM will use
-    pub host_dev_name: Option<String>,
+    pub host_dev_name: Option<PathBuf>,
 
     /// IPConfiguration (optional) allows a static IP, gateway and up to 2 DNS nameservers
     /// to be automatically configured within the VM upon startup.
@@ -158,7 +158,7 @@ pub enum UniNetworkInterfaceError {
 }
 
 impl UniNetworkInterfaces {
-    pub fn validate(&self, kernel_args: KernelArgs) -> Result<(), UniNetworkInterfaceError> {
+    pub fn validate(&self, kernel_args: &KernelArgs) -> Result<(), UniNetworkInterfaceError> {
         for iface in &self.0 {
             let has_cni = iface.cni_configuration.is_some();
             let has_static_interface = iface.static_configuration.is_some();
@@ -274,7 +274,22 @@ impl UniNetworkInterfaces {
     }
 }
 
-impl UniNetworkInterface {}
+impl UniNetworkInterface {
+    pub fn validate(&self) -> Result<(), UniNetworkInterfaceError> {
+        if self.cni_configuration.is_none() && self.static_configuration.is_none() {
+            return Err(UniNetworkInterfaceError::Validation(format!(
+                "cannot set empty network interface"
+            )));
+        }
+        if let Some(config) = &self.cni_configuration {
+
+        }
+        if let Some(config) = &self.static_configuration {
+
+        }
+        Ok(())
+    }
+}
 
 impl CNIConfiguration {
     pub(crate) fn validate(&self) -> Result<(), UniNetworkInterfaceError> {
@@ -325,7 +340,7 @@ impl CNIConfiguration {
 
 impl StaticNetworkConfiguration {
     pub(crate) fn validate(&self) -> Result<(), UniNetworkInterfaceError> {
-        if self.host_dev_name.is_none() || self.host_dev_name.as_ref().unwrap() == &"".to_string() {
+        if self.host_dev_name.is_none() {
             return Err(UniNetworkInterfaceError::Validation(format!(
                 "host_dev_name must be provided if StaticNetworkConfiguration is provided, {:#?}", self
             )));

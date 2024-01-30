@@ -7,7 +7,7 @@ use nix::{
 };
 use rustfire::{
     client::{
-        command_builder::VMMCommandBuilder, handler::{AttachDrivesHandlerName, CreateBootSourceHandlerName, CreateMachineHandlerName, Handler, HandlersAdapter}, jailer::{JailerConfig, StdioTypes}, machine::{test_utils::test_attach_root_drive, Config, Machine, MachineError, MachineMessage}, network::{StaticNetworkConfiguration, UniNetworkInterface, UniNetworkInterfaces}
+        command_builder::VMMCommandBuilder, handler::{AttachDrivesHandlerName, CreateBootSourceHandlerName, CreateMachineHandlerName, Handler, HandlersAdapter}, jailer::{JailerConfig, StdioTypes}, machine::{test_utils::{start_vmm, test_attach_root_drive}, Config, Machine, MachineError, MachineMessage}, network::{StaticNetworkConfiguration, UniNetworkInterface, UniNetworkInterfaces}
     }, model::{
         cpu_template::{self, CPUTemplate, CPUTemplateString}, drive::Drive, logger::LogLevel, machine_configuration::MachineConfiguration, network_interface::NetworkInterface
     }, utils::{check_kvm, copy_file, init, TestArgs, DEFAULT_JAILER_BINARY, FIRECRACKER_BINARY_PATH}
@@ -182,12 +182,12 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
         metrics_path: None,
         metrics_fifo: Some(metrics_fifo.to_owned()),
         initrd_path: None,
-        kernel_args: None,
-        network_interfaces: Some(vec![]),
+        kernel_args: Some("".to_string()),
+        network_interfaces: None,
         vsock_devices: Some(vec![]),
         disable_validation: true,
         vmid: None,
-        net_ns: None,
+        net_ns: Some("".into()),
         forward_signals: None,
         seccomp_level: Some(0),
         mmds_address: None,
@@ -326,6 +326,7 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
         iface_id: "0".to_string(),
         rx_rate_limiter: None,
         tx_rate_limiter: None,
+        // allow_mmds_requests: None,
     };
 
     let cfg = Config {
@@ -343,7 +344,7 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
         track_dirty_pages: None,
                 }),
         disable_validation: true,
-        network_interfaces: Some(vec![network_ifaces]),
+        network_interfaces: None,
         fifo_log_writer: Some(fw),
 
         kernel_args: None,
@@ -372,7 +373,7 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
     )))?;
     rt.block_on(async move {
         let join_handle = tokio::spawn(async move {
-            if m.start_vmm().await.is_err() {
+            if start_vmm(&mut m).await.is_err() {
                 error!("fail to start vmm");
                 panic!("fail to start vmm");
             }
@@ -445,7 +446,7 @@ fn test_start_vmm() -> Result<(), MachineError> {
     let (send, recv) = tokio::sync::oneshot::channel();
     rt.block_on(async move {
         tokio::select! {
-            output = m.start_vmm() => {
+            output = start_vmm(&mut m) => {
                 send.send(output).unwrap();
             }
             _ = tokio::time::sleep(tokio::time::Duration::from_millis(250)) => {
@@ -508,6 +509,9 @@ fn test_start_once() -> Result<(), MachineError> {
             ht_enabled: Some(false),
             track_dirty_pages: None,
         }),
+        kernel_args: Some("".to_string()),
+        net_ns: Some("".into()),
+        network_interfaces: None,
         ..Default::default()
     };
 
