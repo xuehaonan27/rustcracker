@@ -313,6 +313,7 @@ impl Handler {
     }
     pub async fn func(&self, m: &mut Machine) -> Result<(), MachineError> {
         match self {
+            // Could be eliminated
             Handler::ConfigValidationHandler { .. } => m.cfg.validate(),
             Handler::JailerConfigValidationHandler { .. } => {
                 if m.cfg.jailer_cfg.is_none() {
@@ -386,8 +387,14 @@ impl Handler {
                 }
                 Ok(())
             }
+            
+            // Could be eliminated
             Handler::NetworkConfigValidationHandler { .. } => m.cfg.validate_network(),
+            
+            // Could be eliminated
             Handler::StartVMMHandler { .. } => m.start_vmm().await,
+
+            // Could be eliminated
             Handler::CreateLogFilesHandler { .. } => {
                 m.create_log_fifo_or_file()?;
                 m.create_metrics_fifo_or_file()?;
@@ -398,6 +405,8 @@ impl Handler {
                 debug!("Created metrics and logging fifos");
                 Ok(())
             }
+
+            // Could be eliminated
             Handler::BootstrapLoggingHandler { .. } => {
                 m.setup_logging().await?;
                 m.setup_metrics().await?;
@@ -405,7 +414,11 @@ impl Handler {
                 debug!("setup logging: success");
                 Ok(())
             }
+            
+            // Could be eliminated
             Handler::CreateMachineHandler { .. } => m.create_machine().await,
+
+            // Could be eliminated
             Handler::CreateBootSourceHandler { .. } => {
                 m.create_boot_source(
                     m.cfg.kernel_image_path.as_ref().unwrap(),
@@ -414,16 +427,32 @@ impl Handler {
                 )
                 .await
             }
+            
+            // Could be eliminated
             Handler::AttachDrivesHandler { .. } => m.attach_drives().await,
+
+            // Could be eliminated
             Handler::CreateNetworkInterfacesHandler { .. } => m.create_network_interfaces().await,
+
+            // Could be eliminated
             Handler::SetupNetworkHandler { .. } => m.setup_network().await,
+
+            // Could be eliminated
             Handler::SetupKernelArgsHandler { .. } => m.setup_kernel_args().await,
+
+            // Could be eliminated
             Handler::AddVsocksHandler { .. } => m.add_vsocks().await,
+
+            // Could be eliminated
             Handler::NewSetMetadataHandler { name: _, data } => m.set_metadata(data).await,
+
+            // Could be eliminated
             Handler::ConfigMmdsHandler { .. } => {
                 m.set_mmds_config(m.cfg.mmds_address.as_ref().unwrap())
                     .await
             }
+
+            // Could be eliminated
             Handler::NewCreateBalloonHandler {
                 name: _,
                 amount_mib,
@@ -433,6 +462,7 @@ impl Handler {
                 m.create_balloon(*amount_mib, *deflate_on_oom, *stats_polling_interval_s)
                     .await
             }
+
             Handler::LinkFilesHandler {
                 name: _,
                 kernel_image_file_name,

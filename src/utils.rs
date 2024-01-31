@@ -163,8 +163,8 @@ pub fn init() {
 
 pub fn check_kvm() -> Result<(), MachineError> {
     access("/dev/kvm", AccessFlags::W_OK).map_err(|e| {
-        error!("/dev/kvm is not writable");
-        MachineError::FileAccess("/dev/kvm is not writable".to_string())
+        error!("/dev/kvm is not writable {}", e);
+        MachineError::FileAccess(format!("/dev/kvm is not writable {}", e))
     })?;
     Ok(())
 }

@@ -1,7 +1,7 @@
-use std::{net::Ipv4Addr, path::PathBuf, sync::Once};
+use std::{ffi::OsStr, net::Ipv4Addr, path::PathBuf, sync::Once};
 
 use async_trait::async_trait;
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info, warn};
 use nix::{fcntl, sys::stat::Mode, unistd};
 use serde::{Deserialize, Serialize};
 
@@ -42,12 +42,18 @@ use crate::{
 use super::{
     agent::Agent,
     handler::{CleaningUpFileHandlerName, HandlerList, Handlers},
-    jailer::{JailerConfig, StdioTypes},
+    jailer::JailerConfig,
     network::{UniNetworkInterface, UniNetworkInterfaces},
     signals::Signal,
 };
 
 type SeccompLevelValue = usize;
+
+pub enum SeccompLevel {
+    Disable,
+    Basic,
+    Advanced,
+}
 
 // SeccompLevelDisable is the default value.
 const SECCOMP_LEVEL_DISABLE: SeccompLevelValue = 0;
@@ -320,13 +326,139 @@ impl Config {
         Ok(())
     }
 
-    pub fn with_machine_config(mut self, machine_config: MachineConfiguration) -> Self {
-        self.machine_cfg = Some(machine_config);
+    #[inline]
+    pub fn with_socket_path<S: AsRef<OsStr> + ?Sized>(mut self, path: &S) -> Self {
+        self.socket_path = Some(path.into());
         self
     }
 
+    #[inline]
+    pub fn with_log_fifo<S: AsRef<OsStr> + ?Sized>(mut self, path: &S) -> Self {
+        self.log_fifo = Some(path.into());
+        self
+    }
+
+    #[inline]
+    pub fn with_log_path<S: AsRef<OsStr> + ?Sized>(mut self, path: &S) -> Self {
+        self.log_path = Some(path.into());
+        self
+    }
+
+    #[inline]
+    pub fn with_log_level(mut self, level: LogLevel) -> Self {
+        self.log_level = Some(level);
+        self
+    }
+
+    #[inline]
+    pub fn with_metrics_path<S: AsRef<OsStr> + ?Sized>(mut self, path: &S) -> Self {
+        self.metrics_path = Some(path.into());
+        self
+    }
+
+    #[inline]
+    pub fn with_metrics_fifo<S: AsRef<OsStr> + ?Sized>(mut self, path: &S) -> Self {
+        self.metrics_fifo = Some(path.into());
+        self
+    }
+
+    #[inline]
+    pub fn with_kernel_image_path<S: AsRef<OsStr> + ?Sized>(mut self, path: &S) -> Self {
+        self.kernel_image_path = Some(path.into());
+        self
+    }
+
+    #[inline]
+    pub fn with_kernel_args(mut self, path: &String) -> Self {
+        self.kernel_args = Some(path.to_string());
+        self
+    }
+
+    #[inline]
+    pub fn with_initrd_path<S: AsRef<OsStr> + ?Sized>(mut self, path: &S) -> Self {
+        self.initrd_path = Some(path.into());
+        self
+    }
+
+    #[inline]
+    pub fn with_drive(mut self, drive: &Drive) -> Self {
+        if self.drives.is_none() {
+            self.drives = Some(vec![]);
+        }
+        self.drives.as_mut().unwrap().push(drive.to_owned());
+        self
+    }
+
+    #[inline]
+    pub fn with_drives(mut self, drives: &mut Vec<Drive>) -> Self {
+        if self.drives.is_none() {
+            self.drives = Some(vec![]);
+        }
+        self.drives.as_mut().unwrap().append(drives);
+        self
+    }
+
+    #[inline]
+    pub fn with_vsock(mut self, dev: &Vsock) -> Self {
+        if self.vsock_devices.is_none() {
+            self.vsock_devices = Some(vec![]);
+        }
+        self.vsock_devices.as_mut().unwrap().push(dev.to_owned());
+        self
+    }
+
+    #[inline]
+    pub fn with_vsocks(mut self, devs: &mut Vec<Vsock>) -> Self {
+        if self.vsock_devices.is_none() {
+            self.vsock_devices = Some(vec![]);
+        }
+        self.vsock_devices.as_mut().unwrap().append(devs);
+        self
+    }
+
+    #[inline]
+    pub fn with_machine_config(mut self, cfg: &MachineConfiguration) -> Self {
+        self.machine_cfg = Some(cfg.to_owned());
+        self
+    }
+
+    #[inline]
     pub fn set_disable_validation(mut self, b: bool) -> Self {
         self.disable_validation = b;
+        self
+    }
+
+    #[inline]
+    pub fn with_jailer_config(mut self, cfg: &JailerConfig) -> Self {
+        self.jailer_cfg = Some(cfg.to_owned());
+        self
+    }
+
+    #[inline]
+    pub fn with_vmid(mut self, vmid: &String) -> Self {
+        self.vmid = Some(vmid.to_owned());
+        self
+    }
+
+    #[inline]
+    pub fn with_net_ns<S: AsRef<OsStr> + ?Sized>(mut self, net_ns: &S) -> Self {
+        self.net_ns = Some(net_ns.into());
+        self
+    }
+
+    #[inline]
+    pub fn with_seccomp_level(mut self, level: SeccompLevel) -> Self {
+        match level {
+            SeccompLevel::Disable => self.seccomp_level = Some(SECCOMP_LEVEL_DISABLE),
+            SeccompLevel::Basic => self.seccomp_level = Some(SECCOMP_LEVEL_BASIC),
+            SeccompLevel::Advanced => self.seccomp_level = Some(SECCOMP_LEVEL_ADVANCED),
+        }
+        self
+    }
+
+    #[inline]
+    pub fn with_mmds_address(mut self, addr: &std::net::Ipv4Addr) -> Self {
+        self.mmds_address = Some(addr.to_owned());
         self
     }
 }
@@ -685,7 +817,7 @@ impl Machine {
                 self.sig_ch.close();
                 info!(target: "Machine::wait", "Machine {} exited due to explicit message sending via channel", self.cfg.vmid.as_ref().unwrap());
             }
-            sig_msg = self.sig_ch.recv() => {
+            _sig_msg = self.sig_ch.recv() => {
                 info!(target: "Machine::wait", "Machine {} exited due to signal", self.cfg.vmid.as_ref().unwrap());
                 todo!()
             }
@@ -918,15 +1050,14 @@ impl Machine {
         // todo!()
     }
 
-    async fn create_fifo(&self, path: &PathBuf) -> Result<(), MachineError> {
-        debug!("Creating FIFO {}", path.display());
-        nix::unistd::mkfifo(path, nix::sys::stat::Mode::S_IRWXU).map_err(|e| {
-            error!("Failed to create log fifo: {}", e.to_string());
-            MachineError::FileCreation(format!("Failed to create log fifo: {}", e.to_string()))
-        })?;
-
-        Ok(())
-    }
+    // async fn create_fifo(&self, path: &PathBuf) -> Result<(), MachineError> {
+    //     debug!("Creating FIFO {}", path.display());
+    //     nix::unistd::mkfifo(path, nix::sys::stat::Mode::S_IRWXU).map_err(|e| {
+    //         error!("Failed to create log fifo: {}", e.to_string());
+    //         MachineError::FileCreation(format!("Failed to create log fifo: {}", e.to_string()))
+    //     })?;
+    //     Ok(())
+    // }
 
     /// called by shutdown, which is called by user to perform graceful shutdown
     async fn send_ctrl_alt_del(&self) -> Result<(), MachineError> {
