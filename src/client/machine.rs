@@ -465,6 +465,7 @@ impl Config {
 
 /// Machine is process handler of rust side
 pub struct Machine {
+    // eliminating
     pub(crate) handlers: Handlers,
 
     pub(crate) cfg: Config,
