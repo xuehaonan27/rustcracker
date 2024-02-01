@@ -14,8 +14,10 @@ use rustfire::{
     },
     utils::TestArgs,
 };
+#[allow(unused)]
 const NUMBER_OF_VMS: isize = 200;
 
+#[allow(unused)]
 fn create_machine(name: String, forward_signals: ()) -> Result<Machine, MachineError> {
     let dir = std::env::temp_dir().join(name);
 
@@ -75,6 +77,7 @@ fn create_machine(name: String, forward_signals: ()) -> Result<Machine, MachineE
     Ok(machine)
 }
 
+#[allow(unused)]
 async fn start_and_wait_vm(m: &mut Machine) -> Result<(), MachineError> {
     m.start().await?;
 

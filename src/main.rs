@@ -291,11 +291,8 @@
 
 //     Ok(())
 // }
-use std::error::Error;
-use hyper::{body::HttpBody, Client};
-use hyperlocal::{UnixClientExt, Uri};
+
 use rustfire::{client::{command_builder::VMMCommandBuilder, machine::{Config, Machine, MachineError}}, model::{cpu_template::{CPUTemplate, CPUTemplateString}, machine_configuration::MachineConfiguration}, utils::{check_kvm, init, make_socket_path, TestArgs}};
-use tokio::io::{self, AsyncWriteExt as _};
 use log::{debug, info};
 
 // #[tokio::main]
@@ -315,6 +312,7 @@ use log::{debug, info};
 // }
 
 fn main() {
+    test_start_vmm().expect("fail");
     test_start_once().expect("fail");
 }
 
@@ -338,7 +336,7 @@ fn test_start_vmm() -> Result<(), MachineError> {
 
     m.clear_validation();
 
-    let rt = tokio::runtime::Runtime::new().map_err(|e| {
+    let rt = tokio::runtime::Runtime::new().map_err(|_e| {
         MachineError::Initialize("fail to create tokio runtime".to_string())
     })?;
 
@@ -399,7 +397,7 @@ fn test_start_once() -> Result<(), MachineError> {
     let mut m = Machine::new(cfg, exit_recv, sig_recv, 10, 60)?;
     m.set_command(cmd.into());
 
-    let rt = tokio::runtime::Runtime::new().map_err(|e| {
+    let rt = tokio::runtime::Runtime::new().map_err(|_e| {
         MachineError::Initialize("fail to create tokio runtime".to_string())
     })?;
 

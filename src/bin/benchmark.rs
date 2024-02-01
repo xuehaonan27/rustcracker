@@ -5,13 +5,10 @@ use rustfire::{
     client::{
         command_builder::VMMCommandBuilder,
         machine::{Config, Machine, MachineError, MachineMessage},
-        network::{StaticNetworkConfiguration, UniNetworkInterface, UniNetworkInterfaces},
+        // network::{StaticNetworkConfiguration, UniNetworkInterface, UniNetworkInterfaces},
     },
     model::{
-        cpu_template::{CPUTemplate, CPUTemplateString},
-        drive::Drive,
-        logger::LogLevel,
-        machine_configuration::MachineConfiguration,
+        cpu_template::{CPUTemplate, CPUTemplateString}, drive::Drive, logger::LogLevel, machine_configuration::MachineConfiguration, network_interface::NetworkInterface
     },
     utils::check_kvm,
 };
@@ -93,18 +90,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // kernel_args might be overrided
         // if any network interfaces configured, the `ip` field may be added or modified
         kernel_args: Some("".to_string()),
-        network_interfaces: Some(UniNetworkInterfaces(vec![UniNetworkInterface {
-            // currently do not support cni configuration (ver 0.1.0)
-            cni_configuration: None,
-            static_configuration: Some(StaticNetworkConfiguration {
-                mac_address: "01:23:45:67".to_string(),
-                host_dev_name: Some("tap0".into()),
-                ip_configuration: None,
-            }),
-            allow_mmds: None,
-            in_rate_limiter: None,
-            out_rate_limiter: None,
-        }])),
+        // network_interfaces: Some(UniNetworkInterfaces(vec![UniNetworkInterface {
+        //     // currently do not support cni configuration (ver 0.1.0)
+        //     cni_configuration: None,
+        //     static_configuration: Some(StaticNetworkConfiguration {
+        //         mac_address: "01:23:45:67".to_string(),
+        //         host_dev_name: Some("tap0".into()),
+        //         ip_configuration: None,
+        //     }),
+        //     allow_mmds: None,
+        //     in_rate_limiter: None,
+        //     out_rate_limiter: None,
+        // }])),
+        network_interfaces: Some(vec![NetworkInterface {
+            guest_mac: Some("00:23:45:67".to_string()),
+            host_dev_name: "tap0".into(),
+            iface_id: "0".into(),
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+        }]),
         fifo_log_writer: None,
         // virtio devices
         vsock_devices: None,

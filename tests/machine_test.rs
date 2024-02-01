@@ -1,19 +1,17 @@
-use std::{env::temp_dir, os::unix::fs::MetadataExt, path::PathBuf};
+use std::os::unix::fs::MetadataExt;
 
 use nix::{
     fcntl::OFlag,
     sys::stat::Mode,
-    unistd::{access, AccessFlags, Gid, Uid},
 };
 use rustfire::{
     client::{
-        command_builder::VMMCommandBuilder, handler::{AttachDrivesHandlerName, CreateBootSourceHandlerName, CreateMachineHandlerName, Handler, HandlersAdapter}, jailer::{JailerConfig, StdioTypes}, machine::{test_utils::test_attach_root_drive, Config, Machine, MachineError, MachineMessage}, network::{StaticNetworkConfiguration, UniNetworkInterface, UniNetworkInterfaces}
+        command_builder::VMMCommandBuilder, handler::HandlersAdapter, jailer::{JailerConfig, StdioTypes}, machine::{Config, Machine, MachineError, MachineMessage}
     }, model::{
         cpu_template::{self, CPUTemplate, CPUTemplateString}, drive::Drive, logger::LogLevel, machine_configuration::MachineConfiguration, network_interface::NetworkInterface
     }, utils::{check_kvm, copy_file, init, TestArgs, DEFAULT_JAILER_BINARY, FIRECRACKER_BINARY_PATH}
 };
 use log::{error, info};
-use tokio::sync::oneshot;
 
 #[test]
 fn test_new_machine() -> Result<(), MachineError> { 
@@ -44,8 +42,8 @@ fn test_new_machine() -> Result<(), MachineError> {
     Ok(())
 }
 
-#[test]
-fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
+#[tokio::test]
+async fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
     init();
     check_kvm()?;
     let log_path = TestArgs::
@@ -232,11 +230,11 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
         "Failed to start VMM: {}", e.to_string()
     )))?;
 
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async move {
-        m.start().await.map_err(|e| MachineError::Execute(format!("failed to start VMM: {}", e.to_string()))).expect("fail to start VMM");
-        m.stop_vmm().await.expect("cannot stop vmm");
-    });
+    // let rt = tokio::runtime::Runtime::new().unwrap();
+    // rt.block_on(async move {
+    m.start().await.map_err(|e| MachineError::Execute(format!("failed to start VMM: {}", e.to_string()))).expect("fail to start VMM");
+    m.stop_vmm().await.expect("cannot stop vmm");
+    // });
 
     // Closing:
     nix::unistd::close(fw).map_err(|e| {
@@ -289,8 +287,8 @@ fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
     Ok(())
 }
 
-#[test]
-fn test_micro_vm_execution() -> Result<(), MachineError> {
+#[tokio::test]
+async fn test_micro_vm_execution() -> Result<(), MachineError> {
     init();
     check_kvm()?;
     let ncpus = 2;
@@ -320,7 +318,7 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
     //         out_rate_limiter: None,
     //     }
     // ]);
-    let network_ifaces = NetworkInterface {
+    let network_iface = NetworkInterface {
         guest_mac: Some("01-23-45-67-89-AB-CD-EF".to_string()),
         host_dev_name: "tap0".into(),
         iface_id: "0".to_string(),
@@ -344,11 +342,11 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
         track_dirty_pages: None,
                 }),
         disable_validation: true,
-        network_interfaces: None,
+        network_interfaces: Some(vec![network_iface]),
         fifo_log_writer: Some(fw),
 
         kernel_args: None,
-        kernel_image_path: None,
+        kernel_image_path: Some(vmlinux_path),
         initrd_path: None,
         drives: None,
         vsock_devices: None,
@@ -368,31 +366,27 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
     m.set_command(cmd.into());
 
     m.clear_validation();
-    let rt = tokio::runtime::Runtime::new().map_err(|e| MachineError::Execute(format!(
-        "fail to create tokio runtime: {}", e.to_string()
-    )))?;
-    rt.block_on(async move {
-        let join_handle = tokio::spawn(async move {
-            if m.start_vmm_test().await.is_err() {
-                error!("fail to start vmm");
-                panic!("fail to start vmm");
-            }
     
-            // test_attach_root_drive(&mut m).await;
-    
-            if m.wait().await.is_err() {
-                error!("fail to wait vmm");
-                panic!("fail to wait vmm");
-            }
-            if m.stop_vmm().await.is_err() {
-                error!("fail to stop vmm");
-            }
-        });
-        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-        exit_send.send(MachineMessage::StopVMM).await.unwrap();
-        info!("exit message sent");
-        tokio::join!(join_handle).0.unwrap();
+    let join_handle = tokio::spawn(async move {
+        if m.start_vmm_test().await.is_err() {
+            error!("fail to start vmm");
+            panic!("fail to start vmm");
+        }
+
+        // test_attach_root_drive(&mut m).await;
+
+        if m.wait().await.is_err() {
+            error!("fail to wait vmm");
+            panic!("fail to wait vmm");
+        }
+        if m.stop_vmm().await.is_err() {
+            error!("fail to stop vmm");
+        }
     });
+    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+    exit_send.send(MachineMessage::StopVMM).await.unwrap();
+    info!("exit message sent");
+    tokio::join!(join_handle).0.unwrap();
 
     nix::unistd::close(fw).map_err(|e| {
         MachineError::FileRemoving(format!(
@@ -412,8 +406,8 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
     Ok(())
 }
 
-#[test]
-fn test_start_vmm() -> Result<(), MachineError> {
+#[tokio::test]
+async fn test_start_vmm() -> Result<(), MachineError> {
     init();
     check_kvm()?;
     // let socket_path = make_socket_path("test_start_vmm");
@@ -439,25 +433,19 @@ fn test_start_vmm() -> Result<(), MachineError> {
 
     m.clear_validation();
 
-    let rt = tokio::runtime::Runtime::new().map_err(|e| {
-        MachineError::Initialize("fail to create tokio runtime".to_string())
-    })?;
-
     let (send, recv) = tokio::sync::oneshot::channel();
-    rt.block_on(async move {
-        tokio::select! {
-            output = m.start_vmm_test() => {
-                send.send(output).unwrap();
-            }
-            _ = tokio::time::sleep(tokio::time::Duration::from_millis(250)) => {
-                info!("firecracker ran for 250ms and still start_vmm doesn't return");
-                m.stop_vmm().await.expect("fail to stop_vmm!");
-            }
-        };
+    tokio::select! {
+        output = m.start_vmm_test() => {
+            send.send(output).unwrap();
+        }
+        _ = tokio::time::sleep(tokio::time::Duration::from_millis(250)) => {
+            info!("firecracker ran for 250ms and still start_vmm doesn't return");
+            m.stop_vmm().await.expect("fail to stop_vmm!");
+        }
+    };
 
-        // stop_vmm force anyway
-        _ = m.stop_vmm_force().await;
-    });
+    // stop_vmm force anyway
+    _ = m.stop_vmm_force().await;
 
     let msg = recv.blocking_recv().unwrap();
     info!("start_vmm sent: {:#?}", msg);
@@ -474,19 +462,8 @@ fn test_start_vmm() -> Result<(), MachineError> {
     Ok(())
 }
 
-#[test]
-fn test_log_and_metrics() -> Result<(), MachineError> {
-    init();
-    check_kvm()?;
-    return Ok(());
-    // let tests = vec![];
-    todo!()
-}
-
-// fn test_log_and_metrics_func()
-
-#[test]
-fn test_start_once() -> Result<(), MachineError> {
+#[tokio::test]
+async fn test_start_once() -> Result<(), MachineError> {
     init();
     check_kvm()?;
 
@@ -521,29 +498,23 @@ fn test_start_once() -> Result<(), MachineError> {
     let mut m = Machine::new(cfg, exit_recv, sig_recv, 10, 60)?;
     m.set_command(cmd.into());
 
-    let rt = tokio::runtime::Runtime::new().map_err(|e| {
-        MachineError::Initialize("fail to create tokio runtime".to_string())
-    })?;
-
     let (send1, recv1) = tokio::sync::oneshot::channel();
     let (send2, recv2) = tokio::sync::oneshot::channel();
 
-    rt.block_on(async move {
-        tokio::select! {
-            output = m.start() => {
-                let res = m.start().await;
-                assert!(res.is_err());
-                send1.send(output).unwrap();
-                send2.send(res).unwrap();
-            }
-            _ = tokio::time::sleep(tokio::time::Duration::from_millis(250)) => {
-                info!("firecracker ran for 250ms and still start doesn't return");
-                m.stop_vmm().await.expect("fail to stop_vmm!");
-            }
+    tokio::select! {
+        output = m.start() => {
+            let res = m.start().await;
+            assert!(res.is_err());
+            send1.send(output).unwrap();
+            send2.send(res).unwrap();
         }
+        _ = tokio::time::sleep(tokio::time::Duration::from_millis(250)) => {
+            info!("firecracker ran for 250ms and still start doesn't return");
+            m.stop_vmm().await.expect("fail to stop_vmm!");
+        }
+    }
 
-        _ = m.stop_vmm_force().await;
-    });
+    _ = m.stop_vmm_force().await;
 
     let msg1 = recv1.blocking_recv().unwrap();
     info!("start1 sent: {:#?}", msg1);

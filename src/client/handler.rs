@@ -679,6 +679,7 @@ cleanup functions
 
 */
 
+#[allow(unused)]
 async fn capture_fifo_to_file(
     machine: &mut Machine,
     fifo_path: &PathBuf,

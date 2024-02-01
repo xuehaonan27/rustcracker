@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use hyper::{Body, Client, Method, Request};
 use hyperlocal::{UnixClientExt, UnixConnector};
 use log::{debug, error, trace};
+use tokio::time::timeout;
 
 use crate::{
     model::{
@@ -30,7 +31,9 @@ use crate::{
         vm::Vm,
         vsock::Vsock,
     },
-    utils::{Json, DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS, DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS},
+    utils::{
+        Json, DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS, DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS,
+    },
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -54,7 +57,7 @@ pub enum AgentError {
 pub struct Agent {
     socket_path: PathBuf,
     client: Client<UnixConnector>,
-    firecracker_request_timeout: u64,
+    pub(super) firecracker_request_timeout: u64,
     pub(super) firecracker_init_timeout: u64,
 }
 
@@ -93,11 +96,32 @@ impl Agent {
             .body(Body::from(body))
             .map_err(|e| AgentError::Request(url.clone(), e.to_string()))?;
 
-        let response = self
-            .client
-            .request(request)
-            .await
-            .map_err(|e| AgentError::Request(url.clone(), e.to_string()))?;
+        let response = timeout(
+            tokio::time::Duration::from_secs(self.firecracker_request_timeout),
+            self.client.request(request),
+        )
+        .await
+        .map_err(|e| {
+            error!(
+                target: "Agent::send_request",
+                "timeout after {} seconds: {}",
+                self.firecracker_request_timeout,
+                e
+            );
+            AgentError::Request(
+                url.clone(),
+                format!(
+                    "requesting: {} timeout after {} seconds",
+                    url, self.firecracker_request_timeout
+                ),
+            )
+        })?
+        .map_err(|e| AgentError::Request(url.clone(), e.to_string()))?;
+        // let response = self
+        //     .client
+        //     .request(request)
+        //     .await
+        //     .map_err(|e| AgentError::Request(url.clone(), e.to_string()))?;
 
         trace!("Response status: {:#?}", response.status());
 

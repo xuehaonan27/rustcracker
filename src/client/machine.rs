@@ -23,7 +23,6 @@ use crate::{
         drive::Drive,
         instance_action_info::InstanceActionInfo,
         instance_info::InstanceInfo,
-        kernel_args::KernelArgs,
         logger::{LogLevel, Logger},
         machine_configuration::MachineConfiguration,
         metrics::Metrics,
@@ -43,7 +42,7 @@ use super::{
     agent::Agent,
     handler::{CleaningUpFileHandlerName, HandlerList, Handlers},
     jailer::JailerConfig,
-    network::{UniNetworkInterface, UniNetworkInterfaces},
+    // network::{UniNetworkInterface, UniNetworkInterfaces},
     signals::Signal,
 };
 
@@ -111,7 +110,7 @@ pub struct Config {
 
     // NetworkInterfaces specifies the tap devices that should be made available
     // to the microVM.
-    pub network_interfaces: Option<UniNetworkInterfaces>,
+    pub network_interfaces: Option<Vec<NetworkInterface>>,
 
     // FifoLogWriter is an io.Writer(Stdio) that is used to redirect the contents of the
     // fifo log to the writer.
@@ -303,25 +302,23 @@ impl Config {
         }
 
         if self.network_interfaces.is_none()
-            || self.network_interfaces.as_ref().unwrap().0.len() == 0
+            || self.network_interfaces.as_ref().unwrap().len() == 0
         {
             return Err(MachineError::Validation(
                 "no network interface provided".to_string(),
             ));
         }
 
-        let s: KernelArgs;
-        if self.kernel_args.is_some() {
-            s = KernelArgs::from(self.kernel_args.as_ref().unwrap().to_owned());
-        } else {
-            s = KernelArgs(std::collections::HashMap::new());
+        // let s: KernelArgs;
+        // if self.kernel_args.is_some() {
+        //     s = KernelArgs::from(self.kernel_args.as_ref().unwrap().to_owned());
+        // } else {
+        //     s = KernelArgs(std::collections::HashMap::new());
+        // }
+
+        for iface in self.network_interfaces.as_ref().unwrap() {
+            iface.validate()?;
         }
-        self.network_interfaces.as_ref().unwrap().validate(&s).map_err(|e| {
-            error!(target: "Machine::validate_network", "fail when validating network config {}", e);
-            MachineError::Validation(format!(
-                "fail when validating network config {}", e.to_string()
-            ))
-        })?;
 
         Ok(())
     }
@@ -504,10 +501,12 @@ pub struct Machine {
     /// the child process exits normally or `InternalError` upon the child process
     /// exits abnormally, both of which could instruct coroutines who are listening
     /// this channel to do something accordingly.
+    #[allow(unused)]
     internal_ch_sender: async_channel::Sender<MachineMessage>,
 
     /// internal_ch_receiver is a async_channel receiver. The receiver end could
     /// be shared by multiple async coroutines.
+    #[allow(unused)]
     internal_ch_receiver: async_channel::Receiver<MachineMessage>,
 
     /// sig_ch should only be listened by the coroutine that monitors the child
@@ -524,6 +523,9 @@ pub struct Machine {
 
     cleanup_funcs: HandlerList,
 }
+
+unsafe impl Send for Machine {}
+unsafe impl Sync for Machine {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MachineMessage {
@@ -949,34 +951,9 @@ impl Machine {
     /// create_network_interface creates network interface
     async fn create_network_interface(
         &self,
-        iface: &UniNetworkInterface,
-        iid: usize,
+        iface: &NetworkInterface,
     ) -> Result<(), MachineError> {
-        let network_interface = NetworkInterface {
-            guest_mac: Some(
-                iface
-                    .static_configuration
-                    .as_ref()
-                    .unwrap()
-                    .mac_address
-                    .to_owned(),
-            ),
-            // validate it
-            host_dev_name: iface
-                .static_configuration
-                .as_ref()
-                .unwrap()
-                .host_dev_name
-                .as_ref()
-                .unwrap()
-                .to_path_buf(),
-            // validate it
-            iface_id: iid.to_string(),
-            rx_rate_limiter: iface.in_rate_limiter.to_owned(),
-            tx_rate_limiter: iface.out_rate_limiter.to_owned(),
-            // allow_mmds_requests: iface.allow_mmds.to_owned(),
-        };
-        self.agent.put_guest_network_interface_by_id(&network_interface).await.map_err(|e| {
+        self.agent.put_guest_network_interface_by_id(iface).await.map_err(|e| {
             error!(target: "Machine::create_network_interface", "PutGuestNetworkInterfaceByID: {}", e);
             MachineError::Agent(format!("PutGuestNetworkInterfaceByID: {}", e.to_string()))
         })?;
@@ -1522,16 +1499,15 @@ impl Machine {
             info!(target: "Machine::create_network_interfaces", "no network interface provided, just return");
             return Ok(());
         }
-        for (id, iface) in self
+        for (_id, iface) in self
             .cfg
             .network_interfaces
             .as_ref()
             .unwrap()
-            .0
             .iter()
             .enumerate()
         {
-            self.create_network_interface(iface, id).await?;
+            self.create_network_interface(iface).await?;
         }
 
         Ok(())
@@ -1574,41 +1550,41 @@ impl Machine {
         if self.cfg.kernel_args.is_none() {
             return Ok(());
         }
-        let mut kernel_args = KernelArgs::from(self.cfg.kernel_args.as_ref().unwrap().to_owned());
+        // let mut kernel_args = KernelArgs::from(self.cfg.kernel_args.as_ref().unwrap().to_owned());
 
         // If any network interfaces have a static IP configured, we need to set the "ip=" boot param.
         // Validation that we are not overriding an existing "ip=" setting happens in the network validation
-        if let Some(static_ip_interface) = self
-            .cfg
-            .network_interfaces
-            .as_ref()
-            .unwrap()
-            .static_ip_interface()
-        {
-            if static_ip_interface
-                .static_configuration
-                .as_ref()
-                .unwrap()
-                .ip_configuration
-                .is_none()
-            {
-                return Err(MachineError::Initialize(format!(
-                    "missing ip configuration in static network interface {:#?}",
-                    static_ip_interface
-                )));
-            } else {
-                let s = static_ip_interface
-                    .static_configuration
-                    .as_ref()
-                    .unwrap()
-                    .ip_configuration
-                    .as_ref()
-                    .unwrap()
-                    .ip_boot_param();
-                kernel_args.0.insert("ip".to_string(), Some(s));
-            }
-        }
-        self.cfg.kernel_args = Some(kernel_args.to_string());
+        // if let Some(static_ip_interface) = self
+        //     .cfg
+        //     .network_interfaces
+        //     .as_ref()
+        //     .unwrap()
+        //     .static_ip_interface()
+        // {
+        //     if static_ip_interface
+        //         .static_configuration
+        //         .as_ref()
+        //         .unwrap()
+        //         .ip_configuration
+        //         .is_none()
+        //     {
+        //         return Err(MachineError::Initialize(format!(
+        //             "missing ip configuration in static network interface {:#?}",
+        //             static_ip_interface
+        //         )));
+        //     } else {
+        //         let s = static_ip_interface
+        //             .static_configuration
+        //             .as_ref()
+        //             .unwrap()
+        //             .ip_configuration
+        //             .as_ref()
+        //             .unwrap()
+        //             .ip_boot_param();
+        //         kernel_args.0.insert("ip".to_string(), Some(s));
+        //     }
+        // }
+        // self.cfg.kernel_args = Some(kernel_args.to_string());
         // if kernel_args.0.contains_key("ip") {
         //     return Ok(());
         // }
