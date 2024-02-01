@@ -185,7 +185,7 @@ async fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
         vsock_devices: Some(vec![]),
         disable_validation: true,
         vmid: None,
-        net_ns: Some("".into()),
+        net_ns: None,
         forward_signals: None,
         seccomp_level: Some(0),
         mmds_address: None,
