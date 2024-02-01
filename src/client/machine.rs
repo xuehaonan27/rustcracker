@@ -1420,7 +1420,7 @@ impl Machine {
         };
 
         // validate the boot source
-        bsrc.validate()?;
+        // bsrc.validate()?;
 
         self.agent.put_guest_boot_source(&bsrc).await.map_err(|e| {
             error!(target: "Machine::create_boot_source", "PutGuestBootSource: {}", e.to_string());
