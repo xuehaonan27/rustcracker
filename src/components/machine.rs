@@ -6,7 +6,7 @@ use nix::{fcntl, sys::stat::Mode, unistd};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    client::{
+    components::{
         command_builder::VMMCommandBuilder,
         handler::{
             CleaningUpNetworkNamespaceHandlerName, CleaningUpSocketHandlerName, Handler,

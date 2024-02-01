@@ -292,7 +292,7 @@
 //     Ok(())
 // }
 
-use rustfire::{client::{command_builder::VMMCommandBuilder, machine::{Config, Machine, MachineError}}, model::{cpu_template::{CPUTemplate, CPUTemplateString}, machine_configuration::MachineConfiguration}, utils::{check_kvm, init, make_socket_path, TestArgs}};
+use rustfire::{components::{command_builder::VMMCommandBuilder, machine::{Config, Machine, MachineError}}, model::{cpu_template::{CPUTemplate, CPUTemplateString}, machine_configuration::MachineConfiguration}, utils::{check_kvm, init, make_socket_path, TestArgs}};
 use log::{debug, info};
 
 // #[tokio::main]

@@ -5,7 +5,7 @@ use nix::{
     sys::stat::Mode,
 };
 use rustfire::{
-    client::{
+    components::{
         command_builder::VMMCommandBuilder, handler::HandlersAdapter, jailer::{JailerConfig, StdioTypes}, machine::{Config, Machine, MachineError, MachineMessage}
     }, model::{
         cpu_template::{self, CPUTemplate, CPUTemplateString}, drive::Drive, logger::LogLevel, machine_configuration::MachineConfiguration, network_interface::NetworkInterface

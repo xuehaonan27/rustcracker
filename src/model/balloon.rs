@@ -3,7 +3,7 @@
 @Author: Mugen_Cyaegha (Xue Haonan)
 */
 
-use crate::{client::machine::MachineError, utils::Json};
+use crate::{components::machine::MachineError, utils::Json};
 use log::error;
 use serde::{Deserialize, Serialize};
 

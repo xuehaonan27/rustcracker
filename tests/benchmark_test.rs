@@ -2,7 +2,7 @@ use std::io::{BufRead, BufReader};
 
 use log::error;
 use rustfire::{
-    client::{
+    components::{
         command_builder::VMMCommandBuilder,
         machine::{Config, Machine, MachineError},
     },

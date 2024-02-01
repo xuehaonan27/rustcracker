@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use log::error;
 use rustfire::{
-    client::{
+    components::{
         command_builder::VMMCommandBuilder,
         machine::{Config, Machine, MachineError, MachineMessage},
         // network::{StaticNetworkConfiguration, UniNetworkInterface, UniNetworkInterfaces},

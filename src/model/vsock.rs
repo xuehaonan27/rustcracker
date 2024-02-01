@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use log::error;
 use serde::{Deserialize, Serialize};
 
-use crate::{client::machine::MachineError, utils::Json};
+use crate::{components::machine::MachineError, utils::Json};
 
 /*
 Vsock Defines a vsock device, backed by a set of Unix Domain Sockets, on the host side.

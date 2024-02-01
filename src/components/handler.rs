@@ -4,7 +4,7 @@ use std::{
     path::PathBuf,
 };
 
-use crate::client::jailer::{DEFAULT_JAILER_PATH, ROOTFS_FOLDER_NAME};
+use crate::components::jailer::{DEFAULT_JAILER_PATH, ROOTFS_FOLDER_NAME};
 
 use super::{
     jailer::StdioTypes,
@@ -888,7 +888,7 @@ impl Handlers {
 mod tests {
     use std::any::Any;
 
-    use crate::client::handler::{AddVsocksHandlerName, ValidateJailerCfgHandlerName};
+    use crate::components::handler::{AddVsocksHandlerName, ValidateJailerCfgHandlerName};
 
     use super::{Handler, HandlerList, StartVMMHandlerName};
 

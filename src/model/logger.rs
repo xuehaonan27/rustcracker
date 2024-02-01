@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use log::error;
 use serde::{Deserialize, Serialize};
 
-use crate::{client::machine::MachineError, utils::Json};
+use crate::{components::machine::MachineError, utils::Json};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LogLevel {

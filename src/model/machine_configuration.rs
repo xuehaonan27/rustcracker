@@ -1,7 +1,7 @@
 use log::error;
 use serde::{Deserialize, Serialize};
 
-use crate::{client::machine::MachineError, utils::Json};
+use crate::{components::machine::MachineError, utils::Json};
 
 use super::cpu_template::CPUTemplate;
 

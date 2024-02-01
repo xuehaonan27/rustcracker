@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{client::machine::MachineError, model::balloon::Balloon};
+use crate::{components::machine::MachineError, model::balloon::Balloon};
 
 pub trait Json<'a> {
     type Item;
