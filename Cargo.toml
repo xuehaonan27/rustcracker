@@ -2,6 +2,10 @@
 name = "rustfire"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
+authors = ["Xue Haonan <xuehaonan27@gmail.com>"]
+description = "A crate for communicating with [firecracker](https://github.com/firecracker-microvm/firecracker) developed by [Xue Haonan](https://github.com/xuehaonan27) during development of [PKU-cloud](https://github.com/lcpu-club/PKU-cloud). Reference: [firecracker-go-sdk](https://github.com/gbionescu/firecracker-go-sdk)"
+repository = "https://github.com/xuehaonan27/rustfire"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
