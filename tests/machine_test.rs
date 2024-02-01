@@ -447,7 +447,7 @@ async fn test_start_vmm() -> Result<(), MachineError> {
     // stop_vmm force anyway
     _ = m.stop_vmm_force().await;
 
-    let msg = recv.blocking_recv().unwrap();
+    let msg = recv.await;
     info!("start_vmm sent: {:#?}", msg);
 
     // close channels
@@ -516,9 +516,9 @@ async fn test_start_once() -> Result<(), MachineError> {
 
     _ = m.stop_vmm_force().await;
 
-    let msg1 = recv1.blocking_recv().unwrap();
+    let msg1 = recv1.await;
     info!("start1 sent: {:#?}", msg1);
-    let msg2 = recv2.blocking_recv().unwrap();
+    let msg2 = recv2.await;
     info!("start2 sent: {:#?}", msg2);
 
     // close channels
