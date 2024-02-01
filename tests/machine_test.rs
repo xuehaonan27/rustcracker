@@ -7,7 +7,7 @@ use nix::{
 };
 use rustfire::{
     client::{
-        command_builder::VMMCommandBuilder, handler::{AttachDrivesHandlerName, CreateBootSourceHandlerName, CreateMachineHandlerName, Handler, HandlersAdapter}, jailer::{JailerConfig, StdioTypes}, machine::{test_utils::{start_vmm, test_attach_root_drive}, Config, Machine, MachineError, MachineMessage}, network::{StaticNetworkConfiguration, UniNetworkInterface, UniNetworkInterfaces}
+        command_builder::VMMCommandBuilder, handler::{AttachDrivesHandlerName, CreateBootSourceHandlerName, CreateMachineHandlerName, Handler, HandlersAdapter}, jailer::{JailerConfig, StdioTypes}, machine::{test_utils::test_attach_root_drive, Config, Machine, MachineError, MachineMessage}, network::{StaticNetworkConfiguration, UniNetworkInterface, UniNetworkInterfaces}
     }, model::{
         cpu_template::{self, CPUTemplate, CPUTemplateString}, drive::Drive, logger::LogLevel, machine_configuration::MachineConfiguration, network_interface::NetworkInterface
     }, utils::{check_kvm, copy_file, init, TestArgs, DEFAULT_JAILER_BINARY, FIRECRACKER_BINARY_PATH}
@@ -373,7 +373,7 @@ fn test_micro_vm_execution() -> Result<(), MachineError> {
     )))?;
     rt.block_on(async move {
         let join_handle = tokio::spawn(async move {
-            if start_vmm(&mut m).await.is_err() {
+            if m.start_vmm_test().await.is_err() {
                 error!("fail to start vmm");
                 panic!("fail to start vmm");
             }
@@ -446,7 +446,7 @@ fn test_start_vmm() -> Result<(), MachineError> {
     let (send, recv) = tokio::sync::oneshot::channel();
     rt.block_on(async move {
         tokio::select! {
-            output = start_vmm(&mut m) => {
+            output = m.start_vmm_test() => {
                 send.send(output).unwrap();
             }
             _ = tokio::time::sleep(tokio::time::Duration::from_millis(250)) => {

@@ -1299,9 +1299,6 @@ impl Machine {
             // no log file provided, just return
             info!(target: "Machine::create_log_fifo_or_file", "no log file path provided, just return");
             Ok(())
-            // Err(MachineError::FileCreation(
-            //     "create_log_fifo_or_file: parameters wrong".into(),
-            // ))
         }
     }
 
@@ -1344,9 +1341,6 @@ impl Machine {
             // no metrics path provided, just return
             info!(target: "Machine::create_metrics_fifo_or_file", "no metrics file path provided, just return");
             Ok(())
-            // Err(MachineError::FileCreation(
-            //     "create_metrics_fifo_or_file: parameters wrong".into(),
-            // ))
         }
     }
 
@@ -1358,6 +1352,7 @@ impl Machine {
         } else if self.cfg.log_path.is_some() {
             path = self.cfg.log_path.as_ref().unwrap();
         } else {
+            // log path provided, just return
             info!("VMM logging disabled");
             return Ok(());
         }
@@ -1394,6 +1389,7 @@ impl Machine {
         } else if self.cfg.metrics_path.is_some() {
             path = self.cfg.metrics_path.as_ref().unwrap();
         } else {
+            // no metrics path provided, just return
             info!("VMM metrics disabled");
             return Ok(());
         }
@@ -1410,6 +1406,11 @@ impl Machine {
     /// and refresh(by get from firecracker) the machine configuration stored in `self`
     pub(super) async fn create_machine(&mut self) -> Result<(), MachineError> {
         debug!(target: "Machine::create_machine", "called Machine::create_machine");
+        if self.cfg.machine_cfg.is_none() {
+            // one must provide machine config
+            error!(target: "Machine::create_machine", "no machine config provided");
+            return Err(MachineError::Execute("no machine config provided".to_string()));
+        }
         self.agent
             .put_machine_configuration(self.cfg.machine_cfg.as_ref().unwrap())
             .await
@@ -1428,6 +1429,7 @@ impl Machine {
 
     /// called by CreateBootSourceHandler
     /// create_boot_source creates a boot source and configure it to microVM
+    /// mainly used when creating root file system
     pub(super) async fn create_boot_source(
         &self,
         image_path: &PathBuf,
@@ -1439,6 +1441,9 @@ impl Machine {
             initrd_path: initrd_path.to_owned(),
             boot_args: kernel_args.to_owned(),
         };
+
+        // validate the boot source
+        bsrc.validate()?;
 
         self.agent.put_guest_boot_source(&bsrc).await.map_err(|e| {
             error!(target: "Machine::create_boot_source", "PutGuestBootSource: {}", e.to_string());
@@ -1454,9 +1459,6 @@ impl Machine {
         if self.cfg.vsock_devices.is_none() {
             info!(target: "Machine::add_vsocks", "no virtio device socket provided, just return");
             return Ok(());
-            // return Err(MachineError::Validation(
-            //     "no vsock devices provided".to_string(),
-            // ));
         }
         let mut err: Vec<(usize, MachineError)> = Vec::new();
         for (i, dev) in self.cfg.vsock_devices.as_ref().unwrap().iter().enumerate() {
@@ -1488,7 +1490,6 @@ impl Machine {
         if self.cfg.drives.is_none() {
             info!(target: "Machine::attach_drives", "no drive provided, just return");
             return Ok(());
-            // return Err(MachineError::Validation("drives not provided".to_string()));
         }
         let mut err: Vec<(usize, MachineError)> = Vec::new();
         for (i, dev) in self.cfg.drives.as_ref().unwrap().iter().enumerate() {
@@ -1915,8 +1916,10 @@ pub mod test_utils {
     use super::{Config, Machine, MachineError};
 
     // expose start_vmm api to test modules
-    pub async fn start_vmm(m: &mut Machine) -> Result<(), MachineError> {
-        m.start_vmm().await
+    impl Machine {
+        pub async fn start_vmm_test(&mut self) -> Result<(), MachineError> {
+            self.start_vmm().await
+        }
     }
 
     pub async fn test_create_machine(m: &mut Machine) -> Result<(), MachineError> {

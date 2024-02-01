@@ -94,6 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // if any network interfaces configured, the `ip` field may be added or modified
         kernel_args: Some("".to_string()),
         network_interfaces: Some(UniNetworkInterfaces(vec![UniNetworkInterface {
+            // currently do not support cni configuration (ver 0.1.0)
             cni_configuration: None,
             static_configuration: Some(StaticNetworkConfiguration {
                 mac_address: "01:23:45:67".to_string(),

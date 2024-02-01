@@ -103,7 +103,7 @@ impl HandlerName for CleaningUpFileHandlerName {}
 
 /// Handler are records that's put into Machine instances,
 /// instructing preparations and cleanings.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub enum Handler {
     /// ConfigValidationHandler is used to validate that required fields are
     /// present. This validator is to be used when the jailer is turned off.
@@ -233,7 +233,7 @@ pub enum Handler {
     },
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct HandlerList(pub Vec<Handler>);
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -387,10 +387,10 @@ impl Handler {
                 }
                 Ok(())
             }
-            
+
             // Could be eliminated
             Handler::NetworkConfigValidationHandler { .. } => m.cfg.validate_network(),
-            
+
             // Could be eliminated
             Handler::StartVMMHandler { .. } => m.start_vmm().await,
 
@@ -414,7 +414,7 @@ impl Handler {
                 debug!("setup logging: success");
                 Ok(())
             }
-            
+
             // Could be eliminated
             Handler::CreateMachineHandler { .. } => m.create_machine().await,
 
@@ -427,7 +427,7 @@ impl Handler {
                 )
                 .await
             }
-            
+
             // Could be eliminated
             Handler::AttachDrivesHandler { .. } => m.attach_drives().await,
 
@@ -883,131 +883,319 @@ impl Handlers {
     }
 }
 
-// link_files_handler creates a new link files handler that will link files to
-// the rootfs
-// fn link_files_handler(kernel_image_file_name: PathBuf) -> Handler {
-//     Handler {
-//         name: LinkFilesToRootFSHandlerName,
-//         func: Box::new(move |m: &mut Machine| -> Result<()> {
-//             if m.cfg.jailer_cfg.is_none() {
-//                 return Err("jailer config was not set for use".into());
-//             }
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
 
-//             // assemble the path to the jailed root folder on the host
-//             let rootfs: PathBuf = [
-//                 m.cfg
-//                     .jailer_cfg
-//                     .as_mut()
-//                     .unwrap()
-//                     .chroot_base_dir
-//                     .to_owned()
-//                     .unwrap_or(DEFAULT_JAILER_PATH.into()),
-//                 m.cfg
-//                     .jailer_cfg
-//                     .as_mut()
-//                     .unwrap()
-//                     .exec_file
-//                     .as_ref()
-//                     .unwrap()
-//                     .as_path()
-//                     .file_name()
-//                     .ok_or("malformed firecracker exec file name")?
-//                     .into(),
-//                 m.cfg
-//                     .jailer_cfg
-//                     .as_ref()
-//                     .unwrap()
-//                     .id
-//                     .as_ref()
-//                     .unwrap()
-//                     .into(),
-//                 ROOTFS_FOLDER_NAME.into(),
-//             ]
-//             .iter()
-//             .collect();
+    use crate::client::handler::{AddVsocksHandlerName, ValidateJailerCfgHandlerName};
 
-//             // copy kernel image to root fs
-//             std::fs::hard_link(
-//                 &m.cfg.kernel_image_path.as_ref().unwrap(),
-//                 [&rootfs, &kernel_image_file_name.to_owned().into()]
-//                     .iter()
-//                     .collect::<PathBuf>(),
-//             )?;
+    use super::{Handler, HandlerList, StartVMMHandlerName};
 
-//             let mut initrd_file_name: PathBuf = "".into();
-//             if m.cfg.initrd_path.is_some()
-//                 && m.cfg.initrd_path.to_owned().unwrap().as_os_str() != ""
-//             {
-//                 initrd_file_name = m
-//                     .cfg
-//                     .initrd_path
-//                     .to_owned()
-//                     .unwrap()
-//                     .as_path()
-//                     .file_name()
-//                     .ok_or("malformed initrd path")?
-//                     .into();
-//                 std::fs::hard_link(
-//                     &m.cfg.initrd_path.as_mut().unwrap(),
-//                     [&rootfs, &initrd_file_name].iter().collect::<PathBuf>(),
-//                 )?;
-//             }
+    fn get_1() -> HandlerList {
+        HandlerList(vec![
+            Handler::StartVMMHandler {
+                name: super::StartVMMHandlerName,
+            },
+            Handler::CreateMachineHandler {
+                name: super::CreateMachineHandlerName,
+            },
+            Handler::BootstrapLoggingHandler {
+                name: super::BootstrapLoggingHandlerName,
+            },
+        ])
+    }
 
-//             // copy all drives to the root fs
-//             for drive in m.cfg.drives.as_mut().unwrap() {
-//                 let host_path = &drive.get_path_on_host();
-//                 let drive_file_name: PathBuf = host_path
-//                     .as_path()
-//                     .file_name()
-//                     .ok_or("malformed drive file name")?
-//                     .into();
+    fn get_2() -> HandlerList {
+        HandlerList(vec![
+            Handler::ConfigValidationHandler {
+                name: super::ValidateCfgHandlerName,
+            },
+            Handler::CleaningUpCNIHandler {
+                name: super::CleaningUpCNIHandlerName,
+            },
+        ])
+    }
 
-//                 std::fs::hard_link(
-//                     host_path,
-//                     [&rootfs, &drive_file_name].iter().collect::<PathBuf>(),
-//                 )?;
-//                 // drive.path_on_host = drive_file_name;
-//                 drive.set_drive_path(drive_file_name);
-//             }
+    fn get_3() -> HandlerList {
+        HandlerList(vec![
+            Handler::StartVMMHandler {
+                name: super::StartVMMHandlerName,
+            },
+            Handler::CleaningUpCNIHandler {
+                name: super::CleaningUpCNIHandlerName,
+            },
+            Handler::StartVMMHandler {
+                name: super::StartVMMHandlerName,
+            },
+        ])
+    }
 
-//             m.cfg.kernel_image_path = kernel_image_file_name.to_owned().into();
-//             if m.cfg.initrd_path.is_some() && m.cfg.initrd_path.as_mut().unwrap().as_os_str() != ""
-//             {
-//                 m.cfg.initrd_path = Some(initrd_file_name);
-//             }
+    fn get_4() -> HandlerList {
+        HandlerList(vec![
+            Handler::NewCreateBalloonHandler {
+                name: super::CreateBalloonHandlerName,
+                amount_mib: 100,
+                deflate_on_oom: true,
+                stats_polling_interval_s: 10,
+            },
+            Handler::NewCreateBalloonHandler {
+                name: super::CreateBalloonHandlerName,
+                amount_mib: 200,
+                deflate_on_oom: false,
+                stats_polling_interval_s: 5,
+            },
+            Handler::NewCreateBalloonHandler {
+                name: super::CreateBalloonHandlerName,
+                amount_mib: 300,
+                deflate_on_oom: true,
+                stats_polling_interval_s: 30,
+            },
+        ])
+    }
 
-//             for fifo_path in [&mut m.cfg.log_fifo, &mut m.cfg.metrics_fifo] {
-//                 if fifo_path.is_none() || fifo_path.as_ref().unwrap().as_os_str() == "" {
-//                     continue;
-//                 }
+    #[test]
+    fn test_prepend() {
+        let mut h1 = get_1();
+        let h2 = get_2();
 
-//                 let file_name: PathBuf = fifo_path
-//                     .as_mut()
-//                     .unwrap()
-//                     .as_path()
-//                     .file_name()
-//                     .ok_or("malformed fifo path")?
-//                     .into();
-//                 std::fs::hard_link(
-//                     fifo_path.as_mut().unwrap(),
-//                     [&rootfs, &file_name].iter().collect::<PathBuf>(),
-//                 )?;
+        h1.prepend(h2.0);
 
-//                 nix::unistd::chown(
-//                     &[&rootfs, &file_name].iter().collect::<PathBuf>(),
-//                     Some(nix::unistd::Uid::from_raw(
-//                         *m.cfg.jailer_cfg.as_ref().unwrap().uid.as_ref().unwrap() as u32,
-//                     )),
-//                     Some(nix::unistd::Gid::from_raw(
-//                         *m.cfg.jailer_cfg.as_ref().unwrap().gid.as_ref().unwrap() as u32,
-//                     )),
-//                 )?;
+        assert_eq!(
+            h1,
+            HandlerList(vec![
+                Handler::ConfigValidationHandler {
+                    name: super::ValidateCfgHandlerName
+                },
+                Handler::CleaningUpCNIHandler {
+                    name: super::CleaningUpCNIHandlerName
+                },
+                Handler::StartVMMHandler {
+                    name: super::StartVMMHandlerName
+                },
+                Handler::CreateMachineHandler {
+                    name: super::CreateMachineHandlerName
+                },
+                Handler::BootstrapLoggingHandler {
+                    name: super::BootstrapLoggingHandlerName
+                },
+            ])
+        );
+    }
 
-//                 // update fifoPath as jailer works relative to the chroot dir
-//                 *fifo_path = Some(file_name);
-//             }
+    #[test]
+    fn test_append() {
+        let mut h1 = get_1();
+        let h2 = get_2();
 
-//             Ok(())
-//         }),
-//     }
-// }
+        h1.append(h2.0);
+
+        assert_eq!(
+            h1,
+            HandlerList(vec![
+                Handler::StartVMMHandler {
+                    name: super::StartVMMHandlerName
+                },
+                Handler::CreateMachineHandler {
+                    name: super::CreateMachineHandlerName
+                },
+                Handler::BootstrapLoggingHandler {
+                    name: super::BootstrapLoggingHandlerName
+                },
+                Handler::ConfigValidationHandler {
+                    name: super::ValidateCfgHandlerName
+                },
+                Handler::CleaningUpCNIHandler {
+                    name: super::CleaningUpCNIHandlerName
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn test_append_after() {
+        let mut h1 = get_3();
+
+        h1.append_after(
+            StartVMMHandlerName.type_id(),
+            &Handler::BootstrapLoggingHandler {
+                name: super::BootstrapLoggingHandlerName,
+            },
+        );
+
+        assert_eq!(
+            h1,
+            HandlerList(vec![
+                Handler::StartVMMHandler {
+                    name: super::StartVMMHandlerName,
+                },
+                Handler::BootstrapLoggingHandler {
+                    name: super::BootstrapLoggingHandlerName,
+                },
+                Handler::CleaningUpCNIHandler {
+                    name: super::CleaningUpCNIHandlerName,
+                },
+                Handler::StartVMMHandler {
+                    name: super::StartVMMHandlerName,
+                },
+                Handler::BootstrapLoggingHandler {
+                    name: super::BootstrapLoggingHandlerName,
+                },
+            ])
+        )
+    }
+
+    #[test]
+    fn test_len() {
+        let h1 = get_1();
+        let h2 = get_2();
+
+        assert_eq!(h1.len(), 3);
+        assert_eq!(h2.len(), 2);
+    }
+
+    #[test]
+    fn test_has() {
+        let h1 = get_1();
+        let h2 = get_2();
+
+        assert_eq!(h1.has(StartVMMHandlerName.type_id()), true);
+        assert_eq!(h2.has(ValidateJailerCfgHandlerName.type_id()), false);
+    }
+
+    #[test]
+    fn test_replace() {
+        let mut h = get_4();
+
+        h.replace(&Handler::NewCreateBalloonHandler {
+            name: super::CreateBalloonHandlerName,
+            amount_mib: 1024,
+            deflate_on_oom: true,
+            stats_polling_interval_s: 1,
+        });
+
+        assert_eq!(
+            h,
+            HandlerList(vec![
+                Handler::NewCreateBalloonHandler {
+                    name: super::CreateBalloonHandlerName,
+                    amount_mib: 1024,
+                    deflate_on_oom: true,
+                    stats_polling_interval_s: 1
+                },
+                Handler::NewCreateBalloonHandler {
+                    name: super::CreateBalloonHandlerName,
+                    amount_mib: 1024,
+                    deflate_on_oom: true,
+                    stats_polling_interval_s: 1
+                },
+                Handler::NewCreateBalloonHandler {
+                    name: super::CreateBalloonHandlerName,
+                    amount_mib: 1024,
+                    deflate_on_oom: true,
+                    stats_polling_interval_s: 1
+                }
+            ])
+        );
+    }
+
+    #[test]
+    fn test_replacend() {
+        let mut h1 = get_4();
+        h1.replacend(&Handler::NewCreateBalloonHandler {
+            name: super::CreateBalloonHandlerName,
+            amount_mib: 1024,
+            deflate_on_oom: true,
+            stats_polling_interval_s: 1,
+        });
+
+        assert_eq!(
+            h1,
+            HandlerList(vec![
+                Handler::NewCreateBalloonHandler {
+                    name: super::CreateBalloonHandlerName,
+                    amount_mib: 1024,
+                    deflate_on_oom: true,
+                    stats_polling_interval_s: 1
+                },
+                Handler::NewCreateBalloonHandler {
+                    name: super::CreateBalloonHandlerName,
+                    amount_mib: 1024,
+                    deflate_on_oom: true,
+                    stats_polling_interval_s: 1
+                },
+                Handler::NewCreateBalloonHandler {
+                    name: super::CreateBalloonHandlerName,
+                    amount_mib: 1024,
+                    deflate_on_oom: true,
+                    stats_polling_interval_s: 1
+                }
+            ])
+        );
+
+        let mut h2 = get_3();
+
+        h2.replacend(&Handler::AddVsocksHandler {
+            name: AddVsocksHandlerName,
+        });
+
+        assert_eq!(
+            h2,
+            HandlerList(vec![
+                Handler::StartVMMHandler {
+                    name: super::StartVMMHandlerName,
+                },
+                Handler::CleaningUpCNIHandler {
+                    name: super::CleaningUpCNIHandlerName,
+                },
+                Handler::StartVMMHandler {
+                    name: super::StartVMMHandlerName,
+                },
+                Handler::AddVsocksHandler {
+                    name: AddVsocksHandlerName
+                }
+            ])
+        )
+    }
+
+    #[test]
+    fn test_remove() {
+        let mut h = get_3();
+
+        h.remove(StartVMMHandlerName.type_id());
+
+        assert_eq!(
+            h,
+            HandlerList(vec![Handler::CleaningUpCNIHandler {
+                name: super::CleaningUpCNIHandlerName,
+            },])
+        );
+    }
+
+    #[test]
+    fn test_clear() {
+        let mut h = get_1();
+        h.clear();
+        assert_eq!(h, HandlerList(vec![]));
+    }
+
+    #[test]
+    fn test_reverse() {
+        let mut h = get_1();
+        h.reverse();
+
+        assert_eq!(
+            h,
+            HandlerList(vec![
+                Handler::BootstrapLoggingHandler {
+                    name: super::BootstrapLoggingHandlerName,
+                },
+                Handler::CreateMachineHandler {
+                    name: super::CreateMachineHandlerName,
+                },
+                Handler::StartVMMHandler {
+                    name: super::StartVMMHandlerName,
+                },
+            ])
+        )
+    }
+}
