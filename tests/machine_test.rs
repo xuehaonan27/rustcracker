@@ -482,7 +482,7 @@ async fn test_start_once() -> Result<(), MachineError> {
         machine_cfg: Some(MachineConfiguration{
             vcpu_count: 1,
             mem_size_mib: 64,
-            cpu_template: Some(CPUTemplate(CPUTemplateString::T2)),
+            cpu_template: Some(CPUTemplate(CPUTemplateString::None)),
             ht_enabled: Some(false),
             track_dirty_pages: None,
         }),
