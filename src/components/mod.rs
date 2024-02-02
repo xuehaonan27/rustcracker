@@ -6,7 +6,7 @@ pub mod jailer;
 pub mod machine;
 pub mod agent;
 pub mod firecracker;
-pub mod handler;
+// pub mod handler;
 pub mod command_builder;
 pub mod signals;
 // pub mod network;

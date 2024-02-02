@@ -1,19 +1,16 @@
-use std::{ffi::OsStr, net::Ipv4Addr, path::PathBuf, sync::Once};
+use std::{ffi::OsStr, os::fd::FromRawFd, path::PathBuf, sync::Once};
 
 use async_trait::async_trait;
 use log::{debug, error, info, warn};
-use nix::{fcntl, sys::stat::Mode, unistd};
+use nix::{
+    fcntl::{self, OFlag},
+    sys::stat::Mode,
+    unistd,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    components::{
-        command_builder::VMMCommandBuilder,
-        handler::{
-            CleaningUpNetworkNamespaceHandlerName, CleaningUpSocketHandlerName, Handler,
-            ValidateCfgHandlerName, ValidateJailerCfgHandlerName,
-        },
-        jailer::jail,
-    },
+    components::{command_builder::VMMCommandBuilder, jailer::jail},
     model::{
         balloon::Balloon,
         balloon_stats::BalloonStatistics,
@@ -35,13 +32,12 @@ use crate::{
         vm::{VM_STATE_PAUSED, VM_STATE_RESUMED},
         vsock::Vsock,
     },
-    utils::{Metadata, DEFAULT_NETNS_DIR},
+    utils::{Metadata, DEFAULT_JAILER_PATH, DEFAULT_NETNS_DIR, ROOTFS_FOLDER_NAME},
 };
 
 use super::{
     agent::Agent,
-    handler::{CleaningUpFileHandlerName, HandlerList, Handlers},
-    jailer::JailerConfig,
+    jailer::{JailerConfig, StdioTypes},
     // network::{UniNetworkInterface, UniNetworkInterfaces},
     signals::Signal,
 };
@@ -68,76 +64,75 @@ const SECCOMP_LEVEL_ADVANCED: SeccompLevelValue = 2;
 /// describe the microVM
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Config {
-    // SocketPath defines the file path where the Firecracker control socket
+    // socket_path defines the file path where the Firecracker control socket
     // should be created.
     pub socket_path: Option<PathBuf>,
 
-    // LogPath defines the file path where the Firecracker log is located.
+    // log_path defines the file path where the Firecracker log is located.
     pub log_path: Option<PathBuf>,
 
-    // LogFifo defines the file path where the Firecracker log named-pipe should
+    // log_fifo defines the file path where the Firecracker log named-pipe should
     // be located.
     pub log_fifo: Option<PathBuf>,
 
-    // LogLevel defines the verbosity of Firecracker logging.  Valid values are
+    // log_level defines the verbosity of Firecracker logging.  Valid values are
     // "Error", "Warning", "Info", and "Debug", and are case-sensitive.
     pub log_level: Option<LogLevel>,
 
-    // MetricsPath defines the file path where the Firecracker metrics
+    // metrics_path defines the file path where the Firecracker metrics
     // is located.
     pub metrics_path: Option<PathBuf>,
 
-    // MetricsFifo defines the file path where the Firecracker metrics
+    // metrics_fifo defines the file path where the Firecracker metrics
     // named-pipe should be located.
     pub metrics_fifo: Option<PathBuf>,
 
-    // KernelImagePath defines the file path where the kernel image is located.
+    // kernel_image_path defines the file path where the kernel image is located.
     // The kernel image must be an uncompressed ELF image.
     pub kernel_image_path: Option<PathBuf>,
 
-    // InitrdPath defines the file path where initrd image is located.
-    //
+    // initrd_path defines the file path where initrd image is located.
     // This parameter is optional.
     pub initrd_path: Option<PathBuf>,
 
-    // KernelArgs defines the command-line arguments that should be passed to
+    // kernel_args defines the command-line arguments that should be passed to
     // the kernel.
     pub kernel_args: Option<String>,
 
-    // Drives specifies BlockDevices that should be made available to the
+    // drives specifies BlockDevices that should be made available to the
     // microVM.
     pub drives: Option<Vec<Drive>>,
 
-    // NetworkInterfaces specifies the tap devices that should be made available
+    // network_interfaces specifies the tap devices that should be made available
     // to the microVM.
     pub network_interfaces: Option<Vec<NetworkInterface>>,
 
-    // FifoLogWriter is an io.Writer(Stdio) that is used to redirect the contents of the
+    // fifo_log_writer is an io.Writer(Stdio) that is used to redirect the contents of the
     // fifo log to the writer.
     // pub(crate) fifo_log_writer: Option<std::process::Stdio>,
     pub fifo_log_writer: Option<i32>,
 
-    // VsockDevices specifies the vsock devices that should be made available to
+    // vsock_devices specifies the vsock devices that should be made available to
     // the microVM.
     pub vsock_devices: Option<Vec<Vsock>>,
 
-    // MachineCfg represents the firecracker microVM process configuration
+    // machine_cfg represents the firecracker microVM process configuration
     pub machine_cfg: Option<MachineConfiguration>,
 
-    // DisableValidation allows for easier mock testing by disabling the
+    // disable_validation allows for easier mock testing by disabling the
     // validation of configuration performed by the SDK(crate).
     pub disable_validation: bool,
 
     // JailerCfg is configuration specific for the jailer process.
     pub jailer_cfg: Option<JailerConfig>,
 
-    // (Optional) VMID is a unique identifier for this VM. It's set to a
+    // (Optional) vmid is a unique identifier for this VM. It's set to a
     // random uuid if not provided by the user. It's used to set Firecracker's instance ID.
     // If CNI configuration is provided as part of NetworkInterfaces,
-    // the VMID is used to set CNI ContainerID and create a network namespace path.
+    // the vmid is used to set CNI ContainerID and create a network namespace path.
     pub vmid: Option<String>,
 
-    // NetNS represents the path to a network namespace handle. If present, the
+    // net_ns represents the path to a network namespace handle. If present, the
     // application will use this to join the associated network namespace
     pub net_ns: Option<PathBuf>,
 
@@ -145,7 +140,7 @@ pub struct Config {
     // firecracker. If not provided, the default signals will be used.
     pub forward_signals: Option<Vec<Signal>>,
 
-    // SeccompLevel specifies whether seccomp filters should be installed and how
+    // seccomp_level specifies whether seccomp filters should be installed and how
     // restrictive they should be. Possible values are:
     //
     //	0 : (default): disabled.
@@ -154,10 +149,16 @@ pub struct Config {
     //			parameters of the allowed syscalls.
     pub seccomp_level: Option<SeccompLevelValue>,
 
-    // MmdsAddress is IPv4 address used by guest applications when issuing requests to MMDS.
+    // mmds_address is IPv4 address used by guest applications when issuing requests to MMDS.
     // It is possible to use a valid IPv4 link-local address (169.254.0.0/16).
     // If not provided, the default address (169.254.169.254) will be used.
     pub mmds_address: Option<std::net::Ipv4Addr>,
+
+    // balloon is Balloon device that is to be put to the machine
+    pub balloon: Option<Balloon>,
+
+    // init_metadata is initial metadata that is to be assigned to the machine
+    pub init_metadata: Option<String>,
 }
 
 impl Default for Config {
@@ -184,6 +185,8 @@ impl Default for Config {
             seccomp_level: None,
             mmds_address: None,
             forward_signals: None,
+            balloon: None,
+            init_metadata: None,
         }
     }
 }
@@ -301,8 +304,7 @@ impl Config {
             ));
         }
 
-        if self.network_interfaces.is_none()
-            || self.network_interfaces.as_ref().unwrap().len() == 0
+        if self.network_interfaces.is_none() || self.network_interfaces.as_ref().unwrap().len() == 0
         {
             return Err(MachineError::Validation(
                 "no network interface provided".to_string(),
@@ -320,6 +322,75 @@ impl Config {
             iface.validate()?;
         }
 
+        Ok(())
+    }
+
+    pub fn validate_jailer_config(&self) -> Result<(), MachineError> {
+        if self.disable_validation {
+            return Ok(());
+        }
+
+        if self.jailer_cfg.is_none() {
+            return Ok(());
+        }
+
+        let mut has_root = self.initrd_path.is_some();
+        for drive in self.drives.as_ref().unwrap() {
+            if drive.is_root_device() {
+                has_root = true;
+            }
+        }
+
+        if !has_root {
+            error!("A root drive must be present in the drive list");
+            return Err(MachineError::Validation(
+                "A root drive must be present in the drive list".to_string(),
+            ));
+        }
+
+        // if self.jailer_cfg.as_ref().unwrap().chroot_strategy.is_none() {
+        //     error!("chroot_strategy cannot be none");
+        //     return Err(MachineError::Validation(
+        //         "chroot_startegy cannot be none".to_string(),
+        //     ));
+        // }
+
+        if self.jailer_cfg.as_ref().unwrap().exec_file.is_none() {
+            error!("exec file must be specified when using jailer mode");
+            return Err(MachineError::Validation(
+                "exec file must be specified when using jailer mode".to_string(),
+            ));
+        }
+
+        if self.jailer_cfg.as_ref().unwrap().id.is_none()
+            || self.jailer_cfg.as_ref().unwrap().id.as_ref().unwrap().len() == 0
+        {
+            error!("id must be specified when using jailer mode");
+            return Err(MachineError::Validation(
+                "id must be specified when using jailer mode".to_string(),
+            ));
+        }
+
+        if self.jailer_cfg.as_ref().unwrap().gid.is_none() {
+            error!("gid must be specified when using jailer mode");
+            return Err(MachineError::Validation(
+                "gid must be specified when using jailer mode".to_string(),
+            ));
+        }
+
+        if self.jailer_cfg.as_ref().unwrap().uid.is_none() {
+            error!("uid must be specified when using jailer mode");
+            return Err(MachineError::Validation(
+                "uid must be specified when using jailer mode".to_string(),
+            ));
+        }
+
+        if self.jailer_cfg.as_ref().unwrap().numa_node.is_none() {
+            error!("numa node must be specified when using jailer mode");
+            return Err(MachineError::Validation(
+                "numa node must be specified when using jailer mode".to_string(),
+            ));
+        }
         Ok(())
     }
 
@@ -458,12 +529,17 @@ impl Config {
         self.mmds_address = Some(addr.to_owned());
         self
     }
+
+    #[inline]
+    pub fn with_balloon(mut self, balloon: &Balloon) -> Self {
+        self.balloon = Some(balloon.to_owned());
+        self
+    }
 }
 
 /// Machine is process handler of rust side
 pub struct Machine {
-    pub(crate) handlers: Handlers,
-
+    // pub(crate) handlers: Handlers,
     pub(crate) cfg: Config,
 
     agent: Agent,
@@ -520,8 +596,7 @@ pub struct Machine {
 
     /// callbacks that should be run when the machine is being torn down
     cleanup_once: std::sync::Once,
-
-    cleanup_funcs: HandlerList,
+    // cleanup_funcs: HandlerList,
 }
 
 unsafe impl Send for Machine {}
@@ -626,6 +701,9 @@ impl Machine {
         agent_request_timeout: u64,
         agent_init_timeout: u64,
     ) -> Result<Machine, MachineError> {
+        // validations
+        cfg.validate_network()?;
+
         // create a channel for communicating with microVM (stopping microVM)
         let mut machine = Self::default(exit_recv, sig_recv);
 
@@ -637,34 +715,18 @@ impl Machine {
         let vmid = cfg.vmid.as_ref().unwrap().to_owned();
         info!(target: "Machine::new", "creating a new machine, vmid: {}", vmid);
 
-        // set default handlers for microVM
-        // let mut machine_handlers = Handlers::default();
-
         if cfg.jailer_cfg.is_some() {
             // jailing the microVM if jailer config provided
             // validate jailer config
             debug!(target: "Machine::new", "with jailer configuration: {:#?}", cfg.jailer_cfg.as_ref().unwrap());
-            machine
-                .handlers
-                .validation
-                .append(vec![Handler::JailerConfigValidationHandler {
-                    name: ValidateJailerCfgHandlerName,
-                }]);
+            cfg.validate_jailer_config()?;
             // jail the machine
             jail(&mut machine, &mut cfg)?;
             info!(target: "Machine::new", "machine {} jailed", vmid);
         } else {
             // microVM without jailer
             debug!(target: "Machine::new", "without jailer configuration");
-            machine
-                .handlers
-                .validation
-                .append(vec![Handler::ConfigValidationHandler {
-                    name: ValidateCfgHandlerName,
-                }]);
-
-            // TODO: another command building process
-            // machine.cmd
+            cfg.validate()?;
             let c = VMMCommandBuilder::default()
                 .with_socket_path(cfg.socket_path.as_ref().unwrap())
                 .with_args(vec![
@@ -679,11 +741,6 @@ impl Machine {
             machine.cmd = Some(c.into());
         }
         debug!(target: "Machine::new", "start command: {:#?}", machine.cmd);
-
-        // if machine.logger.is_none() {
-        //     let logger = env_logger::builder().target(env_logger::Target::Pipe(()));
-        //     machine.logger = Some(logger);
-        // }
 
         machine.agent = Agent::new(
             cfg.socket_path.as_ref().ok_or(MachineError::Initialize(
@@ -705,6 +762,7 @@ impl Machine {
             ]);
         }
 
+        // assign machine configuration
         machine.machine_config = cfg
             .machine_cfg
             .as_ref()
@@ -713,6 +771,7 @@ impl Machine {
             ))?
             .to_owned();
 
+        // assign global configuration
         machine.cfg = cfg.to_owned();
 
         // temp: use default network namespace path
@@ -739,6 +798,8 @@ impl Machine {
     /// ErrAlreadyStarted.
     pub async fn start(&mut self) -> Result<(), MachineError> {
         debug!(target: "Machine::start", "called Machine::start");
+
+        // 0. make sure only start once
         let mut already_started = true;
         self.start_once.call_once(|| {
             debug!(target: "Machine::start", "marking Machine as started");
@@ -748,13 +809,50 @@ impl Machine {
             return Err(MachineError::Execute("machine already started".to_string()));
         }
 
-        // run functions according to handlers
-        let handlers = self.handlers.to_owned();
-        handlers.run(self).await.map_err(|e| {
-            error!(target: "Machine::start", "fail when running handlers: {}", e);
-            e
-        })?;
+        // 1. set up network
+        // clear network
+        self.setup_network().await?;
+        // 2. set up kernel arguments
+        self.setup_kernel_args().await?;
+        // 3. start firecracker process
+        // added socket clear
+        self.start_vmm().await?;
+        // 4. create log files (and link files, optional)
+        self.create_log_fifo_or_file()?;
+        // added clear log fifo
+        self.create_metrics_fifo_or_file()?;
+        // added clear metrics fifo
+        // redirect io
+        // link
+        self.link_files().await?;
 
+        // 5. bootstrap logging
+        self.setup_logging().await?;
+        self.setup_metrics().await?;
+        // 6. create machine configuration
+        self.create_machine().await?;
+        // 7. create boot source
+        self.create_boot_source(
+            &self.cfg.kernel_image_path.as_ref().unwrap(),
+            &self.cfg.initrd_path,
+            &self.cfg.kernel_args,
+        )
+        .await?;
+        // 8. attach drives
+        self.attach_drives().await?;
+        // 9. create network interfaces
+        self.create_network_interfaces().await?;
+        // 10. add virtio socks
+        self.add_vsocks().await?;
+
+        // TODO: optional set mmds config
+        self.set_mmds_config().await?;
+        // TODO: optional put mmds metadata
+        self.set_metadata().await?;
+        // TODO: optional create balloon
+        self.create_balloon().await?;
+
+        // 11. send instance start action
         let start_res = self.start_instance().await;
         if let Err(e) = start_res {
             error!(target: "Machine::start", "fail when sending instance start action: {}", e);
@@ -949,10 +1047,7 @@ impl Machine {
     }
 
     /// create_network_interface creates network interface
-    async fn create_network_interface(
-        &self,
-        iface: &NetworkInterface,
-    ) -> Result<(), MachineError> {
+    async fn create_network_interface(&self, iface: &NetworkInterface) -> Result<(), MachineError> {
         self.agent.put_guest_network_interface_by_id(iface).await.map_err(|e| {
             error!(target: "Machine::create_network_interface", "PutGuestNetworkInterfaceByID: {}", e);
             MachineError::Agent(format!("PutGuestNetworkInterfaceByID: {}", e.to_string()))
@@ -999,6 +1094,7 @@ impl Machine {
 
     async fn do_clean_up(&mut self) -> Result<(), MachineError> {
         debug!(target: "Machine::do_clean_up", "called Machine::do_clean_up");
+        // make sure that do cleaning up only call once
         let mut marker = true;
         self.cleanup_once.call_once(|| {
             marker = false;
@@ -1009,9 +1105,26 @@ impl Machine {
                 "Cannot cleaning up more than once".to_string(),
             ));
         }
-        let clean_up_handlers = self.cleanup_funcs.to_owned();
-        self.cleanup_funcs.reverse();
-        clean_up_handlers.run(self).await?;
+
+        if let Err(e) = self.clear_file(&self.cfg.log_fifo).await {
+            warn!(target: "Machine::do_clean_up", "when removing log_fifo {}: {}", self.cfg.log_fifo.as_ref().unwrap().display(), e);
+        }
+        if let Err(e) = self.clear_file(&self.cfg.log_path).await {
+            warn!(target: "Machine::do_clean_up", "when removing log_path {}: {}", self.cfg.log_path.as_ref().unwrap().display(), e);
+        }
+        if let Err(e) = self.clear_file(&self.cfg.metrics_fifo).await {
+            warn!(target: "Machine::do_clean_up", "when removing metrics_fifo {}: {}", self.cfg.metrics_fifo.as_ref().unwrap().display(), e);
+        }
+        if let Err(e) = self.clear_file(&self.cfg.metrics_path).await {
+            warn!(target: "Machine::do_clean_up", "when removing metrics_path {}: {}", self.cfg.metrics_path.as_ref().unwrap().display(), e);
+        }
+        if let Err(e) = self.clear_file(&self.cfg.socket_path).await {
+            warn!(target: "Machine::do_clean_up", "when removing socket_path {}: {}", self.cfg.socket_path.as_ref().unwrap().display(), e);
+        }
+        if let Err(e) = self.clear_network().await {
+            warn!(target: "Machine::do_clean_up", "when clearing network: {}", e);
+        }
+
         info!(target: "Machine::do_clean_up", "Machine {} cleaned", self.cfg.vmid.as_ref().unwrap());
         Ok(())
     }
@@ -1026,15 +1139,6 @@ impl Machine {
 
         // todo!()
     }
-
-    // async fn create_fifo(&self, path: &PathBuf) -> Result<(), MachineError> {
-    //     debug!("Creating FIFO {}", path.display());
-    //     nix::unistd::mkfifo(path, nix::sys::stat::Mode::S_IRWXU).map_err(|e| {
-    //         error!("Failed to create log fifo: {}", e.to_string());
-    //         MachineError::FileCreation(format!("Failed to create log fifo: {}", e.to_string()))
-    //     })?;
-    //     Ok(())
-    // }
 
     /// called by shutdown, which is called by user to perform graceful shutdown
     async fn send_ctrl_alt_del(&self) -> Result<(), MachineError> {
@@ -1063,6 +1167,255 @@ impl Machine {
         info!(target: "Machine::start_instance", "instance start sent");
         Ok(())
     }
+
+    /// clear_file: clear file set by firecracker
+    async fn clear_file(&self, path: &Option<PathBuf>) -> Result<(), MachineError> {
+        debug!(target: "Machine::clear_file", "called Machine::clear_file");
+        if path.is_none() {
+            warn!(target: "Machine::clear_file", "no need of clearing up, found None");
+            return Ok(());
+        }
+        let path = path.as_ref().unwrap();
+        info!(target: "Machine::clear_file", "clearing {}", path.display());
+
+        std::fs::remove_file(path).map_err(|e| {
+            MachineError::Cleaning(format!(
+                "fail to remove the file at {}: {}",
+                path.display(),
+                e.to_string()
+            ))
+        })?;
+        if let Ok(_) = std::fs::metadata(path) {
+            return Err(MachineError::Cleaning(format!(
+                "fail to remove the file at {}, maybe a dir, non-exist file or permission deny",
+                path.display()
+            )));
+        }
+        Ok(())
+    }
+
+    /// clear_network: clear network settings
+    async fn clear_network(&self) -> Result<(), MachineError> {
+        Ok(())
+    }
+
+    /// linking files: link files to jailer directory if jailer config exists
+    async fn link_files(&mut self) -> Result<(), MachineError> {
+        if self.cfg.jailer_cfg.is_none() {
+            warn!(target: "Machine::link_files", "jailer config was not set for use");
+            return Ok(());
+        }
+        let jcfg = self.cfg.jailer_cfg.as_ref().unwrap();
+
+        // assemble target path
+        let chroot_base_dir: PathBuf = jcfg
+            .chroot_base_dir
+            .to_owned()
+            .unwrap_or(DEFAULT_JAILER_PATH.into());
+        let exec_file_path: PathBuf = jcfg
+            .exec_file
+            .as_ref()
+            .unwrap()
+            .as_path()
+            .file_name()
+            .ok_or(MachineError::ArgWrong(format!(
+                "malformed firecracker exec file name"
+            )))?
+            .into();
+        let id_string: PathBuf = jcfg.id.as_ref().unwrap().into();
+        let rootfs: PathBuf = [
+            chroot_base_dir,
+            exec_file_path,
+            id_string,
+            ROOTFS_FOLDER_NAME.into(),
+        ]
+        .iter()
+        .collect();
+
+        // copy kernel image to root fs
+        let kernel_image_name: PathBuf = self
+            .cfg
+            .kernel_image_path
+            .as_ref()
+            .unwrap()
+            .as_path()
+            .file_name()
+            .ok_or(MachineError::ArgWrong(format!(
+                "malformed kernel image path"
+            )))?
+            .into();
+        let kernel_image_name_full: PathBuf = [&rootfs, &kernel_image_name].iter().collect();
+        std::fs::hard_link(
+            self.cfg.kernel_image_path.as_ref().unwrap(),
+            &kernel_image_name_full,
+        )
+        .map_err(|e| {
+            error!("fail to copy kernel image to root fs: {}", e.to_string());
+            MachineError::FileAccess(format!(
+                "fail to copy kernel image to root fs: {}",
+                e.to_string()
+            ))
+        })?;
+        // reset the kernel image path in configuration
+        self.cfg.kernel_image_path = Some(kernel_image_name);
+
+        // copy initrd drive to root fs (if present)
+        if self.cfg.initrd_path.is_some() {
+            let initrd_file_name: PathBuf = self
+                .cfg
+                .initrd_path
+                .as_ref()
+                .unwrap()
+                .as_path()
+                .file_name()
+                .ok_or(MachineError::ArgWrong(format!("malformed initrd path")))?
+                .into();
+            let initrd_file_name_full: PathBuf = [&rootfs, &initrd_file_name].iter().collect();
+            std::fs::hard_link(
+                self.cfg.initrd_path.as_ref().unwrap(),
+                initrd_file_name_full,
+            )
+            .map_err(|e| {
+                error!("fail to copy initrd device to root fs: {}", e.to_string());
+                MachineError::FileAccess(format!(
+                    "fail to copy initrd device to root fs: {}",
+                    e.to_string()
+                ))
+            })?;
+            self.cfg.initrd_path = Some(initrd_file_name);
+        }
+
+        // copy all drives to root fs (if present)
+        for drive in self.cfg.drives.as_mut().unwrap() {
+            let host_path = &drive.get_path_on_host();
+            let drive_file_name: PathBuf = host_path
+                .as_path()
+                .file_name()
+                .ok_or(MachineError::ArgWrong(
+                    "malformed drive file name".to_string(),
+                ))?
+                .into();
+            let drive_file_name_full: PathBuf = [&rootfs, &drive_file_name].iter().collect();
+            std::fs::hard_link(&host_path, &drive_file_name_full).map_err(|e| {
+                error!("fail to copy drives to root fs: {}", e.to_string());
+                MachineError::FileAccess(format!(
+                    "fail to copy drives to root fs: {}",
+                    e.to_string()
+                ))
+            })?;
+
+            // reset the path_on_host field to new one
+            drive.set_drive_path(drive_file_name);
+        }
+
+        // copy log fifos to root fs (if present)
+        if self.cfg.log_fifo.is_some() {
+            let file_name: PathBuf = self
+                .cfg
+                .log_fifo
+                .as_ref()
+                .unwrap()
+                .as_path()
+                .file_name()
+                .ok_or(MachineError::ArgWrong("malformed fifo path".to_string()))?
+                .into();
+            let file_name_full: PathBuf = [&rootfs, &file_name].iter().collect();
+            std::fs::hard_link(self.cfg.log_fifo.as_ref().unwrap(), &file_name_full).map_err(|e| {
+                error!(target: "Machine::link_files", "fail to copy fifo file to root fs: {}", e.to_string());
+                MachineError::FileAccess(format!(
+                    "fail to copy fifo file to root fs: {}",
+                    e.to_string()
+                ))
+            })?;
+
+            // chown
+            nix::unistd::chown(
+                &file_name_full,
+                Some(nix::unistd::Uid::from_raw(
+                    *self.cfg.jailer_cfg.as_ref().unwrap().uid.as_ref().unwrap(),
+                )),
+                Some(nix::unistd::Gid::from_raw(
+                    *self.cfg.jailer_cfg.as_ref().unwrap().gid.as_ref().unwrap(),
+                )),
+            )
+            .map_err(|e| {
+                error!(target: "Machine::link_files", "fail to chown: {}", e.to_string());
+                MachineError::FileAccess(format!("fail to chown: {}", e.to_string()))
+            })?;
+
+            // reset fifo path
+            self.cfg.log_fifo = Some(file_name);
+        }
+
+        // copy metrics fifo to root fs (if present)
+        if self.cfg.metrics_fifo.is_some() {
+            let file_name: PathBuf = self
+                .cfg
+                .metrics_fifo
+                .as_ref()
+                .unwrap()
+                .as_path()
+                .file_name()
+                .ok_or(MachineError::ArgWrong("malformed fifo path".to_string()))?
+                .into();
+            let file_name_full: PathBuf = [&rootfs, &file_name].iter().collect();
+            std::fs::hard_link(self.cfg.metrics_fifo.as_ref().unwrap(), &file_name_full).map_err(|e| {
+                error!(target: "Machine::link_files", "fail to copy fifo file to root fs: {}", e.to_string());
+                MachineError::FileAccess(format!(
+                    "fail to copy fifo file to root fs: {}",
+                    e.to_string()
+                ))
+            })?;
+            // chown
+            nix::unistd::chown(
+                &file_name_full,
+                Some(nix::unistd::Uid::from_raw(
+                    *self.cfg.jailer_cfg.as_ref().unwrap().uid.as_ref().unwrap(),
+                )),
+                Some(nix::unistd::Gid::from_raw(
+                    *self.cfg.jailer_cfg.as_ref().unwrap().gid.as_ref().unwrap(),
+                )),
+            )
+            .map_err(|e| {
+                error!(target: "Machine::link_files", "fail to chown: {}", e.to_string());
+                MachineError::FileAccess(format!("fail to chown: {}", e.to_string()))
+            })?;
+
+            // reset fifo path
+            self.cfg.metrics_fifo = Some(file_name);
+        }
+        Ok(())
+    }
+
+    #[allow(unused)]
+    async fn capture_fifo_to_file(
+        machine: &mut Machine,
+        fifo_path: &PathBuf,
+        w: StdioTypes,
+    ) -> Result<(), MachineError> {
+        // open the fifo pipe which will be used to write its contents to a file.
+        let fifo_raw_fd = nix::fcntl::open(
+            fifo_path,
+            OFlag::O_RDONLY | OFlag::O_NONBLOCK,
+            Mode::S_IRUSR | Mode::S_IWUSR, // 0o600
+        )
+        .map_err(|e| {
+            error!(
+                "Failed to open fifo path at {}, errno: {}",
+                fifo_path.display(),
+                e.to_string()
+            );
+            MachineError::FileAccess(format!(
+                "Failed to open fifo path at {}, errno: {}",
+                fifo_path.display(),
+                e.to_string()
+            ))
+        })?;
+        let fifo_pipe = unsafe { std::fs::File::from_raw_fd(fifo_raw_fd) };
+        debug!("Capturing {} to writer", fifo_path.display());
+
+        todo!()
+    }
 }
 
 /// util methods
@@ -1077,7 +1430,7 @@ impl Machine {
     ) -> Self {
         let (i_send, i_recv) = async_channel::bounded(64);
         Machine {
-            handlers: Handlers::default(),
+            // handlers: Handlers::default(),
             cfg: Config::default(),
             agent: Agent::blank(),
             cmd: None,
@@ -1092,7 +1445,7 @@ impl Machine {
             sig_ch: sig_recv,
             fatalerr: None,
             cleanup_once: Once::new(),
-            cleanup_funcs: HandlerList::blank(),
+            // cleanup_funcs: HandlerList::blank(),
         }
     }
 
@@ -1105,10 +1458,10 @@ impl Machine {
     }
 
     /// clear_validation clear validation handlers of this machine
-    pub fn clear_validation(&mut self) {
-        self.handlers.validation.clear();
-        info!(target: "Machine::clear_validation", "validation handlers cleared");
-    }
+    // pub fn clear_validation(&mut self) {
+    //     self.handlers.validation.clear();
+    //     info!(target: "Machine::clear_validation", "validation handlers cleared");
+    // }
 
     /// logger set a appropriate logger for logging hypervisor message
     pub fn logger(&mut self) {
@@ -1118,8 +1471,7 @@ impl Machine {
     }
 
     /// PID returns the machine's running process PID or an error if not running
-    #[allow(non_snake_case)]
-    pub fn PID(&self) -> Result<u32, MachineError> {
+    pub fn pid(&self) -> Result<u32, MachineError> {
         if self.cmd.is_none() || self.child_process.is_none() {
             return Err(MachineError::Execute("machine is not running".to_string()));
         }
@@ -1206,12 +1558,12 @@ impl Machine {
         );
 
         // add a handler that could clean up the socket file
-        self.cleanup_funcs
-            .append(vec![Handler::CleaningUpSocketHandler {
-                name: CleaningUpSocketHandlerName,
-                socket_path: self.cfg.socket_path.as_ref().unwrap().to_path_buf(),
-            }]);
-        debug!(target: "Machine::start_vmm", "CleaningUpSocketHandler added");
+        // self.cleanup_funcs
+        //     .append(vec![Handler::CleaningUpSocketHandler {
+        //         name: CleaningUpSocketHandlerName,
+        //         socket_path: self.cfg.socket_path.as_ref().unwrap().to_path_buf(),
+        //     }]);
+        // debug!(target: "Machine::start_vmm", "CleaningUpSocketHandler added");
 
         self.setup_signals().await?;
         debug!(target: "Machine::start_vmm", "signals set");
@@ -1246,11 +1598,11 @@ impl Machine {
                 ))
             })?;
 
-            self.cleanup_funcs
-                .append(vec![Handler::CleaningUpFileHandler {
-                    name: CleaningUpFileHandlerName,
-                    file_path: fifo.to_owned(),
-                }]);
+            // self.cleanup_funcs
+            //     .append(vec![Handler::CleaningUpFileHandler {
+            //         name: CleaningUpFileHandlerName,
+            //         file_path: fifo.to_owned(),
+            //     }]);
 
             Ok(())
         } else if let Some(path) = &self.cfg.log_path {
@@ -1290,11 +1642,11 @@ impl Machine {
                 ))
             })?;
 
-            self.cleanup_funcs
-                .append(vec![Handler::CleaningUpFileHandler {
-                    name: CleaningUpFileHandlerName,
-                    file_path: fifo.to_owned(),
-                }]);
+            // self.cleanup_funcs
+            //     .append(vec![Handler::CleaningUpFileHandler {
+            //         name: CleaningUpFileHandlerName,
+            //         file_path: fifo.to_owned(),
+            //     }]);
 
             Ok(())
         } else if let Some(path) = &self.cfg.metrics_path {
@@ -1386,7 +1738,9 @@ impl Machine {
         if self.cfg.machine_cfg.is_none() {
             // one must provide machine config
             error!(target: "Machine::create_machine", "no machine config provided");
-            return Err(MachineError::Execute("no machine config provided".to_string()));
+            return Err(MachineError::Execute(
+                "no machine config provided".to_string(),
+            ));
         }
         self.agent
             .put_machine_configuration(self.cfg.machine_cfg.as_ref().unwrap())
@@ -1534,11 +1888,11 @@ impl Machine {
         //             e.to_string()
         //         ))
         //     })?;
-        let funcs = Handler::CleaningUpNetworkNamespaceHandler {
-            name: CleaningUpNetworkNamespaceHandlerName,
-        };
+        // let funcs = Handler::CleaningUpNetworkNamespaceHandler {
+        //     name: CleaningUpNetworkNamespaceHandlerName,
+        // };
 
-        self.cleanup_funcs.append(vec![funcs]);
+        // self.cleanup_funcs.append(vec![funcs]);
         info!(target: "Machine::setup_network", "network set");
         Ok(())
     }
@@ -1599,21 +1953,24 @@ impl Machine {
 
     /// called by ConfigMmdsHandler
     /// set_mmds_config sets the machine's mmds system
-    pub(super) async fn set_mmds_config(&self, address: &Ipv4Addr) -> Result<(), MachineError> {
+    pub(super) async fn set_mmds_config(&self) -> Result<(), MachineError> {
+        if self.cfg.mmds_address.is_none() {
+            return Ok(());
+        }
         let mut mmds_config = MmdsConfig::default();
-        mmds_config.ipv4_address = Some(address.to_string());
+        mmds_config.ipv4_address = Some(self.cfg.mmds_address.as_ref().unwrap().to_string());
         self.agent
             .put_mmds_config(&mmds_config)
             .await
             .map_err(|e| {
                 error!(
                     "Setting mmds configuration failed: {}: {}",
-                    address.to_string(),
+                    self.cfg.mmds_address.as_ref().unwrap().to_string(),
                     e.to_string()
                 );
                 MachineError::Agent(format!(
                     "Setting mmds configuration failed: {}: {}",
-                    address.to_string(),
+                    self.cfg.mmds_address.as_ref().unwrap().to_string(),
                     e.to_string()
                 ))
             })?;
@@ -1624,37 +1981,29 @@ impl Machine {
 
     /// called by NewCreateBalloonHandler
     /// create_balloon creates a balloon device if one does not exist.
-    pub(super) async fn create_balloon(
-        &self,
-        amount_mib: i64,
-        deflate_on_oom: bool,
-        stats_polling_interval_s: i64,
-    ) -> Result<(), MachineError> {
-        let balloon = Balloon {
-            amount_mib,
-            deflate_on_oom,
-            stats_polling_interval_s: Some(stats_polling_interval_s),
-        };
-
-        self.agent.put_balloon(&balloon).await.map_err(|e| {
-            error!("Create balloon device failed: {}", e.to_string());
-            MachineError::Agent(format!("Create balloon device failed: {}", e.to_string()))
-        })?;
+    pub(super) async fn create_balloon(&self) -> Result<(), MachineError> {
+        if self.cfg.balloon.is_none() {
+            return Ok(());
+        }
+        self.agent
+            .put_balloon(self.cfg.balloon.as_ref().unwrap())
+            .await
+            .map_err(|e| {
+                error!("Create balloon device failed: {}", e.to_string());
+                MachineError::Agent(format!("Create balloon device failed: {}", e.to_string()))
+            })?;
 
         debug!("Created balloon device successful");
         Ok(())
     }
-}
 
-/// useful methods that could be exposed to users
-impl Machine {
     /// set_metadata sets the machine's metadata for MDDS
-    pub async fn set_metadata(&self, metadata: &impl Metadata) -> Result<(), MachineError> {
+    pub(super) async fn set_metadata(&self) -> Result<(), MachineError> {
+        if self.cfg.init_metadata.is_none() {
+            return Ok(());
+        }
         self.agent
-            .put_mmds(&metadata.to_raw_string().map_err(|e| {
-                error!("Setting metadata: {}", e.to_string());
-                MachineError::Agent(format!("Setting metadata: {}", e.to_string()))
-            })?)
+            .put_mmds(self.cfg.init_metadata.as_ref().unwrap())
             .await
             .map_err(|e| {
                 error!("Setting metadata: {}", e.to_string());
@@ -1664,7 +2013,10 @@ impl Machine {
         debug!("SetMetadata successful");
         Ok(())
     }
+}
 
+/// useful methods that could be exposed to users
+impl Machine {
     /// update_metadata patches the machine's metadata for MDDS
     pub async fn update_matadata(&self, metadata: &impl Metadata) -> Result<(), MachineError> {
         self.agent
@@ -2026,11 +2378,12 @@ pub mod test_utils {
     pub async fn test_set_metadata(m: &mut Machine) -> Result<(), MachineError> {
         let mut metadata = HashMap::new();
         metadata.insert("key", "value");
-
+        
         let s = serde_json::to_string(&metadata).map_err(|e| {
             MachineError::Execute(format!("fail to serialize HashMap: {}", e.to_string()))
         })?;
-        m.set_metadata(&s).await?;
+        m.cfg.init_metadata = Some(s);
+        m.set_metadata().await?;
         Ok(())
     }
 

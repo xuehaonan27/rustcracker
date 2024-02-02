@@ -6,15 +6,9 @@ use std::{
 use log::error;
 use serde::{Deserialize, Serialize};
 
-use super::{
-    handler::HandlersAdapter,
-    machine::{Config, Machine, MachineError},
-};
+use crate::utils::{DEFAULT_JAILER_PATH, DEFAULT_SOCKET_PATH, ROOTFS_FOLDER_NAME};
 
-pub const DEFAULT_JAILER_PATH: &'static str = "/srv/jailer";
-const DEFAULT_JAILER_BIN: &'static str = "jailer";
-pub const ROOTFS_FOLDER_NAME: &'static str = "root";
-const DEFAULT_SOCKET_PATH: &'static str = "/run/firecracker.socket";
+use super::{command_builder::JailerCommandBuilder, machine::{Config, Machine, MachineError}};
 
 /*
 let from = std::process::Stdio::from(value);
@@ -90,7 +84,7 @@ pub struct JailerConfig {
     pub daemonize: Option<bool>,
 
     // ChrootStrategy will dictate how files are transfered to the root drive.
-    pub chroot_strategy: Option<HandlersAdapter>,
+    // pub chroot_strategy: Option<HandlersAdapter>,
 
     // Stdout specifies the IO writer for STDOUT to use when spawning the jailer.
     // pub(crate) stdout: Option<std::process::Stdio>,
@@ -150,215 +144,10 @@ pub struct JailerConfig {
 //     }
 // }
 
-pub struct JailerCommandBuilder {
-    bin: PathBuf,
-    id: String,
-    uid: u32,
-    gid: u32,
-    exec_file: PathBuf,
-    node: usize,
-
-    // optional params
-    chroot_base_dir: Option<PathBuf>,
-    net_ns: Option<PathBuf>,
-    daemonize: Option<bool>,
-    fircracker_args: Option<Vec<String>>,
-
-    stdin: Option<std::process::Stdio>,
-    stdout: Option<std::process::Stdio>,
-    stderr: Option<std::process::Stdio>,
-}
-
-impl JailerCommandBuilder {
-    // new will return a new jailer command builder with the
-    // proper default value initialized.
-    pub fn new() -> Self {
-        Self {
-            bin: DEFAULT_JAILER_BIN.into(),
-            id: "".into(),
-            uid: 0,
-            gid: 0,
-            exec_file: "".into(),
-            node: 0,
-            chroot_base_dir: None,
-            net_ns: None,
-            daemonize: None,
-            fircracker_args: None,
-            stdin: None,
-            stdout: None,
-            stderr: None,
-        }
-    }
-
-    // args returns the specified set of args to be used
-    // in command construction.
-    pub fn args(&self) -> Vec<String> {
-        let mut args: Vec<String> = vec![
-            "--id".into(),
-            self.id.clone(),
-            "--uid".into(),
-            self.uid.to_string(),
-            "--gid".into(),
-            self.gid.to_string(),
-            "--exec-file".into(),
-            self.exec_file.to_string_lossy().to_string(),
-            // "--node".into(),
-            // self.node.to_string(),
-        ];
-
-        if let Some(chroot_base_dir) = &self.chroot_base_dir {
-            args.push("--chroot-base-dir".into());
-            args.push(chroot_base_dir.to_string_lossy().to_string());
-        }
-
-        if let Some(net_ns) = &self.net_ns {
-            args.push("--netns".into());
-            args.push(net_ns.to_string_lossy().to_string());
-        }
-
-        if let Some(true) = self.daemonize {
-            args.push("--daemonize".into());
-        }
-
-        if let Some(mut firecracker_args) = self.fircracker_args.clone() {
-            args.push("--".into());
-            args.append(&mut firecracker_args);
-        }
-
-        args
-    }
-
-    // bin returns the jailer bin path. If bin path is empty, then the default path
-    // will be returned.
-    pub fn bin(&self) -> PathBuf {
-        self.bin.clone()
-    }
-
-    // with_bin will set the specific bin path to the builder.
-    pub fn with_bin(mut self, bin: impl Into<PathBuf>) -> Self {
-        self.bin = bin.into();
-        self
-    }
-
-    // with_id will set the specified id to the builder.
-    pub fn with_id(mut self, id: &String) -> Self {
-        self.id = id.to_owned();
-        self
-    }
-
-    // with_uid will set the specified uid to the builder.
-    pub fn with_uid(mut self, uid: &u32) -> Self {
-        self.uid = *uid;
-        self
-    }
-
-    // with_gid will set the specified gid to the builder.
-    pub fn with_gid(mut self, gid: &u32) -> Self {
-        self.gid = *gid;
-        self
-    }
-
-    // with_exec_file will set the specified path to the builder. This represents a
-    // firecracker binary used when calling the jailer.
-    pub fn with_exec_file(mut self, path: impl Into<PathBuf>) -> Self {
-        self.exec_file = path.into();
-        self
-    }
-
-    // with_numa_node uses the specfied node for the jailer. This represents the numa
-    // node that the process will get assigned to.
-    pub fn with_numa_node(mut self, node: &usize) -> Self {
-        self.node = *node;
-        self
-    }
-
-    // with_chroot_base_dir will set the given path as the chroot base directory. This
-    // specifies where chroot jails are built and defaults to /srv/jailer.
-    pub fn with_chroot_base_dir(mut self, path: impl Into<PathBuf>) -> Self {
-        self.chroot_base_dir = Some(path.into());
-        self
-    }
-
-    // with_net_ns will set the given path to the net namespace of the builder. This
-    // represents the path to a network namespace handle and will be used to join
-    // the associated network namepsace.
-    pub fn with_net_ns(mut self, path: impl Into<PathBuf>) -> Self {
-        self.net_ns = Some(path.into());
-        self
-    }
-
-    // with_daemonize will specify whether to set stdio to /dev/null
-    pub fn with_daemonize(mut self, daemonize: &bool) -> Self {
-        self.daemonize = Some(*daemonize);
-        self
-    }
-
-    // stdin will return the stdin that will be used when creating the firecracker
-    // exec.Command
-    // pub fn stdin(&self) -> Option<std::process::Stdio> {
-    //     self.stdin
-    // }
-
-    // with_stdin specifies which io.Reader to use in place of the os.Stdin in the
-    // firecracker exec.Command.
-    pub fn with_stdin(mut self, stdin: impl Into<std::process::Stdio>) -> Self {
-        self.stdin = Some(stdin.into());
-        self
-    }
-
-    // stdout will return the stdout that will be used when creating the
-    // firecracker exec.Command
-    // pub fn stdout(&self) -> Option<std::process::Stdio> {
-    //     self.stdout
-    // }
-
-    // with_stdout specifies which io.Writer to use in place of the os.Stdout in the
-    // firecracker exec.Command.
-    pub fn with_stdout(mut self, stdout: impl Into<std::process::Stdio>) -> Self {
-        self.stdout = Some(stdout.into());
-        self
-    }
-
-    // stderr will return the stderr that will be used when creating the
-    // firecracker exec.command
-    // pub fn stderr(&self) -> Option<std::process::Stdio> {
-    //     self.stderr
-    // }
-
-    // with_stderr specifies which io.Writer to use in place of the os.Stderr in the
-    // firecracker exec.Command.
-    pub fn with_stderr(mut self, stderr: impl Into<std::process::Stdio>) -> Self {
-        self.stderr = Some(stderr.into());
-        self
-    }
-
-    // with_firecracker_args will adds these arguments to the end of the argument
-    // chain which the jailer will intepret to belonging to Firecracke
-    pub fn with_firecracker_args(mut self, args: impl Into<Vec<String>>) -> Self {
-        self.fircracker_args = Some(args.into());
-        self
-    }
-
-    pub fn build(self) -> std::process::Command {
-        let mut cmd = std::process::Command::new(&self.bin);
-        cmd.args(self.args());
-        if let Some(stdin) = self.stdin {
-            cmd.stdin(stdin);
-        }
-        if let Some(stdout) = self.stdout {
-            cmd.stdout(stdout);
-        }
-        if let Some(stderr) = self.stderr {
-            cmd.stderr(stderr);
-        }
-        // std::mem::replace(cmd, std::process::Command::new(""))
-        cmd
-    }
-}
-
 /// jail will set up proper handlers and remove configuration validation due to
 /// stating of files
 pub fn jail(m: &mut Machine, cfg: &mut Config) -> Result<(), MachineError> {
+    // assemble machine socket path
     let machine_socket_path: PathBuf;
     if let Some(socket_path) = &cfg.socket_path {
         machine_socket_path = socket_path.to_path_buf();
@@ -526,18 +315,6 @@ pub fn jail(m: &mut Machine, cfg: &mut Config) -> Result<(), MachineError> {
 
         m.cmd = Some(builder.build().into());
 
-        if jailer_cfg.chroot_strategy.is_none() {
-            error!("chroot strategy was not set for use");
-            return Err(MachineError::Initialize(
-                "chroot strategy was not set for use".to_string(),
-            ));
-        } else {
-            jailer_cfg
-                .chroot_strategy
-                .as_ref()
-                .unwrap()
-                .adapt_handlers(&mut m.handlers)?;
-        }
 
         Ok(())
     } else {

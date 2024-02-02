@@ -189,6 +189,8 @@ async fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
         forward_signals: None,
         seccomp_level: Some(0),
         mmds_address: None,
+        balloon: None,
+        init_metadata: None,
     };
 
     std::fs::metadata(&vmlinux_path).map_err(|e| {
@@ -356,6 +358,8 @@ async fn test_micro_vm_execution() -> Result<(), MachineError> {
         forward_signals: None,
         seccomp_level: None,
         mmds_address: None,
+        init_metadata: None,
+        balloon: None,
     };
 
     let cmd = VMMCommandBuilder::new().with_socket_path(&socket_path).with_bin(&TestArgs::get_firecracker_binary_path()).build();
@@ -421,6 +425,7 @@ async fn test_start_vmm() -> Result<(), MachineError> {
     let cfg = Config {
         socket_path: Some(socket_path.to_owned()),
         machine_cfg: Some(MachineConfiguration::default()),
+        disable_validation: true,
         ..Default::default()
     };
 

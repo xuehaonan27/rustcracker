@@ -334,8 +334,6 @@ fn test_start_vmm() -> Result<(), MachineError> {
     let mut m = Machine::new(cfg, exit_recv, sig_recv, 10, 60)?;
     m.set_command(cmd.into());
 
-    m.clear_validation();
-
     let rt = tokio::runtime::Runtime::new().map_err(|_e| {
         MachineError::Initialize("fail to create tokio runtime".to_string())
     })?;

@@ -8,7 +8,12 @@ use rustcracker::{
         // network::{StaticNetworkConfiguration, UniNetworkInterface, UniNetworkInterfaces},
     },
     model::{
-        cpu_template::{CPUTemplate, CPUTemplateString}, drive::Drive, logger::LogLevel, machine_configuration::MachineConfiguration, network_interface::NetworkInterface
+        balloon::Balloon,
+        cpu_template::{CPUTemplate, CPUTemplateString},
+        drive::Drive,
+        logger::LogLevel,
+        machine_configuration::MachineConfiguration,
+        network_interface::NetworkInterface,
     },
     utils::check_kvm,
 };
@@ -118,6 +123,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         net_ns: None,
         seccomp_level: None,
         mmds_address: None,
+        balloon: Some(
+            Balloon::new()
+                .with_amount_mib(100)
+                .with_stats_polling_interval_s(5)
+                .set_deflate_on_oom(true),
+        ),
+        init_metadata: Some(String::from("this is initial metadata of the machine")),
     };
     /* ############ configurations end ############ */
 

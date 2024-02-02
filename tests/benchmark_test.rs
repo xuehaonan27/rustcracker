@@ -50,20 +50,7 @@ fn create_machine(name: String, forward_signals: ()) -> Result<Machine, MachineE
             io_engine: None,
             socket: None,
         }]),
-        forward_signals: None,
-        log_path: None,
-        metrics_path: None,
-        initrd_path: None,
-        kernel_args: None,
-        network_interfaces: None,
-        fifo_log_writer: None,
-        vsock_devices: None,
-        disable_validation: false,
-        jailer_cfg: None,
-        vmid: None,
-        net_ns: None,
-        seccomp_level: None,
-        mmds_address: None,
+        ..Default::default()
     };
 
     let cmd = VMMCommandBuilder::new()

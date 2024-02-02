@@ -85,6 +85,10 @@ pub const DATA_PATH_ENV: &'static str = "FC_DATA_PATH";
 pub const SUDO_UID_ENV: &'static str = "SUDO_UID";
 pub const SUDO_GID_ENV: &'static str = "SUDO_GID";
 
+pub const DEFAULT_JAILER_PATH: &'static str = "/srv/jailer";
+pub const ROOTFS_FOLDER_NAME: &'static str = "root";
+
+pub const DEFAULT_SOCKET_PATH: &'static str = "/run/firecracker.socket";
 
 pub const DEFAULT_USER_AGENT: &'static str = "rustfire";
 // as specified in http://man7.org/linux/man-pages/man8/ip-netns.8.html
