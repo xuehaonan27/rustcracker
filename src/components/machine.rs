@@ -2032,7 +2032,7 @@ impl Machine {
 /// useful methods that could be exposed to users
 impl Machine {
     /// update_metadata patches the machine's metadata for MDDS
-    pub async fn update_matadata(&self, metadata: &String) -> Result<(), MachineError> {
+    pub async fn update_metadata(&self, metadata: &String) -> Result<(), MachineError> {
         self.agent
             .patch_mmds(metadata)
             .await
@@ -2388,7 +2388,7 @@ pub mod test_utils {
         let s = serde_json::to_string(&metadata).map_err(|e| {
             MachineError::Execute(format!("fail to serialize HashMap: {}", e.to_string()))
         })?;
-        m.update_matadata(&s).await?;
+        m.update_metadata(&s).await?;
         Ok(())
     }
 

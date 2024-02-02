@@ -1,22 +1,7 @@
 use std::path::PathBuf;
-
 use log::{error, info};
-use rustcracker::{
-    components::{
-        command_builder::VMMCommandBuilder,
-        machine::{Config, Machine, MachineError, MachineMessage},
-        // network::{StaticNetworkConfiguration, UniNetworkInterface, UniNetworkInterfaces},
-    },
-    model::{
-        balloon::Balloon,
-        cpu_template::{CPUTemplate, CPUTemplateString},
-        drive::Drive,
-        logger::LogLevel,
-        machine_configuration::MachineConfiguration,
-        network_interface::NetworkInterface,
-    },
-    utils::{check_kvm, StdioTypes},
-};
+use nix::{fcntl::OFlag, sys::stat::Mode};
+use rustcracker::{components::{jailer::JailerConfig, machine::{Config, Machine, MachineError, MachineMessage}}, model::{balloon::Balloon, cpu_template::{CPUTemplate, CPUTemplateString}, drive::Drive, logger::LogLevel, machine_configuration::MachineConfiguration, network_interface::NetworkInterface}, utils::{check_kvm, StdioTypes}};
 
 // directory that hold all the runtime structures.
 const RUN_DIR: &'static str = "/tmp/rustcracker/run";
@@ -24,8 +9,6 @@ const RUN_DIR: &'static str = "/tmp/rustcracker/run";
 // directory that holds resources e.g. kernel image and file system image.
 const RESOURCE_DIR: &'static str = "/tmp/rustcracker/res";
 
-// directory that holds snapshots
-const SNAPSHOT_DIR: &'static str = "/tmp/rustcracker/snapshot";
 // a tokio coroutine that might be parallel with other coroutines
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -38,27 +21,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /* below are configurations that could be transmitted with json file (Serializable and Deserializable) */
 
     /* ############ configurations begin ############ */
-    // the name of this microVM
-    let vmid = "name1";
+    let jailer_uid = 123;
+    let jailer_gid = 100;
 
-    // the directory that holds this microVM
-    // /tmp/rustfire/run/name1
-    let dir = PathBuf::from(RUN_DIR).join(vmid);
-    std::fs::create_dir_all(&dir).map_err(|e| {
-        MachineError::FileCreation(format!("fail to create {}: {}", dir.display(), e.to_string()))
+    // /tmp/rustcracker/run/jailer
+    let chroot_dir = PathBuf::from(&RUN_DIR).join("jailer");
+    std::fs::create_dir_all(&chroot_dir).map_err(|e| {
+        MachineError::FileCreation(format!(
+            "fail to create dir path {}: {}",
+            chroot_dir.display(),
+            e.to_string()
+        ))
     })?;
-
-    // suppose that the logger is going to be created at "${RUN_DIR}/logger"
-    // /tmp/rustfire/run/name1/log.fifo
-    let log_fifo = dir.join("log.fifo");
-
-    // metrics path
-    // /tmp/rustcracker/run/name1/metrics.fifo
-    let metrics_fifo = dir.join("metrics.fifo");
-
-    // unix domain socket (communicate with firecracker) path
-    // /tmp/rustcracker/run/name1/api.sock
-    let socket_path = dir.join("api.sock");
 
     // kernel image path (prepare valid kernel image here)
     // /tmp/rustcracker/res/vmlinux
@@ -72,29 +46,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // /tmp/rustcracker/res/firecracker
     let firecracker_path = PathBuf::from(&RESOURCE_DIR).join("firecracker");
 
-    // get the output of child
-    // /tmp/rustcracker/run/name1/output.log
-    let output_path = PathBuf::from("/tmp/output.log");
-
-    // path that holds snapshot
-    let snapshot_dir = PathBuf::from(&SNAPSHOT_DIR).join(vmid);
-    std::fs::create_dir_all(&snapshot_dir).map_err(|e| {
-        MachineError::FileCreation(format!("fail to create {}: {}", snapshot_dir.display(), e.to_string()))
-    })?;
-    let snapshot_mem = snapshot_dir.join("mem");
-    let snapshot_path = snapshot_dir.join("snapshot");
+    // jailer binary
+    // /tmp/rustcracker/res/jailer
+    let jailer_path = PathBuf::from(&RESOURCE_DIR).join("jailer");
 
     let init_metadata = r#"{
         "name": "Xue Haonan",
         "email": "xuehaonan27@gmail.com"
     }"#;
 
-    // write the configuration of the firecraker process
+    // the name of this microVM
+    let vmid = "name2";
+
+    // path that holds snapshot
+    let snapshot_mem: PathBuf = "mem".into();
+    let snapshot_path: PathBuf = "snapshot".into();
+    
+    let socket_path = "api.sock";
+    let log_fifo = chroot_dir.join("firecracker.log");
+    let metrics_fifo = chroot_dir.join("firecracker-metrics");
+    let captured_log = chroot_dir.join("writer.fifo");
+
+    // local logger file
+    // ./log/benchmark_jailer
+    let log_path: PathBuf = "logs/benchmark_jailer".into();
+    std::fs::create_dir_all(&log_path).map_err(|e| {
+        MachineError::FileCreation(format!("fail to create {}: {}", log_path.display(), e.to_string()))
+    })?;
+    let log_fd = nix::fcntl::open(
+        &log_path.join("test_jailer_micro_vm_execution.log"),
+        OFlag::O_CREAT | OFlag::O_RDWR,
+        Mode::from_bits(0o666).ok_or(MachineError::FileAccess(
+            "fail to convert '0o666' to Mode".to_string(),
+        ))?,
+    )
+    .map_err(|e| {
+        MachineError::FileCreation(format!("failed to create log file: {}", e.to_string()))
+    })?;
+
     let config = Config {
         // microVM's name
         vmid: Some(vmid.to_string()),
-        // the path to unix domain socket that you want the firecracker to spawn
-        socket_path: Some(socket_path.to_owned()),
+        // the path to unix domain socket which is relative to {chroot_dir}/firecracker/{vmid}/root/
+        socket_path: Some(socket_path.into()),
         kernel_image_path: Some(vmlinux_path),
         log_fifo: Some(log_fifo.to_owned()),
         metrics_fifo: Some(metrics_fifo.to_owned()),
@@ -102,7 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // the configuration of the microVM
         machine_cfg: Some(MachineConfiguration {
             // give microVM 1 virtual CPU
-            vcpu_count: 1,
+            vcpu_count: 2,
             // config correct CPU template here (as same as physical CPU template)
             cpu_template: Some(CPUTemplate(CPUTemplateString::None)),
             // give microVM 256 MiB memory
@@ -125,6 +119,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             io_engine: None,
             socket: None,
         }]),
+        // jailer configuration
+        jailer_cfg: Some(JailerConfig {
+            jailer_binary: Some(jailer_path),
+            gid: Some(jailer_gid),
+            uid: Some(jailer_uid),
+            numa_node: Some(0),
+            id: Some(vmid.to_string()),
+            chroot_base_dir: Some(chroot_dir),
+            exec_file: Some(firecracker_path),
+            stdout: Some(StdioTypes::FromRawFd { fd: log_fd }),
+            stderr: Some(StdioTypes::FromRawFd { fd: log_fd }),
+            daemonize: Some(false),
+            stdin: None,
+        }),
         // kernel_args might be overrided
         // if any network interfaces configured, the `ip` field may be added or modified
         kernel_args: Some("".to_string()),
@@ -135,56 +143,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
         }]),
+        fifo_log_writer: Some(captured_log),
         net_ns: Some("my_netns".into()),
+        init_metadata: Some(init_metadata.to_string()),
+        // configurations that could be set yourself and I don't want to set here
+        forward_signals: None,
+        log_path: None,
+        metrics_path: None,
+        initrd_path: None,
+        vsock_devices: None,
+        disable_validation: false,
+        seccomp_level: None,
+        mmds_address: None,
         balloon: Some(
             Balloon::new()
                 .with_amount_mib(100)
                 .with_stats_polling_interval_s(5)
                 .set_deflate_on_oom(true),
         ),
-        init_metadata: Some(init_metadata.to_string()),
-        fifo_log_writer: Some(output_path),
-        // configurations that could be set yourself and I don't want to set here
-        forward_signals: None,
-        log_path: None,
-        metrics_path: None,
-        initrd_path: None,
-
-        // virtio devices
-        vsock_devices: None,
-        // when running in production environment, don't set this true to avoid validation
-        disable_validation: false,
-        jailer_cfg: None,
-        seccomp_level: None,
-        mmds_address: None,
-        stdin: Some(StdioTypes::Null),
-        stdout: Some(StdioTypes::From {
-            path: log_fifo.to_owned(),
-        }),
-        stderr: Some(StdioTypes::From {
-            path: log_fifo.to_owned(),
-        }),
+        stdout: None,
+        stderr: None,
+        stdin: None,
     };
     /* ############ configurations end ############ */
 
-    /* ############ Launching microVM ############ */
     // use exit_send to send a force stop instruction (MachineMessage::StopVMM) to the microVM
     let (exit_send, exit_recv) = async_channel::bounded(64);
     // use sig_send to send a signal to firecracker process (yet implemented)
     let (sig_send, sig_recv) = async_channel::bounded(64);
     let mut machine = Machine::new(config, exit_recv, sig_recv, 10, 60)?;
 
-    // build your own microVM command
-    let cmd = VMMCommandBuilder::new()
-        .with_socket_path(&socket_path)
-        .with_bin(&firecracker_path)
-        .build();
-
-    // set your own microVM command (optional)
-    // if not, then the machine will start using default command
-    // ${firecracker_path} --api-sock ${socket_path} --seccomp-level 0 --id ${config.vmid}
-    // (seccomp level 0 means disable seccomp)
-    machine.set_command(cmd.into());
+    // command is already built by jailer
 
     // start the microVM
     machine.start().await.map_err(|e| {
@@ -232,14 +221,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!(target: "Re-BalloonStats", "{:#?}", balloon_stats);
 
     /* ############ Saving microVM ############ */
-    // one should always pause the microVM before trying to create snapshot for it
     machine.pause().await?;
     info!(target: "Pause", "Paused");
     machine.create_snapshot(snapshot_mem, snapshot_path).await?;
     machine.resume().await?;
     info!(target: "Resume", "Resumed");
 
-    /* ############ Exiting microVm ############ */
     // wait for the machine to exit.
     // Machine::wait will block until the firecracker process exit itself
     // or explicitly send it a exit message through exit_send defined previously
