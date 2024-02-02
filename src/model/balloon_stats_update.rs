@@ -10,7 +10,7 @@ use crate::utils::Json;
 /// // update structure with new statistics polling interval 
 /// // set to 10 seconds which is used for updating the balloon 
 /// // device. Before or after machine startup.
-/// use rustfire::model::balloon_stats_update::BalloonStatsUpdate;
+/// use rustcracker::model::balloon_stats_update::BalloonStatsUpdate;
 /// let balloon_stats_update = BalloonStatsUpdate::new(10);
 /// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -10,7 +10,7 @@ impl BootArgs {
     /// 
     /// # Example
     /// ```
-    /// use rustfire::model::boot_args::BootArgs;
+    /// use rustcracker::model::boot_args::BootArgs;
     /// 
     /// let default_args = BootArgs::default();
     /// let parsed_string = BootArgs::parse("console=ttyS0 reboot=k panic=1 pci=off").expect("This should not appear");

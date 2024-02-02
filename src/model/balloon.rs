@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 /// // deflating on out-of-memory enabled, statistics
 /// // refreshing enabled and set to 10 seconds between
 /// // two refreshing.
-/// use rustfire::model::balloon::Balloon;
+/// use rustcracker::model::balloon::Balloon;
 /// 
 /// let balloon = Balloon::new()
 ///     .with_amount_mib(256)

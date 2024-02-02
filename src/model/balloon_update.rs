@@ -10,7 +10,7 @@ use crate::utils::Json;
 /// // update structure with new memory allocation set to
 /// // 2048 MiB, which is used for updating the balloon 
 /// // device. Before or after machine startup.
-/// use rustfire::model::balloon_update::BalloonUpdate;
+/// use rustcracker::model::balloon_update::BalloonUpdate;
 /// let balloon_update = BalloonUpdate{ amount_mib: 1024 };
 /// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
