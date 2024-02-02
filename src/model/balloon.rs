@@ -33,7 +33,7 @@ pub struct Balloon {
 
     /// Whether the balloon should deflate when then guest has memory pressure
     /// Required: true
-    #[serde(rename = "deflate_on_oon")]
+    #[serde(rename = "deflate_on_oom")]
     pub deflate_on_oom: bool,
 
     /// Interval in seconds between refreshing statistics

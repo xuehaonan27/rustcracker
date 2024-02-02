@@ -1,7 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{components::machine::MachineError, model::balloon::Balloon};
+use crate::components::machine::MachineError;
 
+use std::{os::{fd::FromRawFd, unix::fs::OpenOptionsExt}, path::PathBuf};
+
+use nix::unistd::{access, AccessFlags, Gid, Uid};
+
+use log::error;
 pub trait Json<'a> {
     type Item;
     // fn from_json(s: &'a String) -> serde_json::Result<Self::Item>
@@ -36,41 +41,6 @@ pub trait Json<'a> {
         Ok(s)
     }
 }
-
-pub trait Metadata {
-    fn from_raw_string(value: String) -> Result<Self, &'static str>
-    where
-        Self: Sized;
-    fn to_raw_string(&self) -> Result<String, &'static str>;
-}
-
-impl Metadata for Balloon {
-    fn from_raw_string(value: String) -> Result<Self, &'static str> {
-        Balloon::from_json(value.as_str())
-            .map_err(|_| "fail to deserialize json to Balloon")
-    }
-
-    fn to_raw_string(&self) -> Result<String, &'static str> {
-        self.to_json().map_err(|_| "fail to serialize to a json style string")
-    }
-}
-
-impl Metadata for String {
-    fn from_raw_string(value: String) -> Result<Self, &'static str>
-        where
-            Self: Sized {
-        Ok(value)
-    }
-    fn to_raw_string(&self) -> Result<String, &'static str> {
-        Ok(self.to_string())
-    }
-}
-
-use std::{os::{fd::FromRawFd, unix::fs::OpenOptionsExt}, path::PathBuf};
-
-use nix::unistd::{access, AccessFlags, Gid, Uid};
-
-use log::error;
 
 pub const FIRECRACKER_BINARY_PATH: &'static str = "firecracker";
 pub const FIRECRACKER_BINARY_OVERRIDE_ENV: &'static str = "FC_BIN";

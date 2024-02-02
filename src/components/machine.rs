@@ -29,8 +29,7 @@ use crate::{
         vsock::Vsock,
     },
     utils::{
-        Metadata, StdioTypes, DEFAULT_JAILER_PATH, DEFAULT_NETNS_DIR, DEFAULT_SOCKET_PATH,
-        ROOTFS_FOLDER_NAME,
+        StdioTypes, DEFAULT_JAILER_PATH, DEFAULT_NETNS_DIR, DEFAULT_SOCKET_PATH, ROOTFS_FOLDER_NAME
     },
 };
 
@@ -327,9 +326,9 @@ impl Config {
         //     s = KernelArgs(std::collections::HashMap::new());
         // }
 
-        for iface in self.network_interfaces.as_ref().unwrap() {
-            iface.validate()?;
-        }
+        // for iface in self.network_interfaces.as_ref().unwrap() {
+        //     iface.validate()?;
+        // }
 
         Ok(())
     }
@@ -727,11 +726,17 @@ impl Machine {
                         .to_string(),
                     "--id".to_string(),
                     cfg.vmid.as_ref().unwrap().to_string(),
-                ])
-                .with_stdin(cfg.stdin.as_ref().unwrap().open_io()?)
-                .with_stdout(cfg.stdout.as_ref().unwrap().open_io()?)
-                .with_stderr(cfg.stderr.as_ref().unwrap().open_io()?)
-                .build();
+                ]);
+            // if cfg.stdin.is_some() {
+            //     c = c.with_stdin(cfg.stdin.as_ref().unwrap().open_io()?);
+            // }
+            // if cfg.stdout.is_some() {
+            //     c = c.with_stdout(cfg.stdout.as_ref().unwrap().open_io()?);
+            // }
+            // if cfg.stderr.is_some() {
+            //     c = c.with_stderr(cfg.stderr.as_ref().unwrap().open_io()?)
+            // } 
+            let c = c.build();
             machine.cmd = Some(c.into());
         }
         debug!(target: "Machine::new", "start command: {:#?}", machine.cmd);
@@ -816,7 +821,7 @@ impl Machine {
         self.create_metrics_fifo_or_file()?;
 
         // 4. redirect io, copy log_fifo to specified position
-        self.capture_fifo_to_file().await?;
+        // self.capture_fifo_to_file().await?;
 
         // 5. link files
         self.link_files().await?;
@@ -1486,38 +1491,42 @@ impl Machine {
         Ok(())
     }
 
-    async fn capture_fifo_to_file(&self) -> Result<(), MachineError> {
-        debug!(target: "Machine::capture_fifo_to_file", "called Machine::capture_fifo_to_file");
-        if self.cfg.fifo_log_writer.is_none() {
-            return Ok(());
-        }
+    // async fn capture_fifo_to_file(&self) -> Result<(), MachineError> {
+    //     debug!(target: "Machine::capture_fifo_to_file", "called Machine::capture_fifo_to_file");
+    //     if self.cfg.fifo_log_writer.is_none() {
+    //         return Ok(());
+    //     }
         
-        tokio::fs::File::create(self.cfg.fifo_log_writer.as_ref().unwrap()).await.map_err(|e| {
-            error!(target: "Machine::capture_fifo_to_file", "fail to create fifo writer {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e);
-            MachineError::FileCreation(format!("fail to create fifo writer {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e))
-        })?;
+    //     tokio::fs::File::create(self.cfg.fifo_log_writer.as_ref().unwrap()).await.map_err(|e| {
+    //         error!(target: "Machine::capture_fifo_to_file", "fail to create fifo writer {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e);
+    //         MachineError::FileCreation(format!("fail to create fifo writer {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e))
+    //     })?;
 
-        let mut source = tokio::fs::File::open(self.cfg.log_fifo.as_ref().unwrap()).await.map_err(|e| {
-            error!(target: "Machine::capture_fifo_to_file", "fail to open {}: {}", self.cfg.log_fifo.as_ref().unwrap().display(), e);
-            MachineError::FileAccess(format!(
-                "fail to open {}: {}", self.cfg.log_fifo.as_ref().unwrap().display(), e.to_string()
-            ))
-        })?;
+    //     let source = tokio::fs::File::open(self.cfg.log_fifo.as_ref().unwrap()).await.map_err(|e| {
+    //         error!(target: "Machine::capture_fifo_to_file", "fail to open {}: {}", self.cfg.log_fifo.as_ref().unwrap().display(), e);
+    //         MachineError::FileAccess(format!(
+    //             "fail to open {}: {}", self.cfg.log_fifo.as_ref().unwrap().display(), e.to_string()
+    //         ))
+    //     })?;
 
-        let mut dest = tokio::fs::File::open(self.cfg.fifo_log_writer.as_ref().unwrap()).await.map_err(|e| {
-            error!(target: "Machine::capture_fifo_to_file", "fail to open {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e);
-            MachineError::FileAccess(format!(
-                "fail to open {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e.to_string()
-            ))
-        })?;
+    //     let dest = tokio::fs::File::open(self.cfg.fifo_log_writer.as_ref().unwrap()).await.map_err(|e| {
+    //         error!(target: "Machine::capture_fifo_to_file", "fail to open {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e);
+    //         MachineError::FileAccess(format!(
+    //             "fail to open {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e.to_string()
+    //         ))
+    //     })?;
 
-        tokio::io::copy(&mut source, &mut dest).await.map_err(|e| {
-            error!(target: "Machine::capture_fifo_to_file", "fail to capture fifo to file: {}", e);
-            MachineError::FileAccess(format!("fail to capture fifo to file: {}", e))
-        })?;
+    //     async fn copy(mut reader: tokio::fs::File, mut writer: tokio::fs::File) -> tokio::io::Result<u64>{
+    //         tokio::io::copy(&mut reader, &mut writer).await
+    //     }
+    //     tokio::spawn(copy(source, dest));
+    //     // tokio::io::copy(&mut source, &mut dest).await.map_err(|e| {
+    //     //     error!(target: "Machine::capture_fifo_to_file", "fail to capture fifo to file: {}", e);
+    //     //     MachineError::FileAccess(format!("fail to capture fifo to file: {}", e))
+    //     // })?;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 }
 
 /// util methods
@@ -2023,18 +2032,9 @@ impl Machine {
 /// useful methods that could be exposed to users
 impl Machine {
     /// update_metadata patches the machine's metadata for MDDS
-    pub async fn update_matadata(&self, metadata: &impl Metadata) -> Result<(), MachineError> {
+    pub async fn update_matadata(&self, metadata: &String) -> Result<(), MachineError> {
         self.agent
-            .patch_mmds(&metadata.to_raw_string().map_err(|e| {
-                error!(
-                    "Updating metadata failed parsing parameter to string: {}",
-                    e.to_string()
-                );
-                MachineError::Agent(format!(
-                    "Updating metadata failed parsing parameter to string: {}",
-                    e.to_string()
-                ))
-            })?)
+            .patch_mmds(metadata)
             .await
             .map_err(|e| {
                 error!("Updating metadata: {}", e.to_string());
@@ -2046,21 +2046,10 @@ impl Machine {
     }
 
     /// get_metadata gets the machine's metadata from MDDS and unmarshals it into v
-    pub async fn get_metadata<T>(&self) -> Result<T, MachineError>
-    where
-        T: Metadata,
-    {
+    pub async fn get_metadata(&self) -> Result<String, MachineError>{
         let res = self.agent.get_mmds().await.map_err(|e| {
             error!("Getting metadata: {}", e.to_string());
             MachineError::Agent(format!("Getting metadata: {}", e.to_string()))
-        })?;
-
-        let res = T::from_raw_string(res).map_err(|e| {
-            error!("Getting metadata failed parsing payload: {}", e.to_string());
-            MachineError::Agent(format!(
-                "Getting metadata failed parsing payload: {}",
-                e.to_string()
-            ))
         })?;
 
         debug!("GetMetadata successful");

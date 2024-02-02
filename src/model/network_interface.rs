@@ -1,10 +1,8 @@
 use std::path::PathBuf;
 
-use log::error;
-
 use serde::{Deserialize, Serialize};
 
-use crate::{components::machine::MachineError, utils::Json};
+use crate::utils::Json;
 
 use super::rate_limiter::RateLimiter;
 /// Defines a network interface.
@@ -64,16 +62,16 @@ impl Default for NetworkInterface {
 }
 
 impl NetworkInterface {
-    pub fn validate(&self) -> Result<(), MachineError> {
-        if let Err(e) = std::fs::metadata(&self.host_dev_name) {
-            error!(target: "NetworkInterface::validate", "fail to stat network interface {}", e);
-            return Err(MachineError::Validation(format!(
-                "fail to stat network interface {}", e.to_string()
-            )))
-        }
+    // pub fn validate(&self) -> Result<(), MachineError> {
+    //     if let Err(e) = std::fs::metadata(&self.host_dev_name) {
+    //         error!(target: "NetworkInterface::validate", "fail to stat network interface {}", e);
+    //         return Err(MachineError::Validation(format!(
+    //             "fail to stat network interface {}", e.to_string()
+    //         )))
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
     // pub fn set_allow_mmds_requests(mut self, b: bool) -> Self {
     //     self.allow_mmds_requests = Some(b);
     //     self

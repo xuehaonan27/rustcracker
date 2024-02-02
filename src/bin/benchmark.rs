@@ -68,7 +68,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // get the output of child
     // /tmp/rustcracker/run/name1/output.log
-    let output_path = dir.join("output.log");
+    let output_path = PathBuf::from("/tmp/output.log");
+
+    let init_metadata = r#"{
+        "name": "Xue Haonan",
+        "email": "xuehaonan27@gmail.com"
+    }"#;
 
     // write the configuration of the firecraker process
     let config = Config {
@@ -85,7 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // give microVM 1 virtual CPU
             vcpu_count: 1,
             // config correct CPU template here (as same as physical CPU template)
-            cpu_template: Some(CPUTemplate(CPUTemplateString::T2)),
+            cpu_template: Some(CPUTemplate(CPUTemplateString::None)),
             // give microVM 256 MiB memory
             mem_size_mib: 256,
             // disable hyperthreading
@@ -115,9 +120,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // if any network interfaces configured, the `ip` field may be added or modified
         kernel_args: Some("".to_string()),
         network_interfaces: Some(vec![NetworkInterface {
-            guest_mac: Some("00:23:45:67".to_string()),
+            guest_mac: Some("06:00:AC:10:00:02".to_string()),
             host_dev_name: "tap0".into(),
-            iface_id: "0".into(),
+            iface_id: "net1".into(),
             rx_rate_limiter: None,
             tx_rate_limiter: None,
         }]),
@@ -136,7 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_stats_polling_interval_s(5)
                 .set_deflate_on_oom(true),
         ),
-        init_metadata: Some(String::from("this is initial metadata of the machine")),
+        init_metadata: Some(init_metadata.to_string()),
         stdin: Some(StdioTypes::Null),
         stdout: Some(StdioTypes::From { path: log_fifo.to_owned() }),
         stderr: Some(StdioTypes::From { path: log_fifo.to_owned() }),
