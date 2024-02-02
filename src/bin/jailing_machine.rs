@@ -144,7 +144,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tx_rate_limiter: None,
         }]),
         fifo_log_writer: Some(captured_log),
-        net_ns: Some("my_netns".into()),
+        net_ns: None,
         init_metadata: Some(init_metadata.to_string()),
         // configurations that could be set yourself and I don't want to set here
         forward_signals: None,
@@ -152,7 +152,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         metrics_path: None,
         initrd_path: None,
         vsock_devices: None,
-        disable_validation: false,
+        disable_validation: true,
         seccomp_level: None,
         mmds_address: None,
         balloon: Some(
