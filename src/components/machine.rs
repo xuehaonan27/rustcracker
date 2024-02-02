@@ -800,41 +800,34 @@ impl Machine {
             return Err(MachineError::Execute("machine already started".to_string()));
         }
 
-        // 1. set up network
-        // clear network
-        self.setup_network().await?;
-
-        // 2. set up kernel arguments
-        self.setup_kernel_args().await?;
-
-        // 3. start firecracker process
+        // 1. start firecracker process
         // added socket clear
         self.start_vmm().await?;
 
-        // 4. create log files (and link files, when jailing)
+        // 2. create log files (and link files, when jailing)
         // added clear log fifo
         self.create_log_fifo_or_file()?;
 
-        // 5. create metrics files (and link files, when jailing)
+        // 3. create metrics files (and link files, when jailing)
         // added clear metrics fifo
         self.create_metrics_fifo_or_file()?;
 
-        // 6. redirect io, copy log_fifo to specified position
+        // 4. redirect io, copy log_fifo to specified position
         self.capture_fifo_to_file().await?;
 
-        // 7. link files
+        // 5. link files
         self.link_files().await?;
 
-        // 8. bootstrap logging
+        // 6. bootstrap logging
         self.setup_logging().await?;
 
-        // 9. bootstrap metrics
+        // 7. bootstrap metrics
         self.setup_metrics().await?;
 
-        // 10. put machine configuration
+        // 8. put machine configuration
         self.create_machine().await?;
 
-        // 11. put boot source
+        // 9. put boot source
         self.create_boot_source(
             &self.cfg.kernel_image_path.as_ref().unwrap(),
             &self.cfg.initrd_path,
@@ -842,25 +835,25 @@ impl Machine {
         )
         .await?;
 
-        // 12. attach drives
+        // 10. attach drives
         self.attach_drives().await?;
 
-        // 13. create network interfaces
+        // 11. create network interfaces
         self.create_network_interfaces().await?;
 
-        // 14. add virtio socks
+        // 12. add virtio socks
         self.add_vsocks().await?;
 
-        // 15. optional set mmds config
+        // 13. optional set mmds config
         self.set_mmds_config().await?;
 
-        // 16. optional put mmds metadata
+        // 14. optional put mmds metadata
         self.set_metadata().await?;
 
-        // 17. optional create balloon
+        // 15. optional create balloon
         self.create_balloon().await?;
 
-        // 11. send instance start action
+        // 16. send instance start action
         let start_res = self.start_instance().await;
         if let Err(e) = start_res {
             error!(target: "Machine::start", "fail when sending instance start action: {}", e);
@@ -1999,90 +1992,6 @@ impl Machine {
             self.create_network_interface(iface).await?;
         }
 
-        Ok(())
-    }
-
-    /// called by SetupNetworkHandler
-    pub(super) async fn setup_network(&mut self) -> Result<(), MachineError> {
-        // could assume that network
-        debug!(target: "Machine::setup_network", "called Machine::setup_network");
-
-        // if self.cfg.network_interfaces.is_none() {
-        //     return Err(MachineError::Initialize(
-        //         "fail to set up networks, no network interfaces provided in configuration"
-        //             .to_string(),
-        //     ));
-        // }
-
-        // let funcs = self.cfg.network_interfaces.as_ref().unwrap()
-        //     .setup_network(&self.cfg.vmid, &self.cfg.net_ns)
-        //     .map_err(|e| {
-        //         error!(target: "Machine::setup_network", "something wrong when setting up network: {}", e.to_string());
-        //         MachineError::Initialize(format!(
-        //             "something wrong when setting up network: {}",
-        //             e.to_string()
-        //         ))
-        //     })?;
-        // let funcs = Handler::CleaningUpNetworkNamespaceHandler {
-        //     name: CleaningUpNetworkNamespaceHandlerName,
-        // };
-
-        // self.cleanup_funcs.append(vec![funcs]);
-        info!(target: "Machine::setup_network", "network set");
-        Ok(())
-    }
-
-    /// called by SetupKernelArgsHandler
-    pub(super) async fn setup_kernel_args(&mut self) -> Result<(), MachineError> {
-        debug!(target: "Machine::setup_kernel_args", "called setup_kernel_args");
-        // if no kernel args provided then just return
-        if self.cfg.kernel_args.is_none() {
-            return Ok(());
-        }
-        // let mut kernel_args = KernelArgs::from(self.cfg.kernel_args.as_ref().unwrap().to_owned());
-
-        // If any network interfaces have a static IP configured, we need to set the "ip=" boot param.
-        // Validation that we are not overriding an existing "ip=" setting happens in the network validation
-        // if let Some(static_ip_interface) = self
-        //     .cfg
-        //     .network_interfaces
-        //     .as_ref()
-        //     .unwrap()
-        //     .static_ip_interface()
-        // {
-        //     if static_ip_interface
-        //         .static_configuration
-        //         .as_ref()
-        //         .unwrap()
-        //         .ip_configuration
-        //         .is_none()
-        //     {
-        //         return Err(MachineError::Initialize(format!(
-        //             "missing ip configuration in static network interface {:#?}",
-        //             static_ip_interface
-        //         )));
-        //     } else {
-        //         let s = static_ip_interface
-        //             .static_configuration
-        //             .as_ref()
-        //             .unwrap()
-        //             .ip_configuration
-        //             .as_ref()
-        //             .unwrap()
-        //             .ip_boot_param();
-        //         kernel_args.0.insert("ip".to_string(), Some(s));
-        //     }
-        // }
-        // self.cfg.kernel_args = Some(kernel_args.to_string());
-        // if kernel_args.0.contains_key("ip") {
-        //     return Ok(());
-        // }
-        // let ip_boot_param = self.cfg.network_interfaces.as_ref().unwrap().ip_boot_param();
-        // kernel_args.0.insert("ip".to_string(), Some(ip_boot_param));
-        // self.cfg.kernel_args = Some(kernel_args.to_string());
-
-        debug!(target: "Machine::setup_kernel_args", "kernel arguments: {}", self.cfg.kernel_args.as_ref().unwrap());
-        info!(target: "Machine::setup_kernel_args", "kernel arguments set");
         Ok(())
     }
 
