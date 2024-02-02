@@ -1,7 +1,7 @@
 use std::io::{BufRead, BufReader};
 
 use log::error;
-use rustfire::{
+use rustcracker::{
     components::{
         command_builder::VMMCommandBuilder,
         machine::{Config, Machine, MachineError},

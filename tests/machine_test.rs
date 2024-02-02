@@ -4,9 +4,9 @@ use nix::{
     fcntl::OFlag,
     sys::stat::Mode,
 };
-use rustfire::{
+use rustcracker::{
     components::{
-        command_builder::VMMCommandBuilder, handler::HandlersAdapter, jailer::{JailerConfig, StdioTypes}, machine::{Config, Machine, MachineError, MachineMessage}
+        command_builder::VMMCommandBuilder, jailer::{JailerConfig, StdioTypes}, machine::{Config, Machine, MachineError, MachineMessage}
     }, model::{
         cpu_template::{self, CPUTemplate, CPUTemplateString}, drive::Drive, logger::LogLevel, machine_configuration::MachineConfiguration, network_interface::NetworkInterface
     }, utils::{check_kvm, copy_file, init, TestArgs, DEFAULT_JAILER_BINARY, FIRECRACKER_BINARY_PATH}
@@ -167,10 +167,10 @@ async fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
             id: Some(id.to_string()),
             chroot_base_dir: Some(jail_test_path.to_owned()),
             exec_file: Some(TestArgs::test_data_path().join(FIRECRACKER_BINARY_PATH)),
-            chroot_strategy: Some(HandlersAdapter::NaiveChrootStrategy {
-                rootfs: "".into(),
-                kernel_image_path: vmlinux_path.to_owned(),
-            }),
+            // chroot_strategy: Some(HandlersAdapter::NaiveChrootStrategy {
+            //     rootfs: "".into(),
+            //     kernel_image_path: vmlinux_path.to_owned(),
+            // }),
             stdout: Some(StdioTypes::FromRawFd { fd: log_fd }),
             stderr: Some(StdioTypes::FromRawFd { fd: log_fd }),
             daemonize: Some(false),
@@ -365,7 +365,7 @@ async fn test_micro_vm_execution() -> Result<(), MachineError> {
     let mut m = Machine::new(cfg, exit_recv, sig_recv, 10, 500)?;
     m.set_command(cmd.into());
 
-    m.clear_validation();
+    // m.clear_validation();
     
     let join_handle = tokio::spawn(async move {
         if m.start_vmm_test().await.is_err() {
@@ -431,7 +431,7 @@ async fn test_start_vmm() -> Result<(), MachineError> {
     let mut m = Machine::new(cfg, exit_recv, sig_recv, 10, 60)?;
     m.set_command(cmd.into());
 
-    m.clear_validation();
+    // m.clear_validation();
 
     let (send, recv) = tokio::sync::oneshot::channel();
     tokio::select! {
