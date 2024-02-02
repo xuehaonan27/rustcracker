@@ -10,7 +10,7 @@ use nix::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    components::{command_builder::VMMCommandBuilder, jailer::jail},
+    components::command_builder::VMMCommandBuilder,
     model::{
         balloon::Balloon,
         balloon_stats::BalloonStatistics,
@@ -32,14 +32,11 @@ use crate::{
         vm::{VM_STATE_PAUSED, VM_STATE_RESUMED},
         vsock::Vsock,
     },
-    utils::{Metadata, DEFAULT_JAILER_PATH, DEFAULT_NETNS_DIR, ROOTFS_FOLDER_NAME},
+    utils::{Metadata, StdioTypes, DEFAULT_JAILER_PATH, DEFAULT_NETNS_DIR, DEFAULT_SOCKET_PATH, ROOTFS_FOLDER_NAME},
 };
 
 use super::{
-    agent::Agent,
-    jailer::{JailerConfig, StdioTypes},
-    // network::{UniNetworkInterface, UniNetworkInterfaces},
-    signals::Signal,
+    agent::Agent, command_builder::JailerCommandBuilder, jailer::JailerConfig, signals::Signal
 };
 
 type SeccompLevelValue = usize;
@@ -159,6 +156,16 @@ pub struct Config {
 
     // init_metadata is initial metadata that is to be assigned to the machine
     pub init_metadata: Option<String>,
+
+    // Stdout specifies the stdout to use when spawning the firecracker.
+    // pub(crate) stdout: Option<std::process::Stdio>,
+    pub stdout: Option<StdioTypes>,
+
+    // Stderr specifies the IO writer for STDERR to use when spawning the jailer.
+    pub stderr: Option<StdioTypes>,
+
+    // Stdin specifies the IO reader for STDIN to use when spawning the jailer.
+    pub stdin: Option<StdioTypes>,
 }
 
 impl Default for Config {
@@ -187,6 +194,9 @@ impl Default for Config {
             forward_signals: None,
             balloon: None,
             init_metadata: None,
+            stderr: None,
+            stdout: None,
+            stdin: None,
         }
     }
 }
@@ -721,7 +731,7 @@ impl Machine {
             debug!(target: "Machine::new", "with jailer configuration: {:#?}", cfg.jailer_cfg.as_ref().unwrap());
             cfg.validate_jailer_config()?;
             // jail the machine
-            jail(&mut machine, &mut cfg)?;
+            machine.jail(&mut cfg)?;
             info!(target: "Machine::new", "machine {} jailed", vmid);
         } else {
             // microVM without jailer
@@ -1386,6 +1396,132 @@ impl Machine {
         }
         Ok(())
     }
+
+
+    /// jail will set up proper handlers and remove configuration validation due to
+    /// stating of files
+    pub fn jail(&mut self, cfg: &mut Config) -> Result<(), MachineError> {
+        if cfg.jailer_cfg.is_none() {
+            return Err(MachineError::Initialize(
+                "jailer config was not set for use".to_string(),
+            ));
+        }
+
+        // assemble machine socket path
+        let machine_socket_path: PathBuf;
+        if let Some(socket_path) = &cfg.socket_path {
+            machine_socket_path = socket_path.to_path_buf();
+        } else {
+            machine_socket_path = DEFAULT_SOCKET_PATH.into();
+        }
+
+        let jailer_workspace_dir: PathBuf;
+        let jailer_cfg = cfg.jailer_cfg.as_ref().unwrap();
+
+        let exec_file_name: PathBuf = jailer_cfg
+            .exec_file
+            .as_ref()
+            .unwrap()
+            .file_name()
+            .ok_or(MachineError::ArgWrong(
+                "malformed firecracker exec file name".to_string(),
+            ))?
+            .into();
+        let id_string: PathBuf = jailer_cfg.id.as_ref().unwrap().into();
+
+        if let Some(chroot_base_dir) = &jailer_cfg.chroot_base_dir {
+            jailer_workspace_dir = [
+                chroot_base_dir.to_owned(),
+                exec_file_name,
+                id_string,
+                ROOTFS_FOLDER_NAME.into(),
+            ]
+            .iter()
+            .collect();
+        } else {
+            jailer_workspace_dir = [
+                PathBuf::from(DEFAULT_JAILER_PATH),
+                exec_file_name,
+                id_string,
+                ROOTFS_FOLDER_NAME.into(),
+            ]
+            .iter()
+            .collect();
+        }
+
+        // reset the socket_path
+        cfg.socket_path = Some(jailer_workspace_dir.join(&machine_socket_path));
+
+        // open stdio
+        let mut stdout = std::process::Stdio::inherit();
+        if jailer_cfg.stdout.is_some() {
+            stdout = jailer_cfg.stdout.as_ref().unwrap().open_io().map_err(|e| {
+                MachineError::FileAccess(format!(
+                    "fail to open stdout field {:#?}: {}",
+                    jailer_cfg.stdout.as_ref().unwrap(),
+                    e
+                ))
+            })?;
+        }
+
+        let mut stderr = std::process::Stdio::inherit();
+        if jailer_cfg.stderr.is_some() {
+            stderr = jailer_cfg.stderr.as_ref().unwrap().open_io().map_err(|e| {
+                MachineError::FileAccess(format!(
+                    "fail to open stderr field {:#?}: {}",
+                    jailer_cfg.stderr.as_ref().unwrap(),
+                    e
+                ))
+            })?;
+        }
+
+        let mut stdin = std::process::Stdio::inherit();
+        if jailer_cfg.stdin.is_some() {
+            stdin = jailer_cfg.stdin.as_ref().unwrap().open_io().map_err(|e| {
+                MachineError::FileAccess(format!(
+                    "fail to open stdin field {:#?}: {}",
+                    jailer_cfg.stderr.as_ref().unwrap(),
+                    e
+                ))
+            })?;
+        }
+
+        let mut builder = JailerCommandBuilder::new()
+            .with_id(jailer_cfg.id.as_ref().unwrap())
+            .with_uid(jailer_cfg.uid.as_ref().unwrap())
+            .with_gid(jailer_cfg.gid.as_ref().unwrap())
+            .with_numa_node(jailer_cfg.numa_node.as_ref().unwrap())
+            .with_exec_file(jailer_cfg.exec_file.as_ref().unwrap())
+            .with_chroot_base_dir(
+                jailer_cfg
+                    .chroot_base_dir
+                    .to_owned()
+                    .unwrap_or(DEFAULT_JAILER_PATH.into()),
+            )
+            .with_daemonize(jailer_cfg.daemonize.as_ref().unwrap())
+            .with_firecracker_args(vec![
+                // "--seccomp-level".to_string(),
+                // cfg.seccomp_level.unwrap().to_string(),
+                "--api-sock".to_string(),
+                machine_socket_path.to_string_lossy().to_string(),
+            ])
+            .with_stdout(stdout)
+            .with_stderr(stderr)
+            .with_stdin(stdin);
+
+        if let Some(jailer_binary) = &jailer_cfg.jailer_binary {
+            builder = builder.with_bin(jailer_binary);
+        }
+
+        if let Some(net_ns) = &cfg.net_ns {
+            builder = builder.with_net_ns(net_ns);
+        }
+
+        self.cmd = Some(builder.build().into());
+
+        Ok(())
+    }
+
 
     #[allow(unused)]
     async fn capture_fifo_to_file(

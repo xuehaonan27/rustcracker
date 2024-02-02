@@ -6,10 +6,10 @@ use nix::{
 };
 use rustcracker::{
     components::{
-        command_builder::VMMCommandBuilder, jailer::{JailerConfig, StdioTypes}, machine::{Config, Machine, MachineError, MachineMessage}
+        command_builder::VMMCommandBuilder, jailer::JailerConfig, machine::{Config, Machine, MachineError, MachineMessage}
     }, model::{
         cpu_template::{self, CPUTemplate, CPUTemplateString}, drive::Drive, logger::LogLevel, machine_configuration::MachineConfiguration, network_interface::NetworkInterface
-    }, utils::{check_kvm, copy_file, init, TestArgs, DEFAULT_JAILER_BINARY, FIRECRACKER_BINARY_PATH}
+    }, utils::{check_kvm, copy_file, init, StdioTypes, TestArgs, DEFAULT_JAILER_BINARY, FIRECRACKER_BINARY_PATH}
 };
 use log::{error, info};
 
@@ -191,6 +191,7 @@ async fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
         mmds_address: None,
         balloon: None,
         init_metadata: None,
+        ..Default::default()
     };
 
     std::fs::metadata(&vmlinux_path).map_err(|e| {
@@ -360,6 +361,7 @@ async fn test_micro_vm_execution() -> Result<(), MachineError> {
         mmds_address: None,
         init_metadata: None,
         balloon: None,
+        ..Default::default()
     };
 
     let cmd = VMMCommandBuilder::new().with_socket_path(&socket_path).with_bin(&TestArgs::get_firecracker_binary_path()).build();

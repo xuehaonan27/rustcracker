@@ -66,7 +66,7 @@ impl Metadata for String {
     }
 }
 
-use std::path::PathBuf;
+use std::{os::{fd::FromRawFd, unix::fs::OpenOptionsExt}, path::PathBuf};
 
 use nix::unistd::{access, AccessFlags, Gid, Uid};
 
@@ -194,4 +194,36 @@ pub fn copy_file(from: &PathBuf, to: &PathBuf, uid: u32, gid: u32) -> Result<(),
 
 pub fn make_socket_path(test_name: &'static str) -> PathBuf {
     std::env::temp_dir().join(test_name.replace("/", "_")).join("fc.sock")
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub enum StdioTypes {
+    // 空设备
+    Null,
+    // 进程管道的
+    Piped,
+    // 继承进程的
+    Inherit,
+    // 从指定文件打开的, std::fs::File
+    From { path: PathBuf },
+    // 从指定文件描述符打开的
+    FromRawFd { fd: i32 },
+}
+
+impl StdioTypes {
+    pub fn open_io(&self) -> std::io::Result<std::process::Stdio> {
+        match self {
+            StdioTypes::Null => Ok(std::process::Stdio::null()),
+            StdioTypes::Piped => Ok(std::process::Stdio::piped()),
+            StdioTypes::Inherit => Ok(std::process::Stdio::inherit()),
+            StdioTypes::From { path } => Ok(std::process::Stdio::from({
+                let mut options = std::fs::OpenOptions::new();
+                options.mode(0o644);
+                options.open(&path)?
+            })),
+            StdioTypes::FromRawFd { fd } => {
+                Ok(unsafe { std::process::Stdio::from_raw_fd(fd.to_owned()) })
+            }
+        }
+    }
 }

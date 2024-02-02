@@ -130,6 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .set_deflate_on_oom(true),
         ),
         init_metadata: Some(String::from("this is initial metadata of the machine")),
+        ..Default::default()
     };
     /* ############ configurations end ############ */
 
