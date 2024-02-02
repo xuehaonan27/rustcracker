@@ -69,7 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // get the output of child
     // /tmp/rustcracker/run/name1/output.log
     let output_path = dir.join("output.log");
-    
+
     // write the configuration of the firecraker process
     let config = Config {
         // microVM's name
@@ -127,7 +127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // when running in production environment, don't set this true to avoid validation
         disable_validation: false,
         jailer_cfg: None,
-        net_ns: None,
+        net_ns: Some("my_netns".into()),
         seccomp_level: None,
         mmds_address: None,
         balloon: Some(
@@ -171,6 +171,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = std::fs::remove_file(&metrics_fifo);
         e
     })?;
+
+    // ask for the metadata stored.
 
     // wait for the machine to exit.
     // Machine::wait will block until the firecracker process exit itself

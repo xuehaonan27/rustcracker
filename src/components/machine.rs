@@ -728,6 +728,9 @@ impl Machine {
                     "--id".to_string(),
                     cfg.vmid.as_ref().unwrap().to_string(),
                 ])
+                .with_stdin(cfg.stdin.as_ref().unwrap().open_io()?)
+                .with_stdout(cfg.stdout.as_ref().unwrap().open_io()?)
+                .with_stderr(cfg.stderr.as_ref().unwrap().open_io()?)
                 .build();
             machine.cmd = Some(c.into());
         }
@@ -1130,17 +1133,6 @@ impl Machine {
         Ok(())
     }
 
-    /// Set up a signal handler to pass through to firecracker
-    async fn setup_signals(&self) -> Result<(), MachineError> {
-        debug!(target: "Machine::setup_signals", "called Machine::setup_signals");
-        return Ok(());
-        // judge whether forward_signals field in config exists
-
-        // debug!("Setting up signal handler: {}", todo!());
-
-        // todo!()
-    }
-
     /// called by shutdown, which is called by user to perform graceful shutdown
     async fn send_ctrl_alt_del(&self) -> Result<(), MachineError> {
         debug!(target: "Machine::send_ctrl_alt_del", "called Machine::send_ctrl_alt_del");
@@ -1445,35 +1437,17 @@ impl Machine {
         // open stdio
         let mut stdout = std::process::Stdio::inherit();
         if jailer_cfg.stdout.is_some() {
-            stdout = jailer_cfg.stdout.as_ref().unwrap().open_io().map_err(|e| {
-                MachineError::FileAccess(format!(
-                    "fail to open stdout field {:#?}: {}",
-                    jailer_cfg.stdout.as_ref().unwrap(),
-                    e
-                ))
-            })?;
+            stdout = jailer_cfg.stdout.as_ref().unwrap().open_io()?;
         }
 
         let mut stderr = std::process::Stdio::inherit();
         if jailer_cfg.stderr.is_some() {
-            stderr = jailer_cfg.stderr.as_ref().unwrap().open_io().map_err(|e| {
-                MachineError::FileAccess(format!(
-                    "fail to open stderr field {:#?}: {}",
-                    jailer_cfg.stderr.as_ref().unwrap(),
-                    e
-                ))
-            })?;
+            stderr = jailer_cfg.stderr.as_ref().unwrap().open_io()?;
         }
 
         let mut stdin = std::process::Stdio::inherit();
         if jailer_cfg.stdin.is_some() {
-            stdin = jailer_cfg.stdin.as_ref().unwrap().open_io().map_err(|e| {
-                MachineError::FileAccess(format!(
-                    "fail to open stdin field {:#?}: {}",
-                    jailer_cfg.stderr.as_ref().unwrap(),
-                    e
-                ))
-            })?;
+            stdin = jailer_cfg.stdin.as_ref().unwrap().open_io()?;
         }
 
         let mut builder = JailerCommandBuilder::new()
@@ -1646,20 +1620,11 @@ impl Machine {
         if self.cfg.net_ns.is_some() && self.cfg.jailer_cfg.is_none() {
             // If the VM needs to be started in a netns but no jailer netns was configured,
             // start the vmm child process in the netns directly here.
-
-            /*
-            err = ns.WithNetNSPath(m.Cfg.NetNS, func(_ ns.NetNS) error {
-                return startCmd()
-            })
-            */
-
-            // 这里有对于netns的设置, 然后启动进程
             start_result = self.cmd.as_mut().unwrap().spawn();
         } else {
             // Else, just start the process normally as it's either not in a netns or will
             // be placed in one by the jailer process instead.
             start_result = self.cmd.as_mut().unwrap().spawn();
-            // 并且在Machine里面存储pid
         }
         info!(target: "Machine::start_vmm", "command called");
 
@@ -1677,7 +1642,10 @@ impl Machine {
                 e.to_string()
             )));
         } else {
-            self.child_process = Some(start_result.unwrap());
+            let process = start_result.unwrap();
+            let pid = process.id();
+            self.child_process = Some(process);
+            self.pid = pid;
         }
         debug!(
             target: "Machine::start_vmm",
@@ -1685,16 +1653,9 @@ impl Machine {
             self.cfg.socket_path.as_ref().unwrap().display()
         );
 
-        // add a handler that could clean up the socket file
-        // self.cleanup_funcs
-        //     .append(vec![Handler::CleaningUpSocketHandler {
-        //         name: CleaningUpSocketHandlerName,
-        //         socket_path: self.cfg.socket_path.as_ref().unwrap().to_path_buf(),
-        //     }]);
-        // debug!(target: "Machine::start_vmm", "CleaningUpSocketHandler added");
+        // self.setup_signals().await?;
+        // debug!(target: "Machine::start_vmm", "signals set");
 
-        self.setup_signals().await?;
-        debug!(target: "Machine::start_vmm", "signals set");
         self.wait_for_socket(self.agent.firecracker_init_timeout)
             .await
             .map_err(|e| {

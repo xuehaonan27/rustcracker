@@ -211,7 +211,7 @@ pub enum StdioTypes {
 }
 
 impl StdioTypes {
-    pub fn open_io(&self) -> std::io::Result<std::process::Stdio> {
+    pub fn open_io(&self) -> Result<std::process::Stdio, MachineError> {
         match self {
             StdioTypes::Null => Ok(std::process::Stdio::null()),
             StdioTypes::Piped => Ok(std::process::Stdio::piped()),
@@ -219,7 +219,12 @@ impl StdioTypes {
             StdioTypes::From { path } => Ok(std::process::Stdio::from({
                 let mut options = std::fs::OpenOptions::new();
                 options.mode(0o644);
-                options.open(&path)?
+                options.open(&path).map_err(|e| {
+                    error!(target: "StdioTypes: open_io", "fail to open {}: {}", path.display(), e);
+                    MachineError::FileAccess(format!(
+                        "fail to open {}: {}", path.display(), e
+                    ))
+                })?
             })),
             StdioTypes::FromRawFd { fd } => {
                 Ok(unsafe { std::process::Stdio::from_raw_fd(fd.to_owned()) })
