@@ -108,21 +108,21 @@ async fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
     let metrics_fifo = tmpdir.join("firecracker-metrics");
     let captured_log = tmpdir.join("writer.fifo");
 
-    let fw = nix::fcntl::open(
-        &captured_log,
-        OFlag::O_CREAT | OFlag::O_RDWR,
-        Mode::from_bits(0o600).ok_or(MachineError::FileAccess(format!(
-            "fail to convert '600' to Mode: {}",
-            captured_log.display(),
-        )))?,
-    )
-    .map_err(|e| {
-        MachineError::FileAccess(format!(
-            "fail to open th path {}: {}",
-            captured_log.display(),
-            e.to_string()
-        ))
-    })?;
+    // let fw = nix::fcntl::open(
+    //     &captured_log,
+    //     OFlag::O_CREAT | OFlag::O_RDWR,
+    //     Mode::from_bits(0o600).ok_or(MachineError::FileAccess(format!(
+    //         "fail to convert '600' to Mode: {}",
+    //         captured_log.display(),
+    //     )))?,
+    // )
+    // .map_err(|e| {
+    //     MachineError::FileAccess(format!(
+    //         "fail to open th path {}: {}",
+    //         captured_log.display(),
+    //         e.to_string()
+    //     ))
+    // })?;
 
     let log_fd = nix::fcntl::open(
         &log_path.join("test_jailer_micro_vm_execution.log"),
@@ -176,7 +176,7 @@ async fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
             daemonize: Some(false),
             stdin: None,
         }),
-        fifo_log_writer: Some(fw),
+        fifo_log_writer: Some(captured_log.to_owned()),
         metrics_path: None,
         metrics_fifo: Some(metrics_fifo.to_owned()),
         initrd_path: None,
@@ -240,13 +240,14 @@ async fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
     // });
 
     // Closing:
-    nix::unistd::close(fw).map_err(|e| {
-        MachineError::FileRemoving(format!(
-            "double closing {}: {}",
-            captured_log.display(),
-            e.to_string()
-        ))
-    })?;
+    // nix::unistd::close(fw).map_err(|e| {
+    //     MachineError::FileRemoving(format!(
+    //         "double closing {}: {}",
+    //         captured_log.display(),
+    //         e.to_string()
+    //     ))
+    // })?;
+
     std::fs::remove_file(&captured_log).map_err(|e| {
         MachineError::FileRemoving(format!(
             "fail to remove file {}: {}",
@@ -306,11 +307,13 @@ async fn test_micro_vm_execution() -> Result<(), MachineError> {
     let log_fifo = dir.join("firecracker.log");
     let metrics_fifo = dir.join("firecracker-metrics");
     let captured_log = dir.join("writer.fifo");
-    let fw = nix::fcntl::open(&captured_log, OFlag::O_CREAT | OFlag::O_RDWR, Mode::S_IRUSR | Mode::S_IWUSR).map_err(|e| {
-        MachineError::FileAccess(format!(
-            "fail to open file {}: {}", captured_log.display(), e.to_string()
-        ))
-    })?;
+
+    // let fw = nix::fcntl::open(&captured_log, OFlag::O_CREAT | OFlag::O_RDWR, Mode::S_IRUSR | Mode::S_IWUSR).map_err(|e| {
+    //     MachineError::FileAccess(format!(
+    //         "fail to open file {}: {}", captured_log.display(), e.to_string()
+    //     ))
+    // })?;
+
     let vmlinux_path = dir.join("vmlinux");
     // let network_ifaces = UniNetworkInterfaces(vec![
     //     UniNetworkInterface {
@@ -346,7 +349,7 @@ async fn test_micro_vm_execution() -> Result<(), MachineError> {
                 }),
         disable_validation: true,
         network_interfaces: Some(vec![network_iface]),
-        fifo_log_writer: Some(fw),
+        fifo_log_writer: Some(captured_log),
 
         kernel_args: None,
         kernel_image_path: Some(vmlinux_path),
@@ -394,13 +397,13 @@ async fn test_micro_vm_execution() -> Result<(), MachineError> {
     info!("exit message sent");
     tokio::join!(join_handle).0.unwrap();
 
-    nix::unistd::close(fw).map_err(|e| {
-        MachineError::FileRemoving(format!(
-            "double closing {}: {}",
-            captured_log.display(),
-            e.to_string()
-        ))
-    })?;
+    // nix::unistd::close(fw).map_err(|e| {
+    //     MachineError::FileRemoving(format!(
+    //         "double closing {}: {}",
+    //         captured_log.display(),
+    //         e.to_string()
+    //     ))
+    // })?;
 
     std::fs::remove_dir_all(&dir).map_err(|e| {
         MachineError::FileRemoving(format!(

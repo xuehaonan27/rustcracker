@@ -1,12 +1,8 @@
-use std::{ffi::OsStr, os::fd::FromRawFd, path::PathBuf, sync::Once};
+use std::{ffi::OsStr, path::PathBuf, sync::Once};
 
 use async_trait::async_trait;
 use log::{debug, error, info, warn};
-use nix::{
-    fcntl::{self, OFlag},
-    sys::stat::Mode,
-    unistd,
-};
+use nix::{fcntl, sys::stat::Mode, unistd};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -32,11 +28,14 @@ use crate::{
         vm::{VM_STATE_PAUSED, VM_STATE_RESUMED},
         vsock::Vsock,
     },
-    utils::{Metadata, StdioTypes, DEFAULT_JAILER_PATH, DEFAULT_NETNS_DIR, DEFAULT_SOCKET_PATH, ROOTFS_FOLDER_NAME},
+    utils::{
+        Metadata, StdioTypes, DEFAULT_JAILER_PATH, DEFAULT_NETNS_DIR, DEFAULT_SOCKET_PATH,
+        ROOTFS_FOLDER_NAME,
+    },
 };
 
 use super::{
-    agent::Agent, command_builder::JailerCommandBuilder, jailer::JailerConfig, signals::Signal
+    agent::Agent, command_builder::JailerCommandBuilder, jailer::JailerConfig, signals::Signal,
 };
 
 type SeccompLevelValue = usize;
@@ -107,7 +106,7 @@ pub struct Config {
     // fifo_log_writer is an io.Writer(Stdio) that is used to redirect the contents of the
     // fifo log to the writer.
     // pub(crate) fifo_log_writer: Option<std::process::Stdio>,
-    pub fifo_log_writer: Option<i32>,
+    pub fifo_log_writer: Option<PathBuf>,
 
     // vsock_devices specifies the vsock devices that should be made available to
     // the microVM.
@@ -682,24 +681,6 @@ pub trait MachineTrait {
     async fn update_guest_network_interface_rate_limit(s: String) -> Result<(), MachineError>;
 }
 
-/// start, start_instance和start_vmm的区别
-/// start是外部应该调用的方法, 它会调用start_instance并且消耗Machine的Once, 保证每一个Machine实例只被启动一次.
-/// start_instance仅仅发送InstanceActionInfo::instance_start()给microVM, 不应该被外部直接调用, 仅仅由start调用
-/// 在此之前需要start_vmm为其配置好环境然后启动firecracker进程
-///
-/// 总结: 先调用start_vmm, 然后调用start
-///
-/// shutdown, stop_vmm的区别
-/// shutdown仅仅发送InstanceActionInfo::send_ctrl_alt_del()给microVM.
-/// stop_vmm停止firecracker并做好收尾工作
-///
-/// 总结: 先调用shutdown, 然后调用firecracker.
-/// stop_vmm_force发送SIGKILL保证绝对终止firecracker进程.
-///
-/// 可以使用tokio::select!和channel完成exit_ch的编写
-///
-/// 将所有put操作全部pub(super)防止user直接调用
-///
 /// functional methods
 impl Machine {
     /// new initializes a new Machine instance and performs validation of the
@@ -822,44 +803,61 @@ impl Machine {
         // 1. set up network
         // clear network
         self.setup_network().await?;
+
         // 2. set up kernel arguments
         self.setup_kernel_args().await?;
+
         // 3. start firecracker process
         // added socket clear
         self.start_vmm().await?;
-        // 4. create log files (and link files, optional)
-        self.create_log_fifo_or_file()?;
+
+        // 4. create log files (and link files, when jailing)
         // added clear log fifo
-        self.create_metrics_fifo_or_file()?;
+        self.create_log_fifo_or_file()?;
+
+        // 5. create metrics files (and link files, when jailing)
         // added clear metrics fifo
-        // redirect io
-        // link
+        self.create_metrics_fifo_or_file()?;
+
+        // 6. redirect io, copy log_fifo to specified position
+        self.capture_fifo_to_file().await?;
+
+        // 7. link files
         self.link_files().await?;
 
-        // 5. bootstrap logging
+        // 8. bootstrap logging
         self.setup_logging().await?;
+
+        // 9. bootstrap metrics
         self.setup_metrics().await?;
-        // 6. create machine configuration
+
+        // 10. put machine configuration
         self.create_machine().await?;
-        // 7. create boot source
+
+        // 11. put boot source
         self.create_boot_source(
             &self.cfg.kernel_image_path.as_ref().unwrap(),
             &self.cfg.initrd_path,
             &self.cfg.kernel_args,
         )
         .await?;
-        // 8. attach drives
+
+        // 12. attach drives
         self.attach_drives().await?;
-        // 9. create network interfaces
+
+        // 13. create network interfaces
         self.create_network_interfaces().await?;
-        // 10. add virtio socks
+
+        // 14. add virtio socks
         self.add_vsocks().await?;
 
-        // TODO: optional set mmds config
+        // 15. optional set mmds config
         self.set_mmds_config().await?;
-        // TODO: optional put mmds metadata
+
+        // 16. optional put mmds metadata
         self.set_metadata().await?;
-        // TODO: optional create balloon
+
+        // 17. optional create balloon
         self.create_balloon().await?;
 
         // 11. send instance start action
@@ -1397,10 +1395,9 @@ impl Machine {
         Ok(())
     }
 
-
     /// jail will set up proper handlers and remove configuration validation due to
     /// stating of files
-    pub fn jail(&mut self, cfg: &mut Config) -> Result<(), MachineError> {
+    fn jail(&mut self, cfg: &mut Config) -> Result<(), MachineError> {
         if cfg.jailer_cfg.is_none() {
             return Err(MachineError::Initialize(
                 "jailer config was not set for use".to_string(),
@@ -1522,35 +1519,37 @@ impl Machine {
         Ok(())
     }
 
+    async fn capture_fifo_to_file(&self) -> Result<(), MachineError> {
+        debug!(target: "Machine::capture_fifo_to_file", "called Machine::capture_fifo_to_file");
+        if self.cfg.fifo_log_writer.is_none() {
+            return Ok(());
+        }
+        
+        tokio::fs::File::create(self.cfg.fifo_log_writer.as_ref().unwrap()).await.map_err(|e| {
+            error!(target: "Machine::capture_fifo_to_file", "fail to create fifo writer {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e);
+            MachineError::FileCreation(format!("fail to create fifo writer {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e))
+        })?;
 
-    #[allow(unused)]
-    async fn capture_fifo_to_file(
-        machine: &mut Machine,
-        fifo_path: &PathBuf,
-        w: StdioTypes,
-    ) -> Result<(), MachineError> {
-        // open the fifo pipe which will be used to write its contents to a file.
-        let fifo_raw_fd = nix::fcntl::open(
-            fifo_path,
-            OFlag::O_RDONLY | OFlag::O_NONBLOCK,
-            Mode::S_IRUSR | Mode::S_IWUSR, // 0o600
-        )
-        .map_err(|e| {
-            error!(
-                "Failed to open fifo path at {}, errno: {}",
-                fifo_path.display(),
-                e.to_string()
-            );
+        let mut source = tokio::fs::File::open(self.cfg.log_fifo.as_ref().unwrap()).await.map_err(|e| {
+            error!(target: "Machine::capture_fifo_to_file", "fail to open {}: {}", self.cfg.log_fifo.as_ref().unwrap().display(), e);
             MachineError::FileAccess(format!(
-                "Failed to open fifo path at {}, errno: {}",
-                fifo_path.display(),
-                e.to_string()
+                "fail to open {}: {}", self.cfg.log_fifo.as_ref().unwrap().display(), e.to_string()
             ))
         })?;
-        let fifo_pipe = unsafe { std::fs::File::from_raw_fd(fifo_raw_fd) };
-        debug!("Capturing {} to writer", fifo_path.display());
 
-        todo!()
+        let mut dest = tokio::fs::File::open(self.cfg.fifo_log_writer.as_ref().unwrap()).await.map_err(|e| {
+            error!(target: "Machine::capture_fifo_to_file", "fail to open {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e);
+            MachineError::FileAccess(format!(
+                "fail to open {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e.to_string()
+            ))
+        })?;
+
+        tokio::io::copy(&mut source, &mut dest).await.map_err(|e| {
+            error!(target: "Machine::capture_fifo_to_file", "fail to capture fifo to file: {}", e);
+            MachineError::FileAccess(format!("fail to capture fifo to file: {}", e))
+        })?;
+
+        Ok(())
     }
 }
 
@@ -1625,7 +1624,7 @@ impl Machine {
     }
 }
 
-/// method that should be called Handlers
+/// method that should be called in start
 impl Machine {
     /// called by StartVMMHandler
     /// start_vmm starts the firecracker vmm process and configures logging.
@@ -2514,7 +2513,7 @@ pub mod test_utils {
     pub async fn test_set_metadata(m: &mut Machine) -> Result<(), MachineError> {
         let mut metadata = HashMap::new();
         metadata.insert("key", "value");
-        
+
         let s = serde_json::to_string(&metadata).map_err(|e| {
             MachineError::Execute(format!("fail to serialize HashMap: {}", e.to_string()))
         })?;

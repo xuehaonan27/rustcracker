@@ -90,7 +90,7 @@ pub const ROOTFS_FOLDER_NAME: &'static str = "root";
 
 pub const DEFAULT_SOCKET_PATH: &'static str = "/run/firecracker.socket";
 
-pub const DEFAULT_USER_AGENT: &'static str = "rustfire";
+pub const DEFAULT_USER_AGENT: &'static str = "rustcracker";
 // as specified in http://man7.org/linux/man-pages/man8/ip-netns.8.html
 pub const DEFAULT_NETNS_DIR: &'static str = "/var/run/netns";
 

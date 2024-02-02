@@ -15,14 +15,14 @@ use rustcracker::{
         machine_configuration::MachineConfiguration,
         network_interface::NetworkInterface,
     },
-    utils::check_kvm,
+    utils::{check_kvm, StdioTypes},
 };
 
 // directory that hold all the runtime structures.
-const RUN_DIR: &'static str = "/tmp/rustfire/run";
+const RUN_DIR: &'static str = "/tmp/rustcracker/run";
 
 // directory that holds resources e.g. kernel image and file system image.
-const RESOURCE_DIR: &'static str = "/tmp/rustfire/res";
+const RESOURCE_DIR: &'static str = "/tmp/rustcracker/res";
 // a tokio coroutine that might be parallel with other coroutines
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -37,20 +37,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /* ############ configurations begin ############ */
     // the name of this microVM
     let vmid = "name1";
+
     // the directory that holds this microVM
+    // /tmp/rustfire/run/name1
     let dir = PathBuf::from(RUN_DIR).join(vmid);
+
     // suppose that the logger is going to be created at "${RUN_DIR}/logger"
+    // /tmp/rustfire/run/name1/log.fifo
     let log_fifo = dir.join("log.fifo");
-    // unix domain socket (communicate with firecracker) path
-    let socket_path = dir.join("api.sock");
-    // kernel image path (prepare valid kernel image here)
-    let vmlinux_path = PathBuf::from(&RESOURCE_DIR).join("vmlinux");
+
     // metrics path
+    // /tmp/rustcracker/run/name1/metrics.fifo
     let metrics_fifo = dir.join("metrics.fifo");
+
+    // unix domain socket (communicate with firecracker) path
+    // /tmp/rustcracker/run/name1/api.sock
+    let socket_path = dir.join("api.sock");
+
+    // kernel image path (prepare valid kernel image here)
+    // /tmp/rustcracker/res/vmlinux
+    let vmlinux_path = PathBuf::from(&RESOURCE_DIR).join("vmlinux");
+
     // root fs path (prepare valid root file system image here)
+    // /tmp/rustcracker/res/rootfs
     let rootfs_path = PathBuf::from(&RESOURCE_DIR).join("rootfs");
+
     // firecracker binary
+    // /tmp/rustcracker/res
     let firecracker_path = PathBuf::from(&RESOURCE_DIR).join("firecracker");
+
+    // get the output of child
+    // /tmp/rustcracker/run/name1/output.log
+    let output_path = dir.join("output.log");
+    
     // write the configuration of the firecraker process
     let config = Config {
         // microVM's name
@@ -95,18 +114,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // kernel_args might be overrided
         // if any network interfaces configured, the `ip` field may be added or modified
         kernel_args: Some("".to_string()),
-        // network_interfaces: Some(UniNetworkInterfaces(vec![UniNetworkInterface {
-        //     // currently do not support cni configuration (ver 0.1.0)
-        //     cni_configuration: None,
-        //     static_configuration: Some(StaticNetworkConfiguration {
-        //         mac_address: "01:23:45:67".to_string(),
-        //         host_dev_name: Some("tap0".into()),
-        //         ip_configuration: None,
-        //     }),
-        //     allow_mmds: None,
-        //     in_rate_limiter: None,
-        //     out_rate_limiter: None,
-        // }])),
         network_interfaces: Some(vec![NetworkInterface {
             guest_mac: Some("00:23:45:67".to_string()),
             host_dev_name: "tap0".into(),
@@ -114,7 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
         }]),
-        fifo_log_writer: None,
+        fifo_log_writer: Some(output_path),
         // virtio devices
         vsock_devices: None,
         // when running in production environment, don't set this true to avoid validation
@@ -130,7 +137,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .set_deflate_on_oom(true),
         ),
         init_metadata: Some(String::from("this is initial metadata of the machine")),
-        ..Default::default()
+        stdin: Some(StdioTypes::Null),
+        stdout: Some(StdioTypes::From { path: log_fifo.to_owned() }),
+        stderr: Some(StdioTypes::From { path: log_fifo.to_owned() }),
     };
     /* ############ configurations end ############ */
 
