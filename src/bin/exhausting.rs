@@ -90,8 +90,8 @@ async fn run(id: usize) -> Result<(), MachineError> {
     let snapshot_path = snapshot_dir.join(format!("snapshot{id}"));
 
     let init_metadata = r#"{
-        "name": "Xue Haonan",
-        "email": "xuehaonan27@gmail.com"
+        "name": "Alice",
+        "email": "Alice@example.com"
     }"#;
 
     // write the configuration of the firecraker process
@@ -218,8 +218,8 @@ async fn run(id: usize) -> Result<(), MachineError> {
 
     /* ############ Modifying microVM ############ */
     let new_metadata = r#"{
-        "name":"Mugen_Cyaegha",
-        "email":"897657514@qq.com"
+        "name":"Bob",
+        "email":"bob@example.com"
     }"#
     .to_string();
     machine.update_metadata(&new_metadata).await?;
