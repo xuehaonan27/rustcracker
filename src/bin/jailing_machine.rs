@@ -164,6 +164,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         stdout: None,
         stderr: None,
         stdin: None,
+        log_clear: Some(true),
+        metrics_clear: Some(true),
+        network_clear: Some(true),
     };
     /* ############ configurations end ############ */
 

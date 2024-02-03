@@ -74,6 +74,10 @@ pub struct Config {
     // "Error", "Warning", "Info", and "Debug", and are case-sensitive.
     pub log_level: Option<LogLevel>,
 
+    // log_clear defines whether rustcracker should remove log files after microVM
+    // was removed. Default to false.
+    pub log_clear: Option<bool>,
+
     // metrics_path defines the file path where the Firecracker metrics
     // is located.
     pub metrics_path: Option<PathBuf>,
@@ -81,6 +85,10 @@ pub struct Config {
     // metrics_fifo defines the file path where the Firecracker metrics
     // named-pipe should be located.
     pub metrics_fifo: Option<PathBuf>,
+
+    // metrics_clear defines whether rustcracker should remove log files after microVM
+    // was removed. Default to false.
+    pub metrics_clear: Option<bool>,
 
     // kernel_image_path defines the file path where the kernel image is located.
     // The kernel image must be an uncompressed ELF image.
@@ -131,6 +139,10 @@ pub struct Config {
     // application will use this to join the associated network namespace
     pub net_ns: Option<PathBuf>,
 
+    // network_clear defines whether rustcracker should clear networking
+    // after the microVM is removed. Default to false.
+    pub network_clear: Option<bool>,
+
     // ForwardSignals is an optional list of signals to catch and forward to
     // firecracker. If not provided, the default signals will be used.
     pub forward_signals: Option<Vec<Signal>>,
@@ -173,8 +185,10 @@ impl Default for Config {
             log_path: None,
             log_fifo: None,
             log_level: None,
+            log_clear: None,
             metrics_path: None,
             metrics_fifo: None,
+            metrics_clear: None,
             kernel_image_path: None,
             initrd_path: None,
             kernel_args: None,
@@ -187,6 +201,7 @@ impl Default for Config {
             jailer_cfg: None,
             vmid: None,
             net_ns: None,
+            network_clear: None,
             seccomp_level: None,
             mmds_address: None,
             forward_signals: None,
@@ -541,6 +556,18 @@ impl Config {
     #[inline]
     pub fn with_balloon(mut self, balloon: &Balloon) -> Self {
         self.balloon = Some(balloon.to_owned());
+        self
+    }
+
+    #[inline]
+    pub fn set_log_clear(mut self, b: bool) -> Self {
+        self.log_clear = Some(b);
+        self
+    }
+
+    #[inline]
+    pub fn set_metrics_clear(mut self, b: bool) -> Self {
+        self.metrics_clear = Some(b);
         self
     }
 }
@@ -1115,23 +1142,32 @@ impl Machine {
             ));
         }
 
-        if let Err(e) = self.clear_file(&self.cfg.log_fifo).await {
-            warn!(target: "Machine::do_clean_up", "when removing log_fifo {}: {}", self.cfg.log_fifo.as_ref().unwrap().display(), e);
+        if let Some(true) = self.cfg.log_clear {
+            if let Err(e) = self.clear_file(&self.cfg.log_fifo).await {
+                warn!(target: "Machine::do_clean_up", "when removing log_fifo {}: {}", self.cfg.log_fifo.as_ref().unwrap().display(), e);
+            }
+            if let Err(e) = self.clear_file(&self.cfg.log_path).await {
+                warn!(target: "Machine::do_clean_up", "when removing log_path {}: {}", self.cfg.log_path.as_ref().unwrap().display(), e);
+            }
         }
-        if let Err(e) = self.clear_file(&self.cfg.log_path).await {
-            warn!(target: "Machine::do_clean_up", "when removing log_path {}: {}", self.cfg.log_path.as_ref().unwrap().display(), e);
+
+        if let Some(true) = self.cfg.metrics_clear {
+            if let Err(e) = self.clear_file(&self.cfg.metrics_fifo).await {
+                warn!(target: "Machine::do_clean_up", "when removing metrics_fifo {}: {}", self.cfg.metrics_fifo.as_ref().unwrap().display(), e);
+            }
+            if let Err(e) = self.clear_file(&self.cfg.metrics_path).await {
+                warn!(target: "Machine::do_clean_up", "when removing metrics_path {}: {}", self.cfg.metrics_path.as_ref().unwrap().display(), e);
+            }
         }
-        if let Err(e) = self.clear_file(&self.cfg.metrics_fifo).await {
-            warn!(target: "Machine::do_clean_up", "when removing metrics_fifo {}: {}", self.cfg.metrics_fifo.as_ref().unwrap().display(), e);
-        }
-        if let Err(e) = self.clear_file(&self.cfg.metrics_path).await {
-            warn!(target: "Machine::do_clean_up", "when removing metrics_path {}: {}", self.cfg.metrics_path.as_ref().unwrap().display(), e);
-        }
+
         if let Err(e) = self.clear_file(&self.cfg.socket_path).await {
             warn!(target: "Machine::do_clean_up", "when removing socket_path {}: {}", self.cfg.socket_path.as_ref().unwrap().display(), e);
         }
-        if let Err(e) = self.clear_network().await {
-            warn!(target: "Machine::do_clean_up", "when clearing network: {}", e);
+
+        if let Some(true) = self.cfg.network_clear {
+            if let Err(e) = self.clear_network().await {
+                warn!(target: "Machine::do_clean_up", "when clearing network: {}", e);
+            }
         }
 
         info!(target: "Machine::do_clean_up", "Machine {} cleaned", self.cfg.vmid.as_ref().unwrap());

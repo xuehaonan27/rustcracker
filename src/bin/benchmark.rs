@@ -164,6 +164,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         stderr: Some(StdioTypes::From {
             path: log_fifo.to_owned(),
         }),
+        log_clear: Some(true),
+        metrics_clear: Some(true),
+        network_clear: Some(true),
     };
     /* ############ configurations end ############ */
 

@@ -169,6 +169,9 @@ async fn run(id: usize) -> Result<(), MachineError> {
         stderr: Some(StdioTypes::From {
             path: log_fifo.to_owned(),
         }),
+        log_clear: Some(true),
+        metrics_clear: Some(true),
+        network_clear: Some(true),
     };
     /* ############ configurations end ############ */
 
@@ -187,7 +190,7 @@ async fn run(id: usize) -> Result<(), MachineError> {
 
     // set your own microVM command (optional)
     // if not, then the machine will start using default command
-    // ${firecracker_path} --api-sock ${socket_path} --seccomp-level 0 --id ${config.vmid}
+    // ${firecracker_path} --api-sock ${socket_path} --id ${config.vmid}
     // (seccomp level 0 means disable seccomp)
     machine.set_command(cmd.into());
 
@@ -245,7 +248,7 @@ async fn run(id: usize) -> Result<(), MachineError> {
     machine.resume().await?;
     info!(target: "Resume", "Resumed");
 
-    /* ############ Exiting microVm ############ */
+    /* ############ Exiting microVM ############ */
     // wait for the machine to exit.
     // Machine::wait will block until the firecracker process exit itself
     // or explicitly send it a exit message through exit_send defined previously
