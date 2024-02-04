@@ -8,25 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     components::command_builder::VMMCommandBuilder,
     model::{
-        balloon::Balloon,
-        balloon_stats::BalloonStatistics,
-        balloon_stats_update::BalloonStatsUpdate,
-        balloon_update::BalloonUpdate,
-        boot_source::BootSource,
-        drive::Drive,
-        instance_action_info::InstanceActionInfo,
-        instance_info::InstanceInfo,
-        logger::{LogLevel, Logger},
-        machine_configuration::MachineConfiguration,
-        metrics::Metrics,
-        mmds_config::MmdsConfig,
-        network_interface::NetworkInterface,
-        partial_drive::PartialDrive,
-        partial_network_interface::PartialNetworkInterface,
-        rate_limiter::RateLimiterSet,
-        snapshot_create_params::SnapshotCreateParams,
-        vm::{VM_STATE_PAUSED, VM_STATE_RESUMED},
-        vsock::Vsock,
+        balloon::Balloon, balloon_stats::BalloonStatistics, balloon_stats_update::BalloonStatsUpdate, balloon_update::BalloonUpdate, boot_source::BootSource, drive::Drive, firecracker_version::FirecrackerVersion, full_vm_configuration::FullVmConfiguration, instance_action_info::InstanceActionInfo, instance_info::InstanceInfo, logger::{LogLevel, Logger}, machine_configuration::MachineConfiguration, metrics::Metrics, mmds_config::MmdsConfig, network_interface::NetworkInterface, partial_drive::PartialDrive, partial_network_interface::PartialNetworkInterface, rate_limiter::RateLimiterSet, snapshot_create_params::SnapshotCreateParams, snapshot_load_params::SnapshotLoadParams, vm::{VM_STATE_PAUSED, VM_STATE_RESUMED}, vsock::Vsock
     },
     utils::{
         StdioTypes, DEFAULT_JAILER_PATH, DEFAULT_NETNS_DIR, DEFAULT_SOCKET_PATH, ROOTFS_FOLDER_NAME
@@ -2259,6 +2241,55 @@ impl Machine {
         self.machine_config = machine_config;
         Ok(())
     }
+
+    pub async fn get_export_vm_config(&mut self) -> Result<FullVmConfiguration, MachineError> {
+        debug!(target: "Machine::get_export_vm_config", "called Machine::get_export_vm_config");
+        let config: FullVmConfiguration = self.agent.get_export_vm_config().await.map_err(|e| {
+            error!(target: "Machine::get_export_vm_config", "unable to inspect vm config: {}", e);
+            MachineError::Agent(format!(
+                "unable to inspect vm config: {}",
+                e.to_string()
+            ))
+        })?;
+
+        Ok(config)
+    }
+
+    pub async fn get_firecracker_version(&mut self) -> Result<FirecrackerVersion, MachineError> {
+        debug!(target: "Machine::get_firecracker_version", "called Machine::get_firecracker_version");
+        let ver = self.agent.get_firecracker_version().await.map_err(|e| {
+            error!(target: "Machine::get_firecracker_version", "unable to inspect firecracker version: {}", e);
+            MachineError::Agent(format!(
+                "unable to inspect firecracker version: {}",
+                e.to_string()
+            ))
+        })?;
+
+        Ok(ver)
+    }
+
+    pub async fn update_machine_configuration(&mut self, machine_config: &MachineConfiguration) -> Result<(), MachineError> {
+        debug!(target: "Machine::update_machine_configuration", "called Machine::update_machine_configuration");
+        self.agent.patch_machine_configuration(machine_config).await.map_err(|e| {
+            error!(target: "Machine::update_machine_configuration", "unable to update machine configuration: {}", e);
+            MachineError::Agent(format!(
+                "unable to update machine configuration: {}",
+                e.to_string()
+            ))
+        })
+    }
+
+    pub async fn load_from_snapshot(&mut self, snapshot_load_params: &SnapshotLoadParams) -> Result<(), MachineError> {
+        debug!(target: "Machine::load_from_snapshot", "called Machine::load_from_snapshot");
+        self.agent.load_snapshot(snapshot_load_params).await.map_err(|e| {
+            error!(target: "Machine::load_from_snapshot", "unable to load snapshot: {}", e);
+            MachineError::Agent(format!(
+                "unable to load snapshot: {}",
+                e.to_string()
+            ))
+        })
+    }
+
 }
 
 pub mod test_utils {

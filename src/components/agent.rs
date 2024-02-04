@@ -221,7 +221,7 @@ impl Agent {
     }
 
     // GET /machine-config
-    pub async fn get_machine_configuration(&self) -> Result<MachineConfiguration, AgentError> {
+    pub(super) async fn get_machine_configuration(&self) -> Result<MachineConfiguration, AgentError> {
         debug!("get_machine_configuration");
         let url: hyper::Uri = hyperlocal::Uri::new(&self.socket_path, "/machine-config").into();
         let string = self.send_request(url, Method::GET, String::new()).await?;
