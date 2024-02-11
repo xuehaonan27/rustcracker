@@ -1,3 +1,5 @@
+//! Start multiple Machine at once
+
 use std::path::PathBuf;
 
 use log::{error, info};
@@ -179,8 +181,8 @@ async fn run(id: usize) -> Result<(), MachineError> {
     // use exit_send to send a force stop instruction (MachineMessage::StopVMM) to the microVM
     let (exit_send, exit_recv) = async_channel::bounded(64);
     // use sig_send to send a signal to firecracker process (yet implemented)
-    let (sig_send, sig_recv) = async_channel::bounded(64);
-    let mut machine = Machine::new(config, exit_recv, sig_recv, 10, 60)?;
+    // let (sig_send, sig_recv) = async_channel::bounded(64);
+    let mut machine = Machine::new(config, exit_recv,10, 60)?;
 
     // build your own microVM command
     let cmd = VMMCommandBuilder::new()
@@ -273,9 +275,6 @@ async fn run(id: usize) -> Result<(), MachineError> {
     // set a timer to send exit message to firecracker after 10 seconds
     tokio::spawn(timer(exit_send, 10));
     machine.wait().await?;
-
-    // close the channel
-    sig_send.close();
 
     Ok(())
 }

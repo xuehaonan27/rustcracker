@@ -330,8 +330,8 @@ fn test_start_vmm() -> Result<(), MachineError> {
     let cmd = VMMCommandBuilder::new().with_socket_path(&socket_path).with_bin(&TestArgs::get_firecracker_binary_path()).build();
     
     let (exit_send, exit_recv) = async_channel::bounded(64);
-    let (sig_send, sig_recv) = async_channel::bounded(64);
-    let mut m = Machine::new(cfg, exit_recv, sig_recv, 10, 60)?;
+    // let (sig_send, sig_recv) = async_channel::bounded(64);
+    let mut m = Machine::new(cfg, exit_recv, 10, 60)?;
     m.set_command(cmd.into());
 
     let rt = tokio::runtime::Runtime::new().map_err(|_e| {
@@ -359,7 +359,7 @@ fn test_start_vmm() -> Result<(), MachineError> {
 
     // close channels
     exit_send.close();
-    sig_send.close();
+    // sig_send.close();
 
     // delete socket path
     std::fs::remove_file(&socket_path).map_err(|e| {
@@ -391,8 +391,8 @@ fn test_start_once() -> Result<(), MachineError> {
 
     let cmd = VMMCommandBuilder::new().with_socket_path(&socket_path).with_bin(&TestArgs::get_firecracker_binary_path()).build();
     let (exit_send, exit_recv) = async_channel::bounded(64);
-    let (sig_send, sig_recv) = async_channel::bounded(64);
-    let mut m = Machine::new(cfg, exit_recv, sig_recv, 10, 60)?;
+    // let (sig_send, sig_recv) = async_channel::bounded(64);
+    let mut m = Machine::new(cfg, exit_recv, 10, 60)?;
     m.set_command(cmd.into());
 
     let rt = tokio::runtime::Runtime::new().map_err(|_e| {
@@ -427,7 +427,7 @@ fn test_start_once() -> Result<(), MachineError> {
 
     // close channels
     exit_send.close();
-    sig_send.close();
+    // sig_send.close();
 
     // delete socket path
     std::fs::remove_file(&socket_path).map_err(|e| {

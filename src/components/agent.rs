@@ -55,7 +55,7 @@ pub enum AgentError {
 }
 
 pub struct Agent {
-    socket_path: PathBuf,
+    pub(super) socket_path: PathBuf,
     client: Client<UnixConnector>,
     pub(super) firecracker_request_timeout: u64,
     pub(super) firecracker_init_timeout: u64,

@@ -1,3 +1,5 @@
+//! Jailer benchmark. Not mature yet.
+
 use std::path::PathBuf;
 use log::{error, info};
 use nix::{fcntl::OFlag, sys::stat::Mode};
@@ -173,8 +175,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // use exit_send to send a force stop instruction (MachineMessage::StopVMM) to the microVM
     let (exit_send, exit_recv) = async_channel::bounded(64);
     // use sig_send to send a signal to firecracker process (yet implemented)
-    let (sig_send, sig_recv) = async_channel::bounded(64);
-    let mut machine = Machine::new(config, exit_recv, sig_recv, 10, 60)?;
+    // let (sig_send, sig_recv) = async_channel::bounded(64);
+    let mut machine = Machine::new(config, exit_recv, 10, 60)?;
 
     // command is already built by jailer
 
@@ -254,9 +256,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // set a timer to send exit message to firecracker after 10 seconds
     tokio::spawn(timer(exit_send, 10));
     machine.wait().await?;
-
-    // close the channel
-    sig_send.close();
 
     Ok(())
 }

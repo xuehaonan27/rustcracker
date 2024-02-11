@@ -36,7 +36,4 @@ name = "rebuild"
 name = "exhausting"
 
 [[bin]]
-name = "actorbin"
-
-[[bin]]
 name = "benchmark"

@@ -1,6 +1,6 @@
 use std::{ffi::OsStr, path::PathBuf, sync::Once};
 
-use async_trait::async_trait;
+// use async_trait::async_trait;
 use log::{debug, error, info, warn};
 use nix::{fcntl, sys::stat::Mode, unistd};
 use serde::{Deserialize, Serialize};
@@ -8,10 +8,31 @@ use serde::{Deserialize, Serialize};
 use crate::{
     components::command_builder::VMMCommandBuilder,
     model::{
-        balloon::Balloon, balloon_stats::BalloonStatistics, balloon_stats_update::BalloonStatsUpdate, balloon_update::BalloonUpdate, boot_source::BootSource, drive::Drive, firecracker_version::FirecrackerVersion, full_vm_configuration::FullVmConfiguration, instance_action_info::InstanceActionInfo, instance_info::InstanceInfo, logger::{LogLevel, Logger}, machine_configuration::MachineConfiguration, metrics::Metrics, mmds_config::MmdsConfig, network_interface::NetworkInterface, partial_drive::PartialDrive, partial_network_interface::PartialNetworkInterface, rate_limiter::RateLimiterSet, snapshot_create_params::SnapshotCreateParams, snapshot_load_params::SnapshotLoadParams, vm::{VM_STATE_PAUSED, VM_STATE_RESUMED}, vsock::Vsock
+        balloon::Balloon,
+        balloon_stats::BalloonStatistics,
+        balloon_stats_update::BalloonStatsUpdate,
+        balloon_update::BalloonUpdate,
+        boot_source::BootSource,
+        drive::Drive,
+        firecracker_version::FirecrackerVersion,
+        full_vm_configuration::FullVmConfiguration,
+        instance_action_info::InstanceActionInfo,
+        instance_info::InstanceInfo,
+        logger::{LogLevel, Logger},
+        machine_configuration::MachineConfiguration,
+        metrics::Metrics,
+        mmds_config::MmdsConfig,
+        network_interface::NetworkInterface,
+        partial_drive::PartialDrive,
+        partial_network_interface::PartialNetworkInterface,
+        rate_limiter::RateLimiterSet,
+        snapshot_create_params::SnapshotCreateParams,
+        snapshot_load_params::SnapshotLoadParams,
+        vm::{VM_STATE_PAUSED, VM_STATE_RESUMED},
+        vsock::Vsock,
     },
     utils::{
-        StdioTypes, DEFAULT_JAILER_PATH, DEFAULT_NETNS_DIR, DEFAULT_SOCKET_PATH, ROOTFS_FOLDER_NAME
+        StdioTypes, DEFAULT_JAILER_PATH, DEFAULT_NETNS_DIR, DEFAULT_SOCKET_PATH, ROOTFS_FOLDER_NAME,
     },
 };
 
@@ -554,9 +575,25 @@ impl Config {
     }
 }
 
+/// Core component of Machine. Serializable and Deserializable.
+/// Could be stored as formatted metadata, attached and detached whenever needed.
+
+pub struct MachineCore {
+    // building configuration of the machine
+    pub cfg: Config,
+
+    pub socket_path: PathBuf,
+
+    pub firecracker_init_timeout: u64,
+
+    pub firecracker_request_timeout: u64,
+
+    // pid of firecracker process
+    pub pid: u32,
+}
+
 /// Machine is process handler of rust side
 pub struct Machine {
-    // pub(crate) handlers: Handlers,
     pub(crate) cfg: Config,
 
     agent: Agent,
@@ -567,14 +604,12 @@ pub struct Machine {
 
     pid: Option<u32>,
 
-    logger: Option<env_logger::Builder>,
-
     /// The actual machine config as reported by Firecracker
     /// id est, not the config set by user, which should be a field of `cfg`
     machine_config: MachineConfiguration,
 
     /// startOnce ensures that the machine can only be started once
-    start_once: std::sync::Once,
+    pub(crate) start_once: std::sync::Once,
 
     /// exit_ch is a channel which gets closed when the VMM exits
     /// implemented with async_channel, which will receive the instruction
@@ -587,26 +622,6 @@ pub struct Machine {
     /// of the instance or patching a new balloon device, could simply done by
     /// calling the public method of the instance.
     exit_ch: async_channel::Receiver<MachineMessage>,
-
-    /// internal_ch_sender is a async_channel sender. The sender end should only
-    /// be operated by the async coroutine that monitors the child process (firecracker),
-    /// which is stored in child_process. Sender could send `NormalExit` upon
-    /// the child process exits normally or `InternalError` upon the child process
-    /// exits abnormally, both of which could instruct coroutines who are listening
-    /// this channel to do something accordingly.
-    #[allow(unused)]
-    internal_ch_sender: async_channel::Sender<MachineMessage>,
-
-    /// internal_ch_receiver is a async_channel receiver. The receiver end could
-    /// be shared by multiple async coroutines.
-    #[allow(unused)]
-    internal_ch_receiver: async_channel::Receiver<MachineMessage>,
-
-    /// sig_ch should only be listened by the coroutine that monitors the child
-    /// process, who will read the signal sent by external codes and forward the
-    /// signal to child process (firecracker), and send appropriate message via
-    /// internal_ch_sender.
-    sig_ch: async_channel::Receiver<MachineMessage>,
 
     /// fatalErr records an error that either stops or prevent starting the VMM
     fatalerr: Option<MachineError>,
@@ -678,16 +693,16 @@ pub enum MachineError {
     Agent(String),
 }
 
-#[async_trait]
-pub trait MachineTrait {
-    async fn start() -> Result<(), MachineError>;
-    async fn stop_vmm() -> Result<(), MachineError>;
-    async fn shutdown() -> Result<(), MachineError>;
-    async fn wait() -> Result<(), MachineError>;
-    async fn set_metadata(s: String) -> Result<(), MachineError>;
-    async fn update_guest_drive(s1: String, s2: String) -> Result<(), MachineError>;
-    async fn update_guest_network_interface_rate_limit(s: String) -> Result<(), MachineError>;
-}
+// #[async_trait]
+// pub trait MachineTrait {
+//     async fn start() -> Result<(), MachineError>;
+//     async fn stop_vmm() -> Result<(), MachineError>;
+//     async fn shutdown() -> Result<(), MachineError>;
+//     async fn wait() -> Result<(), MachineError>;
+//     async fn set_metadata(s: String) -> Result<(), MachineError>;
+//     async fn update_guest_drive(s1: String, s2: String) -> Result<(), MachineError>;
+//     async fn update_guest_network_interface_rate_limit(s: String) -> Result<(), MachineError>;
+// }
 
 /// functional methods
 impl Machine {
@@ -696,7 +711,6 @@ impl Machine {
     pub fn new(
         mut cfg: Config,
         exit_recv: async_channel::Receiver<MachineMessage>,
-        sig_recv: async_channel::Receiver<MachineMessage>,
         agent_request_timeout: u64,
         agent_init_timeout: u64,
     ) -> Result<Machine, MachineError> {
@@ -704,7 +718,7 @@ impl Machine {
         cfg.validate_network()?;
 
         // create a channel for communicating with microVM (stopping microVM)
-        let mut machine = Self::default(exit_recv, sig_recv);
+        let mut machine = Self::default(exit_recv);
 
         // set vmid for microVM
         if cfg.vmid.is_none() {
@@ -744,7 +758,7 @@ impl Machine {
             // }
             // if cfg.stderr.is_some() {
             //     c = c.with_stderr(cfg.stderr.as_ref().unwrap().open_io()?)
-            // } 
+            // }
             let c = c.build();
             machine.cmd = Some(c.into());
         }
@@ -758,17 +772,6 @@ impl Machine {
             agent_init_timeout,
         );
         info!(target: "Machine::new", "machine agent created monitoring socket at {:#?}", cfg.socket_path.as_ref().unwrap());
-
-        // TODO: forward_signals
-        if cfg.forward_signals.is_none() {
-            cfg.forward_signals = Some(vec![
-                Signal::SIGINT,
-                Signal::SIGQUIT,
-                Signal::SIGTERM,
-                Signal::SIGHUP,
-                Signal::SIGABRT,
-            ]);
-        }
 
         // assign machine configuration
         machine.machine_config = cfg
@@ -796,14 +799,48 @@ impl Machine {
         Ok(machine)
     }
 
+    /// Rebuild Machine from raw metadata (MachineCore)
+    pub fn rebuild(
+        core: MachineCore,
+    ) -> Result<(Self, async_channel::Sender<MachineMessage>), MachineError> {
+        let agent = Agent::new(
+            &core.socket_path,
+            core.firecracker_request_timeout,
+            core.firecracker_init_timeout,
+        );
+        let (exit_ch_send, exit_ch_recv) = async_channel::bounded(64);
+
+        let machine = Self {
+            cfg: core.cfg,
+            agent,
+            cmd: None,
+            child_process: None,
+            pid: Some(core.pid),
+            machine_config: MachineConfiguration::default(),
+            start_once: Once::new(),
+            exit_ch: exit_ch_recv,
+            fatalerr: None,
+            cleanup_once: Once::new(),
+        };
+
+        // Consumes start_once to prevent calling Machine::start again
+        machine.start_once.call_once(|| {});
+
+        Ok((machine, exit_ch_send))
+    }
+
+    pub fn dump_into_core(&self) -> Result<MachineCore, MachineError> {
+        let core = MachineCore {
+            cfg: self.cfg.to_owned(),
+            socket_path: self.agent.socket_path.to_owned(),
+            firecracker_init_timeout: self.agent.firecracker_init_timeout,
+            firecracker_request_timeout: self.agent.firecracker_request_timeout,
+            pid: self.pid()?,
+        };
+        Ok(core)
+    }
+
     /// Start actually start a Firecracker microVM.
-    /// The context must not be cancelled while the microVM is running.
-    ///
-    /// It will iterate through the handler list and call each handler. If an
-    /// error occurred during handler execution, that error will be returned. If the
-    /// handlers succeed, then this will start the VMM instance.
-    /// Start may only be called once per Machine.  Subsequent calls will return
-    /// ErrAlreadyStarted.
     pub async fn start(&mut self) -> Result<(), MachineError> {
         debug!(target: "Machine::start", "called Machine::start");
 
@@ -918,7 +955,7 @@ impl Machine {
                 })?;
 
                 self.exit_ch.close();
-                self.sig_ch.close();
+                // self.sig_ch.close();
                 info!(target: "Machine::wait", "machine {} exited successfully", self.cfg.vmid.as_ref().unwrap());
             }
             _exit_msg = self.exit_ch.recv() => {
@@ -932,12 +969,7 @@ impl Machine {
                 })?;
 
                 self.exit_ch.close();
-                self.sig_ch.close();
                 info!(target: "Machine::wait", "Machine {} exited due to explicit message sending via channel", self.cfg.vmid.as_ref().unwrap());
-            }
-            _sig_msg = self.sig_ch.recv() => {
-                info!(target: "Machine::wait", "Machine {} exited due to signal", self.cfg.vmid.as_ref().unwrap());
-                todo!()
             }
         }
 
@@ -1514,7 +1546,7 @@ impl Machine {
     //     if self.cfg.fifo_log_writer.is_none() {
     //         return Ok(());
     //     }
-        
+
     //     tokio::fs::File::create(self.cfg.fifo_log_writer.as_ref().unwrap()).await.map_err(|e| {
     //         error!(target: "Machine::capture_fifo_to_file", "fail to create fifo writer {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e);
     //         MachineError::FileCreation(format!("fail to create fifo writer {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e))
@@ -1555,9 +1587,8 @@ impl Machine {
     /// is the same. Just keep it private.
     fn default(
         exit_recv: async_channel::Receiver<MachineMessage>,
-        sig_recv: async_channel::Receiver<MachineMessage>,
+        // sig_recv: async_channel::Receiver<MachineMessage>,
     ) -> Self {
-        let (i_send, i_recv) = async_channel::bounded(64);
         Machine {
             // handlers: Handlers::default(),
             cfg: Config::default(),
@@ -1565,16 +1596,13 @@ impl Machine {
             cmd: None,
             child_process: None,
             pid: None,
-            logger: None,
+            // logger: None,
             machine_config: MachineConfiguration::default(),
             start_once: Once::new(),
             exit_ch: exit_recv,
-            internal_ch_sender: i_send,
-            internal_ch_receiver: i_recv,
-            sig_ch: sig_recv,
+            // sig_ch: sig_recv,
             fatalerr: None,
             cleanup_once: Once::new(),
-            // cleanup_funcs: HandlerList::blank(),
         }
     }
 
@@ -1586,27 +1614,18 @@ impl Machine {
         self.cmd = Some(cmd);
     }
 
-    /// clear_validation clear validation handlers of this machine
-    // pub fn clear_validation(&mut self) {
-    //     self.handlers.validation.clear();
-    //     info!(target: "Machine::clear_validation", "validation handlers cleared");
-    // }
-
     /// logger set a appropriate logger for logging hypervisor message
-    pub fn logger(&mut self) {
-        let logger = env_logger::Builder::new();
-        self.logger = Some(logger);
-        info!(target: "Machine::logger", "logger set");
-    }
+    // pub fn logger(&mut self) {
+    //     let logger = env_logger::Builder::new();
+    //     self.logger = Some(logger);
+    //     info!(target: "Machine::logger", "logger set");
+    // }
 
     /// PID returns the machine's running process PID or an error if not running
     pub fn pid(&self) -> Result<u32, MachineError> {
         if self.cmd.is_none() || self.child_process.is_none() {
             return Err(MachineError::Execute("machine is not running".to_string()));
         }
-
-        // 如果exit_ch有消息, 说明要求停止了
-        // todo!(); // "machine process has exited"
 
         self.child_process
             .as_ref()
@@ -1662,7 +1681,7 @@ impl Machine {
                 e.to_string()
             )));
             self.exit_ch.close();
-            self.sig_ch.close();
+            // self.sig_ch.close();
 
             return Err(MachineError::Execute(format!(
                 "failed to start vmm: {}",
@@ -2051,20 +2070,17 @@ impl Machine {
 impl Machine {
     /// update_metadata patches the machine's metadata for MDDS
     pub async fn update_metadata(&self, metadata: &String) -> Result<(), MachineError> {
-        self.agent
-            .patch_mmds(metadata)
-            .await
-            .map_err(|e| {
-                error!("Updating metadata: {}", e.to_string());
-                MachineError::Agent(format!("Updating metadata: {}", e.to_string()))
-            })?;
+        self.agent.patch_mmds(metadata).await.map_err(|e| {
+            error!("Updating metadata: {}", e.to_string());
+            MachineError::Agent(format!("Updating metadata: {}", e.to_string()))
+        })?;
 
         debug!("UpdateMetadata successful");
         Ok(())
     }
 
     /// get_metadata gets the machine's metadata from MDDS and unmarshals it into v
-    pub async fn get_metadata(&self) -> Result<String, MachineError>{
+    pub async fn get_metadata(&self) -> Result<String, MachineError> {
         let res = self.agent.get_mmds().await.map_err(|e| {
             error!("Getting metadata: {}", e.to_string());
             MachineError::Agent(format!("Getting metadata: {}", e.to_string()))
@@ -2246,10 +2262,7 @@ impl Machine {
         debug!(target: "Machine::get_export_vm_config", "called Machine::get_export_vm_config");
         let config: FullVmConfiguration = self.agent.get_export_vm_config().await.map_err(|e| {
             error!(target: "Machine::get_export_vm_config", "unable to inspect vm config: {}", e);
-            MachineError::Agent(format!(
-                "unable to inspect vm config: {}",
-                e.to_string()
-            ))
+            MachineError::Agent(format!("unable to inspect vm config: {}", e.to_string()))
         })?;
 
         Ok(config)
@@ -2268,7 +2281,10 @@ impl Machine {
         Ok(ver)
     }
 
-    pub async fn update_machine_configuration(&mut self, machine_config: &MachineConfiguration) -> Result<(), MachineError> {
+    pub async fn update_machine_configuration(
+        &mut self,
+        machine_config: &MachineConfiguration,
+    ) -> Result<(), MachineError> {
         debug!(target: "Machine::update_machine_configuration", "called Machine::update_machine_configuration");
         self.agent.patch_machine_configuration(machine_config).await.map_err(|e| {
             error!(target: "Machine::update_machine_configuration", "unable to update machine configuration: {}", e);
@@ -2279,17 +2295,19 @@ impl Machine {
         })
     }
 
-    pub async fn load_from_snapshot(&mut self, snapshot_load_params: &SnapshotLoadParams) -> Result<(), MachineError> {
+    pub async fn load_from_snapshot(
+        &mut self,
+        snapshot_load_params: &SnapshotLoadParams,
+    ) -> Result<(), MachineError> {
         debug!(target: "Machine::load_from_snapshot", "called Machine::load_from_snapshot");
-        self.agent.load_snapshot(snapshot_load_params).await.map_err(|e| {
-            error!(target: "Machine::load_from_snapshot", "unable to load snapshot: {}", e);
-            MachineError::Agent(format!(
-                "unable to load snapshot: {}",
-                e.to_string()
-            ))
-        })
+        self.agent
+            .load_snapshot(snapshot_load_params)
+            .await
+            .map_err(|e| {
+                error!(target: "Machine::load_from_snapshot", "unable to load snapshot: {}", e);
+                MachineError::Agent(format!("unable to load snapshot: {}", e.to_string()))
+            })
     }
-
 }
 
 pub mod test_utils {
@@ -2426,12 +2444,12 @@ pub mod test_utils {
     pub async fn test_wait_for_socket() -> Result<(), MachineError> {
         let socket_path = make_socket_path("test_wait_for_socket");
         let (_exit_send, exit_recv) = async_channel::bounded(64);
-        let (_sig_send, sig_recv) = async_channel::bounded(64);
+        // let (_sig_send, sig_recv) = async_channel::bounded(64);
         let cfg = Config {
             socket_path: Some(socket_path),
             ..Default::default()
         };
-        let m = Machine::new(cfg, exit_recv, sig_recv, 10, 60)?;
+        let m = Machine::new(cfg, exit_recv, 10, 60)?;
         m.wait_for_socket(10).await?;
         Ok(())
     }
@@ -2485,12 +2503,12 @@ pub mod test_utils {
     pub async fn test_socket_path_set() -> Result<(), MachineError> {
         let socket_path: PathBuf = "foo/bar".into();
         let (_exit_send, exit_recv) = async_channel::bounded(64);
-        let (_sig_send, sig_recv) = async_channel::bounded(64);
+        // let (_sig_send, sig_recv) = async_channel::bounded(64);
         let cfg = Config {
             socket_path: Some(socket_path.to_owned()),
             ..Default::default()
         };
-        let m = Machine::new(cfg, exit_recv, sig_recv, 10, 60)?;
+        let m = Machine::new(cfg, exit_recv, 10, 60)?;
         let mut found = false;
         let mut iter = m.cmd.as_ref().unwrap().as_std().get_args();
         loop {
