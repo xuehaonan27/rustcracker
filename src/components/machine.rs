@@ -577,7 +577,7 @@ impl Config {
 
 /// Core component of Machine. Serializable and Deserializable.
 /// Could be stored as formatted metadata, attached and detached whenever needed.
-
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MachineCore {
     // building configuration of the machine
     pub cfg: Config,
@@ -601,6 +601,8 @@ pub struct Machine {
     pub(crate) cmd: Option<tokio::process::Command>,
 
     child_process: Option<tokio::process::Child>,
+
+    rebuilt: bool,
 
     pid: Option<u32>,
 
@@ -815,6 +817,7 @@ impl Machine {
             agent,
             cmd: None,
             child_process: None,
+            rebuilt: true,
             pid: Some(core.pid),
             machine_config: MachineConfiguration::default(),
             start_once: Once::new(),
@@ -935,44 +938,50 @@ impl Machine {
     /// or has been forced to terminate.
     pub async fn wait(&mut self) -> Result<(), MachineError> {
         debug!(target: "Machine::wait", "called Machine::wait");
-        if self.cmd.is_none() || self.child_process.is_none() {
+        if !self.rebuilt && (self.cmd.is_none() || self.child_process.is_none()) {
             error!(target: "Machine::wait", "cannot wait before machine starts");
             return Err(MachineError::Execute(
                 "cannot wait before machine starts".to_string(),
             ));
         }
-        // multiple channels to be waited by Machine::wait
-        tokio::select! {
-            output = self.child_process.as_mut().unwrap().wait() => {
-                if let Err(output) = output {
-                    warn!(target: "Machine::wait", "firecracker exited: {}", output);
-                } else if let Ok(status) = output {
-                    info!(target: "Machine::wait", "firecracker exited successfully: {}", status);
+
+        if self.rebuilt {
+            // if Machine is rebuilt from MachineCore, no child_process provided, only pid
+            // using nix crate
+            
+        } else {
+            // multiple channels to be waited by Machine::wait
+            tokio::select! {
+                output = self.child_process.as_mut().unwrap().wait() => {
+                    if let Err(output) = output {
+                        warn!(target: "Machine::wait", "firecracker exited: {}", output);
+                    } else if let Ok(status) = output {
+                        info!(target: "Machine::wait", "firecracker exited successfully: {}", status);
+                    }
+                    self.do_clean_up().await.map_err(|e| {
+                        error!(target: "Machine::wait", "fail to do cleaning up: {}", e);
+                        MachineError::Cleaning(format!("fail to do cleaning up: {}", e))
+                    })?;
+
+                    self.exit_ch.close();
+                    // self.sig_ch.close();
+                    info!(target: "Machine::wait", "machine {} exited successfully", self.cfg.vmid.as_ref().unwrap());
                 }
-                self.do_clean_up().await.map_err(|e| {
-                    error!(target: "Machine::wait", "fail to do cleaning up: {}", e);
-                    MachineError::Cleaning(format!("fail to do cleaning up: {}", e))
-                })?;
+                _exit_msg = self.exit_ch.recv() => {
+                    self.stop_vmm().await.map_err(|e| {
+                        error!(target: "Machine::wait", "fail to stop vmm {}: {}", self.cfg.vmid.as_ref().unwrap(), e);
+                        MachineError::Execute(format!("fail to stop vmm {}: {}", self.cfg.vmid.as_ref().unwrap(), e.to_string()))
+                    })?;
+                    self.do_clean_up().await.map_err(|e| {
+                        error!(target: "Machine::wait", "fail to do cleaning up: {}", e);
+                        MachineError::Execute(format!("fail to do cleaning up: {}", e))
+                    })?;
 
-                self.exit_ch.close();
-                // self.sig_ch.close();
-                info!(target: "Machine::wait", "machine {} exited successfully", self.cfg.vmid.as_ref().unwrap());
-            }
-            _exit_msg = self.exit_ch.recv() => {
-                self.stop_vmm().await.map_err(|e| {
-                    error!(target: "Machine::wait", "fail to stop vmm {}: {}", self.cfg.vmid.as_ref().unwrap(), e);
-                    MachineError::Execute(format!("fail to stop vmm {}: {}", self.cfg.vmid.as_ref().unwrap(), e.to_string()))
-                })?;
-                self.do_clean_up().await.map_err(|e| {
-                    error!(target: "Machine::wait", "fail to do cleaning up: {}", e);
-                    MachineError::Execute(format!("fail to do cleaning up: {}", e))
-                })?;
-
-                self.exit_ch.close();
-                info!(target: "Machine::wait", "Machine {} exited due to explicit message sending via channel", self.cfg.vmid.as_ref().unwrap());
+                    self.exit_ch.close();
+                    info!(target: "Machine::wait", "Machine {} exited due to explicit message sending via channel", self.cfg.vmid.as_ref().unwrap());
+                }
             }
         }
-
         Ok(())
     }
 
@@ -1595,6 +1604,7 @@ impl Machine {
             agent: Agent::blank(),
             cmd: None,
             child_process: None,
+            rebuilt: false,
             pid: None,
             // logger: None,
             machine_config: MachineConfiguration::default(),
