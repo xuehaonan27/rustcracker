@@ -1,6 +1,5 @@
 use std::{ffi::OsStr, path::PathBuf, sync::Once};
 
-// use async_trait::async_trait;
 use log::{debug, error, info, warn};
 use nix::{fcntl, sys::stat::Mode, unistd};
 use serde::{Deserialize, Serialize};
@@ -31,9 +30,7 @@ use crate::{
         vm::{VM_STATE_PAUSED, VM_STATE_RESUMED},
         vsock::Vsock,
     },
-    utils::{
-        StdioTypes, ASYNC_CHANNEL_BOUND_ENV, DEFAULT_ASYNC_CHANNEL_BOUND_NUMS, DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS, DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS, DEFAULT_JAILER_PATH, DEFAULT_NETNS_DIR, DEFAULT_SOCKET_PATH, FIRECRACKER_INIT_TIMEOUT_ENV, FIRECRACKER_REQUEST_TIMEOUT_ENV, ROOTFS_FOLDER_NAME
-    },
+    utils::*,
 };
 
 use super::{
@@ -181,7 +178,7 @@ pub struct Config {
     pub stdin: Option<StdioTypes>,
 
     /// agent_init_timeout is the init timeout (in secs) for launching a firecracker
-    /// UDS agent, which could be overwritten by setting environment variable 
+    /// UDS agent, which could be overwritten by setting environment variable
     /// `FIRECRACKER_INIT_TIMEOUT_ENV`
     /// default to 3.0 (if set to None)
     pub agent_init_timeout: Option<f64>,
@@ -631,8 +628,8 @@ pub struct Machine {
     /// implemented with async_channel, which will receive the instruction
     /// sent by outside and share the message between different async listeners
     /// who will take some measures upon receiving a message, e.g. StopVMM,
-    /// which could totally stop the execution of microVM and firecracker process,
-    /// and instruct listeners to do some cleaning up, setting the fatalerr, etc.
+    /// which could totally stop the execution of microVM and firecracker process
+    /// when Machine::wait is being awaited.
     ///
     /// other operations, such as getting instance information, making a snapshot
     /// of the instance or patching a new balloon device, could simply done by
@@ -652,16 +649,16 @@ unsafe impl Sync for Machine {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MachineMessage {
-    /// stop the vmm forcefully by calling stop_vmm, which will send
+    /// StopVMM stop the vmm forcefully by calling stop_vmm, which will send
     /// SIGKILL to the child process (firecracker).
     StopVMM,
-    /// indicating that the child process (firecracker) has exited
+    /// NormalExit indicates that the child process (firecracker) has exited
     /// normally.
     /// Warning: It should only be sent and received inside the
     /// Machine or sent from the Machine. Users should never try sending
     /// this by exit_ch sender, which won't be handled.
     NormalExit,
-    /// indicating that the child process (firecracker) has exited
+    ///  InternelError indicates that the child process (firecracker) has exited
     /// abnormally.
     /// Warning: It should only be sent and received inside the
     /// Machine or sent from the Machine. Users should never try sending
@@ -770,7 +767,10 @@ impl Machine {
         let agent_init_timeout = match agent_init_timeout {
             Ok(t) => t.as_str().parse().map_err(|e| {
                 error!(target: "Machine::new", "non-number value for agent init timeout");
-                MachineError::ArgWrong(format!("non-number value for agent init timeout {}: {}", t, e))
+                MachineError::ArgWrong(format!(
+                    "non-number value for agent init timeout {}: {}",
+                    t, e
+                ))
             })?,
             Err(_) => DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS,
         };
@@ -778,7 +778,10 @@ impl Machine {
         let agent_request_timeout = match agent_request_timeout {
             Ok(t) => t.as_str().parse().map_err(|e| {
                 error!(target: "Machine::new", "non-number value for agent request timeout");
-                MachineError::ArgWrong(format!("non-number value for agent request timeout {}: {}", t, e))
+                MachineError::ArgWrong(format!(
+                    "non-number value for agent request timeout {}: {}",
+                    t, e
+                ))
             })?,
             Err(_) => DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS,
         };
@@ -964,7 +967,6 @@ impl Machine {
         if self.rebuilt {
             // if Machine is rebuilt from MachineCore, no child_process provided, only pid
             // using nix crate
-            
         } else {
             // multiple channels to be waited by Machine::wait
             tokio::select! {
@@ -1640,13 +1642,6 @@ impl Machine {
         self.cmd = Some(cmd);
     }
 
-    /// logger set a appropriate logger for logging hypervisor message
-    // pub fn logger(&mut self) {
-    //     let logger = env_logger::Builder::new();
-    //     self.logger = Some(logger);
-    //     info!(target: "Machine::logger", "logger set");
-    // }
-
     /// PID returns the machine's running process PID or an error if not running
     pub fn pid(&self) -> Result<u32, MachineError> {
         if self.cmd.is_none() || self.child_process.is_none() {
@@ -1759,12 +1754,6 @@ impl Machine {
                 ))
             })?;
 
-            // self.cleanup_funcs
-            //     .append(vec![Handler::CleaningUpFileHandler {
-            //         name: CleaningUpFileHandlerName,
-            //         file_path: fifo.to_owned(),
-            //     }]);
-
             Ok(())
         } else if let Some(path) = &self.cfg.log_path {
             let raw_fd = fcntl::open(
@@ -1802,12 +1791,6 @@ impl Machine {
                     e.to_string()
                 ))
             })?;
-
-            // self.cleanup_funcs
-            //     .append(vec![Handler::CleaningUpFileHandler {
-            //         name: CleaningUpFileHandlerName,
-            //         file_path: fifo.to_owned(),
-            //     }]);
 
             Ok(())
         } else if let Some(path) = &self.cfg.metrics_path {
