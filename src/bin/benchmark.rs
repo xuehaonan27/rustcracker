@@ -169,15 +169,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log_clear: Some(true),
         metrics_clear: Some(true),
         network_clear: Some(true),
+        agent_init_timeout: None,
+        agent_request_timeout: None,
     };
     /* ############ configurations end ############ */
 
     /* ############ Launching microVM ############ */
-    // use exit_send to send a force stop instruction (MachineMessage::StopVMM) to the microVM
-    let (exit_send, exit_recv) = async_channel::bounded(64);
     // use sig_send to send a signal to firecracker process (yet implemented)
     // let (sig_send, sig_recv) = async_channel::bounded(64);
-    let mut machine = Machine::new(config, exit_recv, 10, 60)?;
+
+    #[allow(unused_variables)]
+    let (mut machine, exit_send) = Machine::new(config)?;
+    // use exit_send to send a force stop instruction (MachineMessage::StopVMM) to the microVM
 
     // build your own microVM command
     let cmd = VMMCommandBuilder::new()

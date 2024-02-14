@@ -36,9 +36,9 @@ fn test_new_machine() -> Result<(), MachineError> {
     //             .set_hyperthreading(false),
     //     )
     //     .set_disable_validation(true);
-    let (_send, exit_recv) = async_channel::bounded(64);
+    
     // let (_send, sig_recv) = async_channel::bounded(64);
-    Machine::new(config, exit_recv, 10, 100)?;
+    Machine::new(config)?;
     Ok(())
 }
 
@@ -227,9 +227,8 @@ async fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
         }
     }
 
-    let (_send, exit_recv) = async_channel::bounded(64);
     // let (_send, sig_recv) = async_channel::bounded(64);
-    let mut m = Machine::new(cfg, exit_recv, 10, 10).map_err(|e| MachineError::Initialize(format!(
+    let (mut m, _exit_send) = Machine::new(cfg).map_err(|e| MachineError::Initialize(format!(
         "Failed to start VMM: {}", e.to_string()
     )))?;
 
@@ -369,9 +368,8 @@ async fn test_micro_vm_execution() -> Result<(), MachineError> {
 
     let cmd = VMMCommandBuilder::new().with_socket_path(&socket_path).with_bin(&TestArgs::get_firecracker_binary_path()).build();
     log::debug!("{:#?}", cmd);
-    let (exit_send, exit_recv) = async_channel::bounded(64);
     // let (_send, sig_recv) = async_channel::bounded(64);
-    let mut m = Machine::new(cfg, exit_recv, 10, 500)?;
+    let (mut m, exit_send) = Machine::new(cfg)?;
     m.set_command(cmd.into());
 
     // m.clear_validation();
@@ -436,9 +434,8 @@ async fn test_start_vmm() -> Result<(), MachineError> {
 
     let cmd = VMMCommandBuilder::new().with_socket_path(&socket_path).with_bin(&TestArgs::get_firecracker_binary_path()).build();
     
-    let (exit_send, exit_recv) = async_channel::bounded(64);
     // let (sig_send, sig_recv) = async_channel::bounded(64);
-    let mut m = Machine::new(cfg, exit_recv, 10, 60)?;
+    let (mut m, exit_send) = Machine::new(cfg)?;
     m.set_command(cmd.into());
 
     // m.clear_validation();
@@ -503,9 +500,9 @@ async fn test_start_once() -> Result<(), MachineError> {
     };
 
     let cmd = VMMCommandBuilder::new().with_socket_path(&socket_path).with_bin(&TestArgs::get_firecracker_binary_path()).build();
-    let (exit_send, exit_recv) = async_channel::bounded(64);
+
     // let (sig_send, sig_recv) = async_channel::bounded(64);
-    let mut m = Machine::new(cfg, exit_recv, 10, 60)?;
+    let (mut m, exit_send) = Machine::new(cfg)?;
     m.set_command(cmd.into());
 
     let (send1, recv1) = tokio::sync::oneshot::channel();

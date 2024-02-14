@@ -57,8 +57,8 @@ pub enum AgentError {
 pub struct Agent {
     pub(super) socket_path: PathBuf,
     client: Client<UnixConnector>,
-    pub(super) firecracker_request_timeout: u64,
-    pub(super) firecracker_init_timeout: u64,
+    pub(super) firecracker_request_timeout: f64,
+    pub(super) firecracker_init_timeout: f64,
 }
 
 impl Agent {
@@ -66,12 +66,12 @@ impl Agent {
         Agent {
             socket_path: "".into(),
             client: Client::unix(),
-            firecracker_request_timeout: DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS as u64,
-            firecracker_init_timeout: DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS as u64,
+            firecracker_request_timeout: DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS,
+            firecracker_init_timeout: DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS,
         }
     }
 
-    pub fn new(socket_path: &PathBuf, request_timeout: u64, init_timeout: u64) -> Self {
+    pub fn new(socket_path: &PathBuf, request_timeout: f64, init_timeout: f64) -> Self {
         Agent {
             socket_path: socket_path.to_path_buf(),
             client: Client::unix(),
@@ -97,7 +97,7 @@ impl Agent {
             .map_err(|e| AgentError::Request(url.clone(), e.to_string()))?;
 
         let response = timeout(
-            tokio::time::Duration::from_secs(self.firecracker_request_timeout),
+            tokio::time::Duration::from_secs_f64(self.firecracker_request_timeout),
             self.client.request(request),
         )
         .await

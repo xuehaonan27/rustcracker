@@ -65,12 +65,16 @@ pub const DEFAULT_USER_AGENT: &'static str = "rustcracker";
 pub const DEFAULT_NETNS_DIR: &'static str = "/var/run/netns";
 
 // env name to make firecracker init timeout configurable
-pub const FIRECRACKER_INIT_TIMEOUT_ENV: &'static str = "RUSTFIRE_INIT_TIMEOUT_SECONDS";
-pub const DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS: usize = 3;
+pub(super) const FIRECRACKER_INIT_TIMEOUT_ENV: &'static str = "RUSTCRACKER_INIT_TIMEOUT_SECONDS";
+pub const DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS: f64 = 3.0;
 
 // env name to make firecracker request timeout configurable
-pub const FIRECRACKER_REQUEST_TIMEOUT_ENV: &'static str = "RUSTFIRE_AGENT_TIMEOUT_SECONDS";
-pub const DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS: usize = 3;
+pub const FIRECRACKER_REQUEST_TIMEOUT_ENV: &'static str = "RUSTCRACKER_AGENT_TIMEOUT_SECONDS";
+pub const DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS: f64 = 3.0;
+
+// env name to overwrite async channel bound nums
+pub const ASYNC_CHANNEL_BOUND_ENV: &'static str = "RUSTCRACKER_ASYNC_CHANNEL_BOUND_NUMS";
+pub const DEFAULT_ASYNC_CHANNEL_BOUND_NUMS: usize = 16;
 
 pub struct TestArgs {}
 

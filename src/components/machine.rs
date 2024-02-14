@@ -32,7 +32,7 @@ use crate::{
         vsock::Vsock,
     },
     utils::{
-        StdioTypes, DEFAULT_JAILER_PATH, DEFAULT_NETNS_DIR, DEFAULT_SOCKET_PATH, ROOTFS_FOLDER_NAME,
+        StdioTypes, ASYNC_CHANNEL_BOUND_ENV, DEFAULT_ASYNC_CHANNEL_BOUND_NUMS, DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS, DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS, DEFAULT_JAILER_PATH, DEFAULT_NETNS_DIR, DEFAULT_SOCKET_PATH, FIRECRACKER_INIT_TIMEOUT_ENV, FIRECRACKER_REQUEST_TIMEOUT_ENV, ROOTFS_FOLDER_NAME
     },
 };
 
@@ -62,123 +62,135 @@ const SECCOMP_LEVEL_ADVANCED: SeccompLevelValue = 2;
 /// describe the microVM
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Config {
-    // socket_path defines the file path where the Firecracker control socket
-    // should be created.
+    /// socket_path defines the file path where the Firecracker control socket
+    /// should be created.
     pub socket_path: Option<PathBuf>,
 
-    // log_path defines the file path where the Firecracker log is located.
+    /// log_path defines the file path where the Firecracker log is located.
     pub log_path: Option<PathBuf>,
 
-    // log_fifo defines the file path where the Firecracker log named-pipe should
-    // be located.
+    /// log_fifo defines the file path where the Firecracker log named-pipe should
+    /// be located.
     pub log_fifo: Option<PathBuf>,
 
-    // log_level defines the verbosity of Firecracker logging.  Valid values are
-    // "Error", "Warning", "Info", and "Debug", and are case-sensitive.
+    /// log_level defines the verbosity of Firecracker logging.  Valid values are
+    /// "Error", "Warning", "Info", and "Debug", and are case-sensitive.
     pub log_level: Option<LogLevel>,
 
-    // log_clear defines whether rustcracker should remove log files after microVM
-    // was removed. Default to false.
+    /// log_clear defines whether rustcracker should remove log files after microVM
+    /// was removed. Default to false.
     pub log_clear: Option<bool>,
 
-    // metrics_path defines the file path where the Firecracker metrics
-    // is located.
+    /// metrics_path defines the file path where the Firecracker metrics
+    /// is located.
     pub metrics_path: Option<PathBuf>,
 
-    // metrics_fifo defines the file path where the Firecracker metrics
-    // named-pipe should be located.
+    /// metrics_fifo defines the file path where the Firecracker metrics
+    /// named-pipe should be located.
     pub metrics_fifo: Option<PathBuf>,
 
-    // metrics_clear defines whether rustcracker should remove log files after microVM
-    // was removed. Default to false.
+    /// metrics_clear defines whether rustcracker should remove log files after microVM
+    /// was removed. Default to false.
     pub metrics_clear: Option<bool>,
 
-    // kernel_image_path defines the file path where the kernel image is located.
-    // The kernel image must be an uncompressed ELF image.
+    /// kernel_image_path defines the file path where the kernel image is located.
+    /// The kernel image must be an uncompressed ELF image.
     pub kernel_image_path: Option<PathBuf>,
 
-    // initrd_path defines the file path where initrd image is located.
-    // This parameter is optional.
+    /// initrd_path defines the file path where initrd image is located.
+    /// This parameter is optional.
     pub initrd_path: Option<PathBuf>,
 
-    // kernel_args defines the command-line arguments that should be passed to
-    // the kernel.
+    /// kernel_args defines the command-line arguments that should be passed to
+    /// the kernel.
     pub kernel_args: Option<String>,
 
-    // drives specifies BlockDevices that should be made available to the
-    // microVM.
+    /// drives specifies BlockDevices that should be made available to the
+    /// microVM.
     pub drives: Option<Vec<Drive>>,
 
-    // network_interfaces specifies the tap devices that should be made available
-    // to the microVM.
+    /// network_interfaces specifies the tap devices that should be made available
+    /// to the microVM.
     pub network_interfaces: Option<Vec<NetworkInterface>>,
 
-    // fifo_log_writer is an io.Writer(Stdio) that is used to redirect the contents of the
-    // fifo log to the writer.
-    // pub(crate) fifo_log_writer: Option<std::process::Stdio>,
+    /// fifo_log_writer is an io.Writer(Stdio) that is used to redirect the contents of the
+    /// fifo log to the writer.
+    /// pub(crate) fifo_log_writer: Option<std::process::Stdio>,
     pub fifo_log_writer: Option<PathBuf>,
 
-    // vsock_devices specifies the vsock devices that should be made available to
-    // the microVM.
+    /// vsock_devices specifies the vsock devices that should be made available to
+    /// the microVM.
     pub vsock_devices: Option<Vec<Vsock>>,
 
-    // machine_cfg represents the firecracker microVM process configuration
+    /// machine_cfg represents the firecracker microVM process configuration
     pub machine_cfg: Option<MachineConfiguration>,
 
-    // disable_validation allows for easier mock testing by disabling the
-    // validation of configuration performed by the SDK(crate).
+    /// disable_validation allows for easier mock testing by disabling the
+    /// validation of configuration performed by the SDK(crate).
     pub disable_validation: bool,
 
-    // JailerCfg is configuration specific for the jailer process.
+    /// jailer_cfg is configuration specific for the jailer process.
     pub jailer_cfg: Option<JailerConfig>,
 
-    // (Optional) vmid is a unique identifier for this VM. It's set to a
-    // random uuid if not provided by the user. It's used to set Firecracker's instance ID.
-    // If CNI configuration is provided as part of NetworkInterfaces,
-    // the vmid is used to set CNI ContainerID and create a network namespace path.
+    /// (Optional) vmid is a unique identifier for this VM. It's set to a
+    /// random uuid if not provided by the user. It's used to set Firecracker's instance ID.
+    /// If CNI configuration is provided as part of NetworkInterfaces,
+    /// the vmid is used to set CNI ContainerID and create a network namespace path.
     pub vmid: Option<String>,
 
-    // net_ns represents the path to a network namespace handle. If present, the
-    // application will use this to join the associated network namespace
+    /// net_ns represents the path to a network namespace handle. If present, the
+    /// application will use this to join the associated network namespace
     pub net_ns: Option<PathBuf>,
 
-    // network_clear defines whether rustcracker should clear networking
-    // after the microVM is removed. Default to false.
+    /// network_clear defines whether rustcracker should clear networking
+    /// after the microVM is removed. Default to false.
     pub network_clear: Option<bool>,
 
-    // ForwardSignals is an optional list of signals to catch and forward to
-    // firecracker. If not provided, the default signals will be used.
+    /// ForwardSignals is an optional list of signals to catch and forward to
+    /// firecracker. If not provided, the default signals will be used.
     pub forward_signals: Option<Vec<Signal>>,
 
-    // seccomp_level specifies whether seccomp filters should be installed and how
-    // restrictive they should be. Possible values are:
-    //
-    //	0 : (default): disabled.
-    //	1 : basic filtering. This prohibits syscalls not whitelisted by Firecracker.
-    //	2 : advanced filtering. This adds further checks on some of the
-    //			parameters of the allowed syscalls.
+    /// seccomp_level specifies whether seccomp filters should be installed and how
+    /// restrictive they should be. Possible values are:
+    ///
+    ///	0 : (default): disabled.
+    ///	1 : basic filtering. This prohibits syscalls not whitelisted by Firecracker.
+    ///	2 : advanced filtering. This adds further checks on some of the
+    ///			parameters of the allowed syscalls.
     pub seccomp_level: Option<SeccompLevelValue>,
 
-    // mmds_address is IPv4 address used by guest applications when issuing requests to MMDS.
-    // It is possible to use a valid IPv4 link-local address (169.254.0.0/16).
-    // If not provided, the default address (169.254.169.254) will be used.
+    /// mmds_address is IPv4 address used by guest applications when issuing requests to MMDS.
+    /// It is possible to use a valid IPv4 link-local address (169.254.0.0/16).
+    /// If not provided, the default address (169.254.169.254) will be used.
     pub mmds_address: Option<std::net::Ipv4Addr>,
 
-    // balloon is Balloon device that is to be put to the machine
+    /// balloon is Balloon device that is to be put to the machine
     pub balloon: Option<Balloon>,
 
-    // init_metadata is initial metadata that is to be assigned to the machine
+    /// init_metadata is initial metadata that is to be assigned to the machine
     pub init_metadata: Option<String>,
 
-    // Stdout specifies the stdout to use when spawning the firecracker.
-    // pub(crate) stdout: Option<std::process::Stdio>,
+    /// stdout specifies the stdout to use when spawning the firecracker.
+    /// pub(crate) stdout: Option<std::process::Stdio>,
     pub stdout: Option<StdioTypes>,
 
-    // Stderr specifies the IO writer for STDERR to use when spawning the jailer.
+    /// stderr specifies the IO writer for STDERR to use when spawning the jailer.
     pub stderr: Option<StdioTypes>,
 
-    // Stdin specifies the IO reader for STDIN to use when spawning the jailer.
+    /// stdin specifies the IO reader for STDIN to use when spawning the jailer.
     pub stdin: Option<StdioTypes>,
+
+    /// agent_init_timeout is the init timeout (in secs) for launching a firecracker
+    /// UDS agent, which could be overwritten by setting environment variable 
+    /// `FIRECRACKER_INIT_TIMEOUT_ENV`
+    /// default to 3.0 (if set to None)
+    pub agent_init_timeout: Option<f64>,
+
+    /// agent_request_timeout is the request timeout (in secs) for communicating
+    /// with firecracker, which could be overwritten by setting environment variable
+    /// `FIRECRACKER_REQUEST_TIMEOUT_ENV`
+    /// default to 3.0 (if set to None)
+    pub agent_request_timeout: Option<f64>,
 }
 
 impl Default for Config {
@@ -213,6 +225,8 @@ impl Default for Config {
             stderr: None,
             stdout: None,
             stdin: None,
+            agent_init_timeout: None,
+            agent_request_timeout: None,
         }
     }
 }
@@ -584,9 +598,9 @@ pub struct MachineCore {
 
     pub socket_path: PathBuf,
 
-    pub firecracker_init_timeout: u64,
+    pub firecracker_init_timeout: f64,
 
-    pub firecracker_request_timeout: u64,
+    pub firecracker_request_timeout: f64,
 
     // pid of firecracker process
     pub pid: u32,
@@ -695,27 +709,22 @@ pub enum MachineError {
     Agent(String),
 }
 
-// #[async_trait]
-// pub trait MachineTrait {
-//     async fn start() -> Result<(), MachineError>;
-//     async fn stop_vmm() -> Result<(), MachineError>;
-//     async fn shutdown() -> Result<(), MachineError>;
-//     async fn wait() -> Result<(), MachineError>;
-//     async fn set_metadata(s: String) -> Result<(), MachineError>;
-//     async fn update_guest_drive(s1: String, s2: String) -> Result<(), MachineError>;
-//     async fn update_guest_network_interface_rate_limit(s: String) -> Result<(), MachineError>;
-// }
-
 /// functional methods
 impl Machine {
     /// new initializes a new Machine instance and performs validation of the
     /// provided Config.
     pub fn new(
         mut cfg: Config,
-        exit_recv: async_channel::Receiver<MachineMessage>,
-        agent_request_timeout: u64,
-        agent_init_timeout: u64,
-    ) -> Result<Machine, MachineError> {
+    ) -> Result<(Machine, async_channel::Sender<MachineMessage>), MachineError> {
+        let channel_bound = std::env::var(ASYNC_CHANNEL_BOUND_ENV);
+        let channel_bound = match channel_bound {
+            Ok(t) => t.parse().map_err(|e| {
+                error!(target: "Machine::new", "non-integer number / overflow number of channel bound");
+                MachineError::ArgWrong(format!("non-integer number / overflow number of channel bound {}: {}", t, e))
+            })?,
+            Err(_) => DEFAULT_ASYNC_CHANNEL_BOUND_NUMS,
+        };
+        let (exit_send, exit_recv) = async_channel::bounded(channel_bound);
         // validations
         cfg.validate_network()?;
 
@@ -752,20 +761,27 @@ impl Machine {
                     "--id".to_string(),
                     cfg.vmid.as_ref().unwrap().to_string(),
                 ]);
-            // if cfg.stdin.is_some() {
-            //     c = c.with_stdin(cfg.stdin.as_ref().unwrap().open_io()?);
-            // }
-            // if cfg.stdout.is_some() {
-            //     c = c.with_stdout(cfg.stdout.as_ref().unwrap().open_io()?);
-            // }
-            // if cfg.stderr.is_some() {
-            //     c = c.with_stderr(cfg.stderr.as_ref().unwrap().open_io()?)
-            // }
             let c = c.build();
             machine.cmd = Some(c.into());
         }
         debug!(target: "Machine::new", "start command: {:#?}", machine.cmd);
 
+        let agent_init_timeout = std::env::var(FIRECRACKER_INIT_TIMEOUT_ENV);
+        let agent_init_timeout = match agent_init_timeout {
+            Ok(t) => t.as_str().parse().map_err(|e| {
+                error!(target: "Machine::new", "non-number value for agent init timeout");
+                MachineError::ArgWrong(format!("non-number value for agent init timeout {}: {}", t, e))
+            })?,
+            Err(_) => DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS,
+        };
+        let agent_request_timeout = std::env::var(FIRECRACKER_REQUEST_TIMEOUT_ENV);
+        let agent_request_timeout = match agent_request_timeout {
+            Ok(t) => t.as_str().parse().map_err(|e| {
+                error!(target: "Machine::new", "non-number value for agent request timeout");
+                MachineError::ArgWrong(format!("non-number value for agent request timeout {}: {}", t, e))
+            })?,
+            Err(_) => DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS,
+        };
         machine.agent = Agent::new(
             cfg.socket_path.as_ref().ok_or(MachineError::Initialize(
                 "no socket_path provided in the config".to_string(),
@@ -798,13 +814,13 @@ impl Machine {
         }
 
         debug!(target: "Machine::new", "exiting Machine::new");
-        Ok(machine)
+        Ok((machine, exit_send))
     }
 
     /// Rebuild Machine from raw metadata (MachineCore)
     pub fn rebuild(
         core: MachineCore,
-    ) -> Result<(Self, async_channel::Sender<MachineMessage>), MachineError> {
+    ) -> Result<(Machine, async_channel::Sender<MachineMessage>), MachineError> {
         let agent = Agent::new(
             &core.socket_path,
             core.firecracker_request_timeout,
@@ -1079,14 +1095,14 @@ impl Machine {
 /// private methods
 impl Machine {
     /// wait_for_socket waits for the given file to exist
-    async fn wait_for_socket(&self, timeout_in_secs: u64) -> Result<(), MachineError> {
+    async fn wait_for_socket(&self, timeout_in_secs: f64) -> Result<(), MachineError> {
         if self.cfg.socket_path.is_none() {
             return Err(MachineError::ArgWrong(
                 "socket path not provided in the configuration".to_string(),
             ));
         }
         tokio::time::timeout(
-            tokio::time::Duration::from_secs(timeout_in_secs),
+            tokio::time::Duration::from_secs_f64(timeout_in_secs),
             async move {
                 while let Err(_) = tokio::fs::metadata(self.cfg.socket_path.as_ref().unwrap()).await
                 {
@@ -2453,14 +2469,13 @@ pub mod test_utils {
 
     pub async fn test_wait_for_socket() -> Result<(), MachineError> {
         let socket_path = make_socket_path("test_wait_for_socket");
-        let (_exit_send, exit_recv) = async_channel::bounded(64);
         // let (_sig_send, sig_recv) = async_channel::bounded(64);
         let cfg = Config {
             socket_path: Some(socket_path),
             ..Default::default()
         };
-        let m = Machine::new(cfg, exit_recv, 10, 60)?;
-        m.wait_for_socket(10).await?;
+        let (m, _ch) = Machine::new(cfg)?;
+        m.wait_for_socket(10.0).await?;
         Ok(())
     }
 
@@ -2512,13 +2527,12 @@ pub mod test_utils {
 
     pub async fn test_socket_path_set() -> Result<(), MachineError> {
         let socket_path: PathBuf = "foo/bar".into();
-        let (_exit_send, exit_recv) = async_channel::bounded(64);
         // let (_sig_send, sig_recv) = async_channel::bounded(64);
         let cfg = Config {
             socket_path: Some(socket_path.to_owned()),
             ..Default::default()
         };
-        let m = Machine::new(cfg, exit_recv, 10, 60)?;
+        let (m, _ch) = Machine::new(cfg)?;
         let mut found = false;
         let mut iter = m.cmd.as_ref().unwrap().as_std().get_args();
         loop {
