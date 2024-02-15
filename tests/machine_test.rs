@@ -176,7 +176,6 @@ async fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
             daemonize: Some(false),
             stdin: None,
         }),
-        fifo_log_writer: Some(captured_log.to_owned()),
         metrics_path: None,
         metrics_fifo: Some(metrics_fifo.to_owned()),
         initrd_path: None,
@@ -348,7 +347,6 @@ async fn test_micro_vm_execution() -> Result<(), MachineError> {
                 }),
         disable_validation: true,
         network_interfaces: Some(vec![network_iface]),
-        fifo_log_writer: Some(captured_log),
 
         kernel_args: None,
         kernel_image_path: Some(vmlinux_path),

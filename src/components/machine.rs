@@ -64,6 +64,7 @@ pub struct Config {
     pub socket_path: Option<PathBuf>,
 
     /// log_path defines the file path where the Firecracker log is located.
+    /// will be disabled if log_fifo is set
     pub log_path: Option<PathBuf>,
 
     /// log_fifo defines the file path where the Firecracker log named-pipe should
@@ -80,6 +81,7 @@ pub struct Config {
 
     /// metrics_path defines the file path where the Firecracker metrics
     /// is located.
+    /// will be disabled if metrics_fifo is set
     pub metrics_path: Option<PathBuf>,
 
     /// metrics_fifo defines the file path where the Firecracker metrics
@@ -113,7 +115,7 @@ pub struct Config {
     /// fifo_log_writer is an io.Writer(Stdio) that is used to redirect the contents of the
     /// fifo log to the writer.
     /// pub(crate) fifo_log_writer: Option<std::process::Stdio>,
-    pub fifo_log_writer: Option<PathBuf>,
+    // pub fifo_log_writer: Option<PathBuf>,
 
     /// vsock_devices specifies the vsock devices that should be made available to
     /// the microVM.
@@ -206,7 +208,6 @@ impl Default for Config {
             kernel_args: None,
             drives: None,
             network_interfaces: None,
-            fifo_log_writer: None,
             vsock_devices: None,
             machine_cfg: None,
             disable_validation: false,
@@ -1567,43 +1568,6 @@ impl Machine {
 
         Ok(())
     }
-
-    // async fn capture_fifo_to_file(&self) -> Result<(), MachineError> {
-    //     debug!(target: "Machine::capture_fifo_to_file", "called Machine::capture_fifo_to_file");
-    //     if self.cfg.fifo_log_writer.is_none() {
-    //         return Ok(());
-    //     }
-
-    //     tokio::fs::File::create(self.cfg.fifo_log_writer.as_ref().unwrap()).await.map_err(|e| {
-    //         error!(target: "Machine::capture_fifo_to_file", "fail to create fifo writer {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e);
-    //         MachineError::FileCreation(format!("fail to create fifo writer {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e))
-    //     })?;
-
-    //     let source = tokio::fs::File::open(self.cfg.log_fifo.as_ref().unwrap()).await.map_err(|e| {
-    //         error!(target: "Machine::capture_fifo_to_file", "fail to open {}: {}", self.cfg.log_fifo.as_ref().unwrap().display(), e);
-    //         MachineError::FileAccess(format!(
-    //             "fail to open {}: {}", self.cfg.log_fifo.as_ref().unwrap().display(), e.to_string()
-    //         ))
-    //     })?;
-
-    //     let dest = tokio::fs::File::open(self.cfg.fifo_log_writer.as_ref().unwrap()).await.map_err(|e| {
-    //         error!(target: "Machine::capture_fifo_to_file", "fail to open {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e);
-    //         MachineError::FileAccess(format!(
-    //             "fail to open {}: {}", self.cfg.fifo_log_writer.as_ref().unwrap().display(), e.to_string()
-    //         ))
-    //     })?;
-
-    //     async fn copy(mut reader: tokio::fs::File, mut writer: tokio::fs::File) -> tokio::io::Result<u64>{
-    //         tokio::io::copy(&mut reader, &mut writer).await
-    //     }
-    //     tokio::spawn(copy(source, dest));
-    //     // tokio::io::copy(&mut source, &mut dest).await.map_err(|e| {
-    //     //     error!(target: "Machine::capture_fifo_to_file", "fail to capture fifo to file: {}", e);
-    //     //     MachineError::FileAccess(format!("fail to capture fifo to file: {}", e))
-    //     // })?;
-
-    //     Ok(())
-    // }
 }
 
 /// util methods
@@ -2380,14 +2344,6 @@ pub mod test_utils {
         Ok(())
     }
 
-    // pub async fn test_update_guest_network_interface(m: &mut Machine) -> Result<(), MachineError> {
-    //     todo!()
-    // }
-
-    // pub async fn test_create_network_interface_by_id(m: &mut Machine) -> Result<(), MachineError> {
-    //     todo!()
-    // }
-
     pub async fn test_attach_root_drive(m: &mut Machine) -> Result<(), MachineError> {
         let drive = Drive {
             drive_id: "0".to_string(),
@@ -2548,12 +2504,12 @@ pub mod test_utils {
         Ok(())
     }
 
-    // pub async fn test_pid() -> Result<(), MachineError> {
-    //     let (_exit_send, exit_recv) = async_channel::bounded(64);
-    //     let (_sig_send, sig_recv) = async_channel::bounded(64);
-    //     let cfg = Config::default();
-    //     let m = Machine::new(cfg, exit_recv, sig_recv, 10, 60)?;
-
-    //     Ok(())
-    // }
+    pub async fn test_pid() -> Result<(), MachineError> {
+        let cfg = Config::default().set_disable_validation(true);
+        let (mut m, _exit_send) = Machine::new(cfg)?;
+        m.start().await?;
+        println!("{}", m.pid()?);
+        m.stop_vmm().await?;
+        Ok(())
+    }
 }

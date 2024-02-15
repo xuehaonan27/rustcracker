@@ -67,8 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let socket_path = "api.sock";
     let log_fifo = chroot_dir.join("firecracker.log");
     let metrics_fifo = chroot_dir.join("firecracker-metrics");
-    let captured_log = chroot_dir.join("writer.fifo");
-
+    
     // local logger file
     // ./log/benchmark_jailer
     let log_path: PathBuf = "logs/benchmark_jailer".into();
@@ -145,7 +144,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
         }]),
-        fifo_log_writer: Some(captured_log),
         net_ns: None,
         init_metadata: Some(init_metadata.to_string()),
         // configurations that could be set yourself and I don't want to set here

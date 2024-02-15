@@ -73,10 +73,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // /tmp/rustcracker/res/firecracker
     let firecracker_path = PathBuf::from(&RESOURCE_DIR).join("firecracker");
 
-    // get the output of child
-    // /tmp/rustcracker/run/name1/output.log
-    let output_path = PathBuf::from("/tmp/output.log");
-
     // path that holds snapshot
     let snapshot_dir = PathBuf::from(&SNAPSHOT_DIR).join(vmid);
     std::fs::create_dir_all(&snapshot_dir).map_err(|e| {
@@ -144,7 +140,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .set_deflate_on_oom(true),
         ),
         init_metadata: Some(init_metadata.to_string()),
-        fifo_log_writer: Some(output_path),
         // configurations that could be set yourself and I don't want to set here
         forward_signals: None,
         log_path: None,

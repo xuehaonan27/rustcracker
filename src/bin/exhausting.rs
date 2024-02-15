@@ -150,7 +150,6 @@ async fn run(id: usize) -> Result<(), MachineError> {
                 .set_deflate_on_oom(true),
         ),
         init_metadata: Some(init_metadata.to_string()),
-        fifo_log_writer: None,
         // configurations that could be set yourself and I don't want to set here
         forward_signals: None,
         log_path: None,
