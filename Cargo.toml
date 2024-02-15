@@ -1,6 +1,6 @@
 [package]
 name = "rustcracker"
-version = "0.2.1"
+version = "1.0.0"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Xue Haonan <xuehaonan27@gmail.com>"]
