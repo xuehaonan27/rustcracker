@@ -34,7 +34,7 @@ use crate::{
 };
 
 use super::{
-    agent::Agent, command_builder::JailerCommandBuilder, jailer::JailerConfig, signals::Signal,
+    agent::Agent, command_builder::JailerCommandBuilder, jailer::JailerConfig,
 };
 
 type SeccompLevelValue = usize;
@@ -145,7 +145,7 @@ pub struct Config {
 
     /// ForwardSignals is an optional list of signals to catch and forward to
     /// firecracker. If not provided, the default signals will be used.
-    pub forward_signals: Option<Vec<Signal>>,
+    pub forward_signals: Option<Vec<u8>>,
 
     /// seccomp_level specifies whether seccomp filters should be installed and how
     /// restrictive they should be. Possible values are:

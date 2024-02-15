@@ -7,7 +7,6 @@ use rustcracker::{
     components::{
         command_builder::VMMCommandBuilder,
         machine::{Config, Machine, MachineError, MachineMessage},
-        // network::{StaticNetworkConfiguration, UniNetworkInterface, UniNetworkInterfaces},
     },
     model::{
         balloon::Balloon,
