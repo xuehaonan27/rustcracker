@@ -2,7 +2,6 @@ pub mod balloon;
 pub mod balloon_stats;
 pub mod balloon_update;
 pub mod balloon_stats_update;
-pub mod boot_args;
 pub mod boot_source;
 pub mod cpu_template;
 pub mod drive;
