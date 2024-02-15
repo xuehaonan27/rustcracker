@@ -304,7 +304,6 @@ async fn test_micro_vm_execution() -> Result<(), MachineError> {
     let socket_path = dir.join("test_micro_vm_execution.sock");
     let log_fifo = dir.join("firecracker.log");
     let metrics_fifo = dir.join("firecracker-metrics");
-    let captured_log = dir.join("writer.fifo");
 
     // let fw = nix::fcntl::open(&captured_log, OFlag::O_CREAT | OFlag::O_RDWR, Mode::S_IRUSR | Mode::S_IWUSR).map_err(|e| {
     //     MachineError::FileAccess(format!(
