@@ -63,7 +63,7 @@ async fn main() -> Result<(), MachineError> {
         sudo iptables -I FORWARD 1 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
         sudo iptables -I FORWARD 1 -i "$TAP_DEV" -o "$HOST_IFACE" -j ACCEPT
         "#,
-        &vec![format!("benchmark")],
+        &vec![format!("0")],
         &ScriptOptions::new()
     ).unwrap();
     // if networking is configured successfully, then run the machine `name{id}``

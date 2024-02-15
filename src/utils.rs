@@ -70,7 +70,7 @@ pub const DEFAULT_FIRECRACKER_INIT_TIMEOUT_SECONDS: f64 = 3.0;
 
 // env name to make firecracker request timeout configurable
 pub const FIRECRACKER_REQUEST_TIMEOUT_ENV: &'static str = "RUSTCRACKER_AGENT_TIMEOUT_SECONDS";
-pub const DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS: f64 = 3.0;
+pub const DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS: f64 = 20.0;
 
 // env name to overwrite async channel bound nums
 pub const ASYNC_CHANNEL_BOUND_ENV: &'static str = "RUSTCRACKER_ASYNC_CHANNEL_BOUND_NUMS";

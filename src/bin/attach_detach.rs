@@ -57,7 +57,7 @@ async fn run(core_save_dir: PathBuf) -> Result<(), MachineError> {
         sudo iptables -I FORWARD 1 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
         sudo iptables -I FORWARD 1 -i "$TAP_DEV" -o "$HOST_IFACE" -j ACCEPT
         "#,
-        &vec![format!("test_attach")],
+        &vec![format!("0")],
         &ScriptOptions::new()
     )
     .unwrap();
