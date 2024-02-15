@@ -10,23 +10,17 @@ repository = "https://github.com/xuehaonan27/rustcracker"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-trait = { version = "0.1.77" }
 hyper = { version = "0.14.28" }
 serde = { version = "1.0.195", features = ["serde_derive"] }
 serde_json = "1.0.111"
-tokio = { version = "1.35.1", features = ["full"] }
-# reqwest = { version = "0.11", features = ["json"] }
-hyper-util = { version = "0.1", features = ["full"] }
-http-body-util = "0.1.0"
-hyper-socket = "0.2.0"
+tokio = { version = "1.35.1", features = ["process", "macros", "fs"] }
 async-channel = "2.1.1"
 nix = { version = "0.27.1", features = ["fs", "user", "signal"] }
 log = "0.4.20"
-env_logger = "0.10.1" # + auto-color + color + humantime + regex
-uuid = { version = "1.6.1", features = ["v4", "fast-rng", "macro-diagnostics"] }
+env_logger = "0.10.1"
+uuid = { version = "1.6.1", features = ["v4", "fast-rng"] }
 hyperlocal = "0.8.0"
 thiserror = "1.0.56"
-cni-plugin = "0.2.1"
 run_script = "0.10.1"
 
 [[bin]]
@@ -37,3 +31,9 @@ name = "exhausting"
 
 [[bin]]
 name = "benchmark"
+
+[[bin]]
+name = "attach_detach"
+
+[[bin]]
+name = "jailing_machine"
