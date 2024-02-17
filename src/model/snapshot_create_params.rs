@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 use crate::utils::Json;
@@ -6,12 +8,12 @@ pub struct SnapshotCreateParams {
     /// Path to the file that will contain the guest memory.
     /// Required: true
     #[serde(rename = "mem_file_path")]
-    pub mem_file_path: String,
+    pub mem_file_path: PathBuf,
 
     /// Path to the file that will contain the microVM state.
     /// Required: true
     #[serde(rename = "snapshot_path")]
-    pub snapshot_path: String,
+    pub snapshot_path: PathBuf,
 
     /// Type of snapshot to create. It is optional and by default, a full snapshot is created.
     /// Enum: [Full Diff]

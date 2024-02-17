@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 use crate::utils::Json;
@@ -21,7 +23,7 @@ pub struct SnapshotLoadParams {
     /// been deprecated and it will be removed in future Firecracker release.
     /// Required: true
     #[serde(rename = "mem_file_path", skip_serializing_if = "Option::is_none")]
-    pub mem_file_path: Option<String>,
+    pub mem_file_path: Option<PathBuf>,
 
     /// Configuration for the backend that handles memory load. If this field
     // is specified, `mem_file_path` is forbidden. Either `mem_backend` or
@@ -37,7 +39,7 @@ pub struct SnapshotLoadParams {
     /// Path to the file that contains the microVM state to be loaded.
     /// Required: true
     #[serde(rename = "snapshot_path")]
-    pub snapshot_path: String,
+    pub snapshot_path: PathBuf,
 }
 
 impl<'a> Json<'a> for SnapshotLoadParams {

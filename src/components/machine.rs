@@ -1620,6 +1620,10 @@ impl Machine {
                 "machine may by not running or already stopped".to_string(),
             ))
     }
+
+    pub fn get_config(&self) -> Config {
+        self.cfg.to_owned()
+    }
 }
 
 /// method that should be called in start
@@ -2101,12 +2105,12 @@ impl Machine {
     /// create_snapshot creates a snapshot of the VM.
     pub async fn create_snapshot(
         &self,
-        mem_file_path: PathBuf,
-        snapshot_path: PathBuf,
+        mem_file_path: &PathBuf,
+        snapshot_path: &PathBuf,
     ) -> Result<(), MachineError> {
         let snapshot_params = SnapshotCreateParams {
-            mem_file_path: mem_file_path.to_string_lossy().to_string(),
-            snapshot_path: snapshot_path.to_string_lossy().to_string(),
+            mem_file_path: mem_file_path.to_owned(),
+            snapshot_path: snapshot_path.to_owned(),
             snapshot_type: None,
             version: None,
         };

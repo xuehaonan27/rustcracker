@@ -227,7 +227,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /* ############ Saving microVM ############ */
     machine.pause().await?;
     info!(target: "Pause", "Paused");
-    machine.create_snapshot(snapshot_mem, snapshot_path).await?;
+    machine.create_snapshot(&snapshot_mem, &snapshot_path).await?;
     machine.resume().await?;
     info!(target: "Resume", "Resumed");
 

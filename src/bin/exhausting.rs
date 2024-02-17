@@ -247,7 +247,7 @@ async fn run(id: usize) -> Result<(), MachineError> {
     // one should always pause the microVM before trying to create snapshot for it
     machine.pause().await?;
     info!(target: "Pause", "Paused");
-    machine.create_snapshot(snapshot_mem, snapshot_path).await?;
+    machine.create_snapshot(&snapshot_mem, &snapshot_path).await?;
     machine.resume().await?;
     info!(target: "Resume", "Resumed");
 
