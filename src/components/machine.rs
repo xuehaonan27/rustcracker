@@ -33,9 +33,7 @@ use crate::{
     utils::*,
 };
 
-use super::{
-    agent::Agent, command_builder::JailerCommandBuilder, jailer::JailerConfig,
-};
+use super::{agent::Agent, command_builder::JailerCommandBuilder, jailer::JailerConfig};
 
 type SeccompLevelValue = usize;
 
@@ -714,6 +712,7 @@ impl Machine {
     pub fn new(
         mut cfg: Config,
     ) -> Result<(Machine, async_channel::Sender<MachineMessage>), MachineError> {
+        /* Get channel bound settings of the async channel */
         let channel_bound = std::env::var(ASYNC_CHANNEL_BOUND_ENV);
         let channel_bound = match channel_bound {
             Ok(t) => t.parse().map_err(|e| {
@@ -722,11 +721,13 @@ impl Machine {
             })?,
             Err(_) => DEFAULT_ASYNC_CHANNEL_BOUND_NUMS,
         };
+        /* Create async channel */
         let (exit_send, exit_recv) = async_channel::bounded(channel_bound);
-        // validations
+        
+        /* Validate network */
         cfg.validate_network()?;
 
-        // create a channel for communicating with microVM (stopping microVM)
+        /* create a channel for communicating with microVM (stopping microVM) */
         let mut machine = Self::default(exit_recv);
 
         // set vmid for microVM

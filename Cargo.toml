@@ -18,10 +18,12 @@ async-channel = "2.1.1"
 nix = { version = "0.27.1", features = ["fs", "user", "signal"] }
 log = "0.4.20"
 env_logger = "0.10.1"
-uuid = { version = "1.6.1", features = ["v4", "fast-rng"] }
+uuid = { version = "1.6.1", features = ["v4", "fast-rng", "macro-diagnostics", "serde"] }
 hyperlocal = "0.8.0"
 thiserror = "1.0.56"
 run_script = "0.10.1"
+async-trait = "0.1.77"
+sqlx = { version = "0.7.3", features = ["macros", "json", "postgres", "uuid"] }
 
 [[bin]]
 name = "rebuild"

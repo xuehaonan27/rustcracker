@@ -8,6 +8,8 @@ Create 10 microVMs asynchronously.
 You may want to read [this](https://github.com/firecracker-microvm/firecracker/blob/main/docs/getting-started.md) first.
 
 ```Rust
+//! Start multiple Machine at once
+
 use std::path::PathBuf;
 
 use log::{error, info};
@@ -158,7 +160,6 @@ async fn run(id: usize) -> Result<(), MachineError> {
                 .set_deflate_on_oom(true),
         ),
         init_metadata: Some(init_metadata.to_string()),
-        fifo_log_writer: None,
         // configurations that could be set yourself and I don't want to set here
         forward_signals: None,
         log_path: None,
@@ -182,16 +183,18 @@ async fn run(id: usize) -> Result<(), MachineError> {
         log_clear: Some(true),
         metrics_clear: Some(true),
         network_clear: Some(true),
+        agent_init_timeout: None,
+        agent_request_timeout: None
     };
     /* ############ configurations end ############ */
 
     /* ############ Launching microVM ############ */
-    // use exit_send to send a force stop instruction (MachineMessage::StopVMM) to the microVM
-    let (exit_send, exit_recv) = async_channel::bounded(64);
     // use sig_send to send a signal to firecracker process (yet implemented)
-    let (sig_send, sig_recv) = async_channel::bounded(64);
-    let mut machine = Machine::new(config, exit_recv, sig_recv, 10, 60)?;
+    // let (sig_send, sig_recv) = async_channel::bounded(64);
 
+    let (mut machine, exit_send) = Machine::new(config)?;
+    // use exit_send to send a force stop instruction (MachineMessage::StopVMM) to the microVM
+    
     // build your own microVM command
     let cmd = VMMCommandBuilder::new()
         .with_socket_path(&socket_path)
@@ -254,7 +257,7 @@ async fn run(id: usize) -> Result<(), MachineError> {
     // one should always pause the microVM before trying to create snapshot for it
     machine.pause().await?;
     info!(target: "Pause", "Paused");
-    machine.create_snapshot(snapshot_mem, snapshot_path).await?;
+    machine.create_snapshot(&snapshot_mem, &snapshot_path).await?;
     machine.resume().await?;
     info!(target: "Resume", "Resumed");
 
@@ -283,9 +286,6 @@ async fn run(id: usize) -> Result<(), MachineError> {
     // set a timer to send exit message to firecracker after 10 seconds
     tokio::spawn(timer(exit_send, 10));
     machine.wait().await?;
-
-    // close the channel
-    sig_send.close();
 
     Ok(())
 }
