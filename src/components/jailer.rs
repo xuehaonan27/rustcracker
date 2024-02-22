@@ -49,4 +49,9 @@ pub struct JailerConfig {
 
     // Stdin specifies the IO reader for STDIN to use when spawning the jailer.
     pub stdin: Option<StdioTypes>,
+
+    pub log_link_src: Option<PathBuf>,
+    pub log_link_dest: Option<PathBuf>,
+    pub metrics_link_src: Option<PathBuf>,
+    pub metrics_link_dest: Option<PathBuf>,
 }

@@ -1,6 +1,6 @@
 [package]
 name = "rustcracker"
-version = "1.0.1"
+version = "1.1.0"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Xue Haonan <xuehaonan27@gmail.com>"]
@@ -23,7 +23,7 @@ hyperlocal = "0.8.0"
 thiserror = "1.0.56"
 run_script = "0.10.1"
 async-trait = "0.1.77"
-sqlx = { version = "0.7.3", features = ["macros", "json", "postgres", "uuid"] }
+# sqlx = { version = "0.7.3", features = ["macros", "json", "postgres", "uuid"] }
 
 [[bin]]
 name = "rebuild"

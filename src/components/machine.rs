@@ -126,6 +126,10 @@ pub struct Config {
     /// validation of configuration performed by the SDK(crate).
     pub disable_validation: bool,
 
+    /// enable_jailer judge whether jailer should be used
+    /// Default to false
+    pub enable_jailer: bool,
+
     /// jailer_cfg is configuration specific for the jailer process.
     pub jailer_cfg: Option<JailerConfig>,
 
@@ -209,6 +213,7 @@ impl Default for Config {
             vsock_devices: None,
             machine_cfg: None,
             disable_validation: false,
+            enable_jailer: false,
             jailer_cfg: None,
             vmid: None,
             net_ns: None,
@@ -367,7 +372,7 @@ impl Config {
         }
 
         if self.jailer_cfg.is_none() {
-            return Ok(());
+            return Err(MachineError::ArgWrong("Missing JailerConfig".to_string()))
         }
 
         let mut has_root = self.initrd_path.is_some();
@@ -383,13 +388,6 @@ impl Config {
                 "A root drive must be present in the drive list".to_string(),
             ));
         }
-
-        // if self.jailer_cfg.as_ref().unwrap().chroot_strategy.is_none() {
-        //     error!("chroot_strategy cannot be none");
-        //     return Err(MachineError::Validation(
-        //         "chroot_startegy cannot be none".to_string(),
-        //     ));
-        // }
 
         if self.jailer_cfg.as_ref().unwrap().exec_file.is_none() {
             error!("exec file must be specified when using jailer mode");
@@ -707,6 +705,9 @@ impl Machine {
     /// new initializes a new Machine instance and performs validation of the
     /// provided Config.
     pub fn new(mut cfg: Config) -> Result<Machine, MachineError> {
+        /* Validate Config */
+        cfg.validate()?;
+
         /* Validate network */
         cfg.validate_network()?;
 
@@ -723,7 +724,7 @@ impl Machine {
 
         info!(target: "Machine::new", "creating a new machine, vmid: {}", vmid);
 
-        if cfg.jailer_cfg.is_some() {
+        if cfg.enable_jailer {
             /* jailing the microVM if jailer config provided and validate jailer config */
             debug!(target: "Machine::new", "with jailer configuration: {:#?}", cfg.jailer_cfg.as_ref().unwrap());
             cfg.validate_jailer_config()?;
@@ -732,7 +733,6 @@ impl Machine {
         } else {
             /* microVM without jailer */
             debug!(target: "Machine::new", "without jailer configuration");
-            cfg.validate()?;
             let c = VMMCommandBuilder::default()
                 .with_socket_path(cfg.socket_path.as_ref().unwrap())
                 .with_args(vec![
@@ -797,10 +797,11 @@ impl Machine {
 
         // netns setting
         // if there's no network namespace set, then use default net namespace path
-        if cfg.net_ns.is_none() {
+        if machine.cfg.net_ns.is_none() {
             machine.cfg.net_ns = Some(default_netns_path);
         }
 
+        debug!(target: "Machine Config", "{}", format!("{:#?}", machine.cfg));
         debug!(target: "Machine::new", "exiting Machine::new");
         Ok(machine)
     }
@@ -1160,13 +1161,21 @@ impl Machine {
                 "Cannot cleaning up more than once".to_string(),
             ));
         }
-
+        // Without jailer
         if let Some(true) = self.cfg.log_clear {
             if let Err(e) = self.clear_file(&self.cfg.log_fifo).await {
                 warn!(target: "Machine::do_clean_up", "when removing log_fifo {}: {}", self.cfg.log_fifo.as_ref().unwrap().display(), e);
             }
             if let Err(e) = self.clear_file(&self.cfg.log_path).await {
                 warn!(target: "Machine::do_clean_up", "when removing log_path {}: {}", self.cfg.log_path.as_ref().unwrap().display(), e);
+            }
+            if self.cfg.enable_jailer {
+                if let Err(e) = self.clear_file(&self.cfg.jailer_cfg.as_ref().unwrap().log_link_dest).await {
+                    warn!(target: "Machine::do_clean_up", "when removing log_fifo {}: {}", self.cfg.log_fifo.as_ref().unwrap().display(), e);
+                }
+                if let Err(e) = self.clear_file(&self.cfg.jailer_cfg.as_ref().unwrap().log_link_src).await {
+                    warn!(target: "Machine::do_clean_up", "when removing log_fifo {}: {}", self.cfg.log_fifo.as_ref().unwrap().display(), e);
+                }
             }
         }
 
@@ -1176,6 +1185,14 @@ impl Machine {
             }
             if let Err(e) = self.clear_file(&self.cfg.metrics_path).await {
                 warn!(target: "Machine::do_clean_up", "when removing metrics_path {}: {}", self.cfg.metrics_path.as_ref().unwrap().display(), e);
+            }
+            if self.cfg.enable_jailer {
+                if let Err(e) = self.clear_file(&self.cfg.jailer_cfg.as_ref().unwrap().metrics_link_dest).await {
+                    warn!(target: "Machine::do_clean_up", "when removing metrics_fifo {}: {}", self.cfg.metrics_fifo.as_ref().unwrap().display(), e);
+                }
+                if let Err(e) = self.clear_file(&self.cfg.jailer_cfg.as_ref().unwrap().metrics_link_src).await {
+                    warn!(target: "Machine::do_clean_up", "when removing metrics_fifo {}: {}", self.cfg.metrics_fifo.as_ref().unwrap().display(), e);
+                }
             }
         }
 
@@ -1254,7 +1271,7 @@ impl Machine {
 
     /// linking files: link files to jailer directory if jailer config exists
     async fn link_files(&mut self) -> Result<(), MachineError> {
-        if self.cfg.jailer_cfg.is_none() {
+        if !self.cfg.enable_jailer {
             warn!(target: "Machine::link_files", "jailer config was not set for use");
             return Ok(());
         }
@@ -1285,7 +1302,7 @@ impl Machine {
         .iter()
         .collect();
 
-        // copy kernel image to root fs
+        // hard link kernel image to root folder
         let kernel_image_name: PathBuf = self
             .cfg
             .kernel_image_path
@@ -1312,7 +1329,7 @@ impl Machine {
         // reset the kernel image path in configuration
         self.cfg.kernel_image_path = Some(kernel_image_name);
 
-        // copy initrd drive to root fs (if present)
+        // hard link initrd drive to root folder (if present)
         if self.cfg.initrd_path.is_some() {
             let initrd_file_name: PathBuf = self
                 .cfg
@@ -1338,7 +1355,7 @@ impl Machine {
             self.cfg.initrd_path = Some(initrd_file_name);
         }
 
-        // copy all drives to root fs (if present)
+        // hard link all drives to root folder (if present)
         for drive in self.cfg.drives.as_mut().unwrap() {
             let host_path = &drive.get_path_on_host();
             let drive_file_name: PathBuf = host_path
@@ -1361,7 +1378,7 @@ impl Machine {
             drive.set_drive_path(drive_file_name);
         }
 
-        // copy log fifos to root fs (if present)
+        // hard link log fifos to root folder (if present)
         if self.cfg.log_fifo.is_some() {
             let file_name: PathBuf = self
                 .cfg
@@ -1397,10 +1414,12 @@ impl Machine {
             })?;
 
             // reset fifo path
+            self.cfg.jailer_cfg.as_mut().unwrap().log_link_src = self.cfg.log_fifo.take();
+            self.cfg.jailer_cfg.as_mut().unwrap().log_link_dest = Some(file_name_full);
             self.cfg.log_fifo = Some(file_name);
         }
 
-        // copy metrics fifo to root fs (if present)
+        // hard link metrics fifo to root folder (if present)
         if self.cfg.metrics_fifo.is_some() {
             let file_name: PathBuf = self
                 .cfg
@@ -1435,6 +1454,8 @@ impl Machine {
             })?;
 
             // reset fifo path
+            self.cfg.jailer_cfg.as_mut().unwrap().metrics_link_src = self.cfg.metrics_fifo.take();
+            self.cfg.jailer_cfg.as_mut().unwrap().metrics_link_dest = Some(file_name_full);
             self.cfg.metrics_fifo = Some(file_name);
         }
         Ok(())
@@ -1443,6 +1464,9 @@ impl Machine {
     /// jail will set up proper handlers and remove configuration validation due to
     /// stating of files
     fn jail(&mut self, cfg: &mut Config) -> Result<(), MachineError> {
+        if !cfg.enable_jailer {
+            return Ok(());
+        }
         if cfg.jailer_cfg.is_none() {
             return Err(MachineError::Initialize(
                 "jailer config was not set for use".to_string(),
@@ -1454,7 +1478,7 @@ impl Machine {
         if let Some(socket_path) = &cfg.socket_path {
             machine_socket_path = socket_path.to_path_buf();
         } else {
-            machine_socket_path = DEFAULT_SOCKET_PATH.into();
+            return Err(MachineError::ArgWrong("No socket_path provided".to_string()))
         }
 
         let jailer_workspace_dir: PathBuf;
@@ -1524,8 +1548,6 @@ impl Machine {
             )
             .with_daemonize(jailer_cfg.daemonize.as_ref().unwrap())
             .with_firecracker_args(vec![
-                // "--seccomp-level".to_string(),
-                // cfg.seccomp_level.unwrap().to_string(),
                 "--api-sock".to_string(),
                 machine_socket_path.to_string_lossy().to_string(),
             ])
@@ -1547,12 +1569,8 @@ impl Machine {
     }
 }
 
-/// util methods
-impl Machine {
+impl Default for Machine {
     /// default returns a blanck machine which should be configured
-    /// and one should never call this function so set as private.
-    /// The reason why I do not want to impl Default for Machine
-    /// is the same. Just keep it private.
     fn default() -> Self {
         Machine {
             cfg: Config::default(),
@@ -1567,7 +1585,10 @@ impl Machine {
             cleanup_once: Once::new(),
         }
     }
+}
 
+/// util methods
+impl Machine {
     pub fn get_log_file(&self) -> Option<PathBuf> {
         self.cfg.log_fifo.to_owned()
     }
@@ -1636,7 +1657,7 @@ impl Machine {
         info!(target: "Machine::start_vmm", "command called");
 
         if let Err(e) = start_result {
-            error!("start_vmm: Failed to start vmm: {}", e.to_string());
+            error!(target: "Machine::start_vmm", "Failed to start vmm: {}", e.to_string());
             self.fatalerr = Some(MachineError::Execute(format!(
                 "failed to start vmm: {}",
                 e.to_string()

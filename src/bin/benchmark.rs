@@ -186,6 +186,7 @@ async fn main() -> Result<(), MachineError> {
         vsock_devices: None,
         // when running in production environment, don't set this true to avoid validation
         disable_validation: false,
+        enable_jailer: false,
         jailer_cfg: None,
         seccomp_level: None,
         mmds_address: None,

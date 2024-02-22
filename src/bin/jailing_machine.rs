@@ -1,8 +1,9 @@
 //! Jailer benchmark. Not mature yet.
 
 use std::path::PathBuf;
-use log::info;
+use log::{error, info};
 use nix::{fcntl::OFlag, sys::stat::Mode};
+use run_script::ScriptOptions;
 use rustcracker::{components::{jailer::JailerConfig, machine::{Config, Machine, MachineError}}, model::{balloon::Balloon, cpu_template::{CPUTemplate, CPUTemplateString}, drive::Drive, logger::LogLevel, machine_configuration::MachineConfiguration, network_interface::NetworkInterface}, utils::{check_kvm, StdioTypes}};
 
 // directory that hold all the runtime structures.
@@ -13,12 +14,47 @@ const RESOURCE_DIR: &'static str = "/tmp/rustcracker/res";
 
 // a tokio coroutine that might be parallel with other coroutines
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), MachineError> {
     // Initialize env logger
     let _ = env_logger::builder().is_test(false).try_init();
 
     // check that kvm is accessible
     check_kvm()?;
+
+     // set up network
+     let (code, _output, error) = run_script::run_script!(
+        r#"
+        TAP_DEV="tap$1"
+        HOST_IFACE="eth$1"
+        TAP_IP="172.16.0.1"
+        MASK_SHORT="/30"
+
+        # Setup network interface
+        sudo ip link del "$TAP_DEV" 2> /dev/null || true
+        sudo ip tuntap add dev "$TAP_DEV" mode tap
+        sudo ip addr add "${TAP_IP}${MASK_SHORT}" dev "$TAP_DEV"
+        sudo ip link set dev "$TAP_DEV" up
+
+        # Enable ip forwarding
+        sudo sh -c "echo 1 > /proc/sys/net/ipv4/ip_forward"
+
+        # Set up microVM internet access
+        sudo iptables -t nat -D POSTROUTING -o "$HOST_IFACE" -j MASQUERADE || true
+        sudo iptables -D FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT \
+            || true
+        sudo iptables -D FORWARD -i "$TAP_DEV" -o "$HOST_IFACE" -j ACCEPT || true
+        sudo iptables -t nat -A POSTROUTING -o "$HOST_IFACE" -j MASQUERADE
+        sudo iptables -I FORWARD 1 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+        sudo iptables -I FORWARD 1 -i "$TAP_DEV" -o "$HOST_IFACE" -j ACCEPT
+        "#,
+        &vec![format!("0")],
+        &ScriptOptions::new()
+    ).unwrap();
+    // if networking is configured successfully, then run the machine `name{id}``
+    if !(code == 0 && error == "") {
+        error!(target: "main", "Fail to set up network");
+        return Err(MachineError::Execute(format!("Fail to set up network: {}",error)));
+    }
 
     /* below are configurations that could be transmitted with json file (Serializable and Deserializable) */
 
@@ -120,6 +156,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             io_engine: None,
             socket: None,
         }]),
+        enable_jailer: true,
         // jailer configuration
         jailer_cfg: Some(JailerConfig {
             jailer_binary: Some(jailer_path),
@@ -133,6 +170,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             stderr: Some(StdioTypes::FromRawFd { fd: log_fd }),
             daemonize: Some(false),
             stdin: None,
+            log_link_src: None,
+            log_link_dest: None,
+            metrics_link_src: None,
+            metrics_link_dest: None,
         }),
         // kernel_args might be overrided
         // if any network interfaces configured, the `ip` field may be added or modified
@@ -146,7 +187,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }]),
         net_ns: None,
         init_metadata: Some(init_metadata.to_string()),
-        // configurations that could be set yourself and I don't want to set here
+        // configurations that could be set yourself
         forward_signals: None,
         log_path: None,
         metrics_path: None,
