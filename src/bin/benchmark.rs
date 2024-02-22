@@ -7,7 +7,7 @@ use run_script::ScriptOptions;
 use rustcracker::{
     components::{
         command_builder::VMMCommandBuilder,
-        machine::{Config, Machine, MachineError, MachineMessage},
+        machine::{Config, Machine, MachineError},
     },
     model::{
         balloon::Balloon,
@@ -209,7 +209,7 @@ async fn main() -> Result<(), MachineError> {
     // let (sig_send, sig_recv) = async_channel::bounded(64);
 
     #[allow(unused_variables)]
-    let (mut machine, exit_send) = Machine::new(config)?;
+    let mut machine = Machine::new(config)?;
     // use exit_send to send a force stop instruction (MachineMessage::StopVMM) to the microVM
 
     // build your own microVM command
@@ -280,28 +280,13 @@ async fn main() -> Result<(), MachineError> {
     /* ############ Exiting microVm ############ */
     // wait for the machine to exit.
     // Machine::wait will block until the firecracker process exit itself
-    // or explicitly send it a exit message through exit_send defined previously
-    // so spawn a isolated tokio task to wait for the machine.
-    async fn timer(
-        send: async_channel::Sender<MachineMessage>,
-        secs: u64,
-    ) -> Result<(), MachineError> {
-        tokio::time::sleep(tokio::time::Duration::from_secs(secs)).await;
-        send.send(MachineMessage::StopVMM).await.map_err(|e| {
-            error!(target: "benchmark::timer", "error when sending a exit message: {}", e);
-            send.close();
-            MachineError::Execute(format!(
-                "error when sending a exit message: {}",
-                e.to_string()
-            ))
-        })?;
-        send.close();
-        Ok(())
-    }
-
-    // set a timer to send exit message to firecracker after 10 seconds
-    tokio::spawn(timer(exit_send, 10));
-    machine.wait().await?;
+    
+    // machine.wait().await?;
+    
+    // explicitly call Machine::shutdown() and Machine::stop_vmm() to terminate the machine.
+    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+    machine.shutdown().await?;
+    machine.stop_vmm().await?;
 
     Ok(())
 }

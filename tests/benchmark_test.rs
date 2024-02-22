@@ -58,7 +58,7 @@ fn create_machine(name: String, forward_signals: ()) -> Result<Machine, MachineE
         .with_bin(&TestArgs::get_firecracker_binary_path())
         .build();
     // let (_send, sig_recv) = async_channel::bounded(64);
-    let (mut machine, exit_send)= Machine::new(config)?;
+    let mut machine = Machine::new(config)?;
     machine.set_command(cmd.into());
     Ok(machine)
 }

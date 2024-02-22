@@ -8,7 +8,7 @@ Create 10 microVMs asynchronously.
 You may want to read [this](https://github.com/firecracker-microvm/firecracker/blob/main/docs/getting-started.md) first.
 
 ```Rust
-//! Start multiple Machine at once
+//! Benchmark code of starting a Machine
 
 use std::path::PathBuf;
 
@@ -17,7 +17,7 @@ use run_script::ScriptOptions;
 use rustcracker::{
     components::{
         command_builder::VMMCommandBuilder,
-        machine::{Config, Machine, MachineError, MachineMessage},
+        machine::{Config, Machine, MachineError},
     },
     model::{
         balloon::Balloon,
@@ -29,7 +29,6 @@ use rustcracker::{
     },
     utils::{check_kvm, StdioTypes},
 };
-use tokio::task::JoinSet;
 
 // directory that hold all the runtime structures.
 const RUN_DIR: &'static str = "/tmp/rustcracker/run";
@@ -39,42 +38,73 @@ const RESOURCE_DIR: &'static str = "/tmp/rustcracker/res";
 
 // directory that holds snapshots
 const SNAPSHOT_DIR: &'static str = "/tmp/rustcracker/snapshot";
-
-// directory that holds the legacy of machines
-async fn run(id: usize) -> Result<(), MachineError> {
+// a tokio coroutine that might be parallel with other coroutines
+#[tokio::main]
+async fn main() -> Result<(), MachineError> {
     // Initialize env logger
     let _ = env_logger::builder().is_test(false).try_init();
 
     // check that kvm is accessible
     check_kvm()?;
 
+    // set up network
+    let (code, _output, error) = run_script::run_script!(
+        r#"
+        TAP_DEV="tap$1"
+        HOST_IFACE="eth$1"
+        TAP_IP="172.16.0.1"
+        MASK_SHORT="/30"
+
+        # Setup network interface
+        sudo ip link del "$TAP_DEV" 2> /dev/null || true
+        sudo ip tuntap add dev "$TAP_DEV" mode tap
+        sudo ip addr add "${TAP_IP}${MASK_SHORT}" dev "$TAP_DEV"
+        sudo ip link set dev "$TAP_DEV" up
+
+        # Enable ip forwarding
+        sudo sh -c "echo 1 > /proc/sys/net/ipv4/ip_forward"
+
+        # Set up microVM internet access
+        sudo iptables -t nat -D POSTROUTING -o "$HOST_IFACE" -j MASQUERADE || true
+        sudo iptables -D FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT \
+            || true
+        sudo iptables -D FORWARD -i "$TAP_DEV" -o "$HOST_IFACE" -j ACCEPT || true
+        sudo iptables -t nat -A POSTROUTING -o "$HOST_IFACE" -j MASQUERADE
+        sudo iptables -I FORWARD 1 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+        sudo iptables -I FORWARD 1 -i "$TAP_DEV" -o "$HOST_IFACE" -j ACCEPT
+        "#,
+        &vec![format!("0")],
+        &ScriptOptions::new()
+    ).unwrap();
+    // if networking is configured successfully, then run the machine `name{id}``
+    if !(code == 0 && error == "") {
+        error!(target: "main", "Fail to set up network");
+        return Err(MachineError::Execute(format!("Fail to set up network: {}",error)));
+    }
+
     /* below are configurations that could be transmitted with json file (Serializable and Deserializable) */
 
     /* ############ configurations begin ############ */
     // the name of this microVM
-    let vmid = format!("name{id}");
+    let vmid = "name1";
 
     // the directory that holds this microVM
-    // /tmp/rustfire/run/name{id}
-    let dir = PathBuf::from(RUN_DIR).join(vmid.to_owned());
+    // /tmp/rustfire/run/name1
+    let dir = PathBuf::from(RUN_DIR).join(vmid);
     std::fs::create_dir_all(&dir).map_err(|e| {
-        MachineError::FileCreation(format!(
-            "fail to create {}: {}",
-            dir.display(),
-            e.to_string()
-        ))
+        MachineError::FileCreation(format!("fail to create {}: {}", dir.display(), e.to_string()))
     })?;
 
     // suppose that the logger is going to be created at "${RUN_DIR}/logger"
-    // /tmp/rustfire/run/name{id}/log.fifo
-    let log_fifo = dir.join(format!("log{id}.fifo"));
+    // /tmp/rustfire/run/name1/log.fifo
+    let log_fifo = dir.join("log.fifo");
 
     // metrics path
-    // /tmp/rustcracker/run/name{id}/metrics.fifo
-    let metrics_fifo = dir.join(format!("metrics{id}.fifo"));
+    // /tmp/rustcracker/run/name1/metrics.fifo
+    let metrics_fifo = dir.join("metrics.fifo");
 
     // unix domain socket (communicate with firecracker) path
-    // /tmp/rustcracker/run/name{id}/api.sock
+    // /tmp/rustcracker/run/name1/api.sock
     let socket_path = dir.join("api.sock");
 
     // kernel image path (prepare valid kernel image here)
@@ -90,26 +120,22 @@ async fn run(id: usize) -> Result<(), MachineError> {
     let firecracker_path = PathBuf::from(&RESOURCE_DIR).join("firecracker");
 
     // path that holds snapshot
-    let snapshot_dir = PathBuf::from(&SNAPSHOT_DIR).join(vmid.to_owned());
+    let snapshot_dir = PathBuf::from(&SNAPSHOT_DIR).join(vmid);
     std::fs::create_dir_all(&snapshot_dir).map_err(|e| {
-        MachineError::FileCreation(format!(
-            "fail to create {}: {}",
-            snapshot_dir.display(),
-            e.to_string()
-        ))
+        MachineError::FileCreation(format!("fail to create {}: {}", snapshot_dir.display(), e.to_string()))
     })?;
-    let snapshot_mem = snapshot_dir.join(format!("mem{id}"));
-    let snapshot_path = snapshot_dir.join(format!("snapshot{id}"));
+    let snapshot_mem = snapshot_dir.join("mem");
+    let snapshot_path = snapshot_dir.join("snapshot");
 
     let init_metadata = r#"{
-        "name": "Alice",
-        "email": "Alice@example.com"
+        "name": "Xue Haonan",
+        "email": "xuehaonan27@gmail.com"
     }"#;
 
     // write the configuration of the firecraker process
     let config = Config {
         // microVM's name
-        vmid: Some(vmid),
+        vmid: Some(vmid.to_string()),
         // the path to unix domain socket that you want the firecracker to spawn
         socket_path: Some(socket_path.to_owned()),
         kernel_image_path: Some(vmlinux_path),
@@ -147,7 +173,7 @@ async fn run(id: usize) -> Result<(), MachineError> {
         kernel_args: Some("".to_string()),
         network_interfaces: Some(vec![NetworkInterface {
             guest_mac: Some("06:00:AC:10:00:02".to_string()),
-            host_dev_name: format!("tap{id}").into(),
+            host_dev_name: "tap0".into(),
             iface_id: "net1".into(),
             rx_rate_limiter: None,
             tx_rate_limiter: None,
@@ -184,7 +210,7 @@ async fn run(id: usize) -> Result<(), MachineError> {
         metrics_clear: Some(true),
         network_clear: Some(true),
         agent_init_timeout: None,
-        agent_request_timeout: None
+        agent_request_timeout: None,
     };
     /* ############ configurations end ############ */
 
@@ -192,9 +218,10 @@ async fn run(id: usize) -> Result<(), MachineError> {
     // use sig_send to send a signal to firecracker process (yet implemented)
     // let (sig_send, sig_recv) = async_channel::bounded(64);
 
-    let (mut machine, exit_send) = Machine::new(config)?;
+    #[allow(unused_variables)]
+    let mut machine = Machine::new(config)?;
     // use exit_send to send a force stop instruction (MachineMessage::StopVMM) to the microVM
-    
+
     // build your own microVM command
     let cmd = VMMCommandBuilder::new()
         .with_socket_path(&socket_path)
@@ -203,7 +230,7 @@ async fn run(id: usize) -> Result<(), MachineError> {
 
     // set your own microVM command (optional)
     // if not, then the machine will start using default command
-    // ${firecracker_path} --api-sock ${socket_path} --id ${config.vmid}
+    // ${firecracker_path} --api-sock ${socket_path} --seccomp-level 0 --id ${config.vmid}
     // (seccomp level 0 means disable seccomp)
     machine.set_command(cmd.into());
 
@@ -231,10 +258,9 @@ async fn run(id: usize) -> Result<(), MachineError> {
 
     /* ############ Modifying microVM ############ */
     let new_metadata = r#"{
-        "name":"Bob",
-        "email":"bob@example.com"
-    }"#
-    .to_string();
+        "name":"Mugen_Cyaegha",
+        "email":"897657514@qq.com"
+    }"#.to_string();
     machine.update_metadata(&new_metadata).await?;
     // machine.update_balloon(10).await?;
     // machine.update_balloon_stats(3).await?;
@@ -261,82 +287,16 @@ async fn run(id: usize) -> Result<(), MachineError> {
     machine.resume().await?;
     info!(target: "Resume", "Resumed");
 
-    /* ############ Exiting microVM ############ */
+    /* ############ Exiting microVm ############ */
     // wait for the machine to exit.
     // Machine::wait will block until the firecracker process exit itself
-    // or explicitly send it a exit message through exit_send defined previously
-    // so spawn a isolated tokio task to wait for the machine.
-    async fn timer(
-        send: async_channel::Sender<MachineMessage>,
-        secs: u64,
-    ) -> Result<(), MachineError> {
-        tokio::time::sleep(tokio::time::Duration::from_secs(secs)).await;
-        send.send(MachineMessage::StopVMM).await.map_err(|e| {
-            error!(target: "benchmark::timer", "error when sending a exit message: {}", e);
-            send.close();
-            MachineError::Execute(format!(
-                "error when sending a exit message: {}",
-                e.to_string()
-            ))
-        })?;
-        send.close();
-        Ok(())
-    }
-
-    // set a timer to send exit message to firecracker after 10 seconds
-    tokio::spawn(timer(exit_send, 10));
-    machine.wait().await?;
-
-    Ok(())
-}
-
-#[tokio::main]
-async fn main() -> Result<(), MachineError> {
-    info!(target: "Main", "preparing...");
-
-    let mut set = JoinSet::new();
-    for id in 0..10 {
-        // run the shell script to config networking first
-        // to run shell script dirctly in rust I chose crate `run_script`
-        // although such behavior might not be the best practice
-        // and the script it self is fetched directly from the doc of `firecracker`
-        // with minor modification to config networking from name0 to name9
-        let (code, _output, error) = run_script::run_script!(
-            r#"
-            TAP_DEV="tap$1"
-            HOST_IFACE="eth$1"
-            TAP_IP="172.16.0.1"
-            MASK_SHORT="/30"
-
-            # Setup network interface
-            sudo ip link del "$TAP_DEV" 2> /dev/null || true
-            sudo ip tuntap add dev "$TAP_DEV" mode tap
-            sudo ip addr add "${TAP_IP}${MASK_SHORT}" dev "$TAP_DEV"
-            sudo ip link set dev "$TAP_DEV" up
-
-            # Enable ip forwarding
-            sudo sh -c "echo 1 > /proc/sys/net/ipv4/ip_forward"
-
-            # Set up microVM internet access
-            sudo iptables -t nat -D POSTROUTING -o "$HOST_IFACE" -j MASQUERADE || true
-            sudo iptables -D FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT \
-                || true
-            sudo iptables -D FORWARD -i "$TAP_DEV" -o "$HOST_IFACE" -j ACCEPT || true
-            sudo iptables -t nat -A POSTROUTING -o "$HOST_IFACE" -j MASQUERADE
-            sudo iptables -I FORWARD 1 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-            sudo iptables -I FORWARD 1 -i "$TAP_DEV" -o "$HOST_IFACE" -j ACCEPT
-            "#,
-            &vec![format!("{id}")],
-            &ScriptOptions::new()
-        ).unwrap();
-        // if networking is configured successfully, then run the machine `name{id}``
-        if code == 0 && error == "" {
-            set.spawn(run(id));
-        }
-    }
-    while let Some(a) = set.join_next().await {
-        a.unwrap()?;
-    }
+    
+    // machine.wait().await?;
+    
+    // explicitly call Machine::shutdown() and Machine::stop_vmm() to terminate the machine.
+    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+    machine.shutdown().await?;
+    machine.stop_vmm().await?;
 
     Ok(())
 }

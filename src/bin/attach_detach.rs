@@ -206,7 +206,7 @@ async fn run(core_save_dir: PathBuf) -> Result<(), MachineError> {
     // let (sig_send, sig_recv) = async_channel::bounded(64);
 
     #[allow(unused_variables)]
-    let (mut machine, exit_send) = Machine::new(config)?;
+    let mut machine = Machine::new(config)?;
     // use exit_send to send a force stop instruction (MachineMessage::StopVMM) to the microVM
 
     // build your own microVM command
@@ -247,7 +247,7 @@ async fn run(core_save_dir: PathBuf) -> Result<(), MachineError> {
 
 
 async fn attach(core: MachineCore) -> Result<(), MachineError> {
-    let (mut machine, _exit_ch) = Machine::rebuild(core)?;
+    let mut machine = Machine::rebuild(core)?;
 
     /* ############ Checking microVM ############ */
     let metadata = machine.get_metadata().await?;

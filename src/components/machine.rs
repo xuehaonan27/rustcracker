@@ -606,46 +606,34 @@ pub struct MachineCore {
 pub struct Machine {
     pub(crate) cfg: Config,
 
-    agent: Agent,
+    pub(crate) agent: Agent,
 
     pub(crate) cmd: Option<tokio::process::Command>,
 
-    child_process: Option<tokio::process::Child>,
+    pub(crate) child_process: Option<tokio::process::Child>,
 
-    rebuilt: bool,
+    /// Whether machine is rebuilt from MachineCore
+    pub(crate) rebuilt: bool,
 
-    pid: Option<u32>,
+    pub(crate) pid: Option<u32>,
 
     /// The actual machine config as reported by Firecracker
     /// id est, not the config set by user, which should be a field of `cfg`
-    machine_config: MachineConfiguration,
+    pub(crate) machine_config: MachineConfiguration,
 
     /// startOnce ensures that the machine can only be started once
     pub(crate) start_once: std::sync::Once,
 
-    /// exit_ch is a channel which gets closed when the VMM exits
-    /// implemented with async_channel, which will receive the instruction
-    /// sent by outside and share the message between different async listeners
-    /// who will take some measures upon receiving a message, e.g. StopVMM,
-    /// which could totally stop the execution of microVM and firecracker process
-    /// when Machine::wait is being awaited.
-    ///
-    /// other operations, such as getting instance information, making a snapshot
-    /// of the instance or patching a new balloon device, could simply done by
-    /// calling the public method of the instance.
-    exit_ch: async_channel::Receiver<MachineMessage>,
-
     /// fatalErr records an error that either stops or prevent starting the VMM
-    fatalerr: Option<MachineError>,
+    pub(crate) fatalerr: Option<MachineError>,
 
-    /// callbacks that should be run when the machine is being torn down
-    cleanup_once: std::sync::Once,
-    // cleanup_funcs: HandlerList,
+    /// cleaning up after the machine terminates
+    pub(crate) cleanup_once: std::sync::Once,
 }
 
 unsafe impl Send for Machine {}
 unsafe impl Sync for Machine {}
-
+/*
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MachineMessage {
     /// StopVMM stop the vmm forcefully by calling stop_vmm, which will send
@@ -667,7 +655,7 @@ pub enum MachineMessage {
         signum: u32,
     },
 }
-
+*/
 #[derive(thiserror::Error, Debug)]
 pub enum MachineError {
     /// Mostly problems related to directories error or unavailable files
@@ -676,30 +664,39 @@ pub enum MachineError {
     /// Failure when creating file or directory
     #[error("Could not create file or directory, reason: {0}")]
     FileCreation(String),
+
     /// Failure when the file is missing
     #[error("Could not find file, reason: {0}")]
     FileMissing(String),
+
     /// Failure when removing the file
     #[error("Could not remove file, reason: {0}")]
     FileRemoving(String),
+
     /// Failure when accessing file
     #[error("Unable to access file, reason: {0}")]
     FileAccess(String),
+
     /// Failure when validating the configuration before starting the microVM
     #[error("Invalid configuration for the machine, reason: {0}")]
     Validation(String),
+
     /// Failure occurred because of missing arguments
     #[error("Missing arguments, reason: {0}")]
     ArgWrong(String),
+
     /// Related to communication with the socket to configure the microVM which failed
     #[error("Could not put initial configuration for the machine, reason: {0}")]
     Initialize(String),
+
     /// The process didn't start properly or an error occurred while trying to run it
     #[error("Fail to start or run the machine, reason: {0}")]
     Execute(String),
+
     /// Failure when cleaning up the machine
     #[error("Could not clean up the machine properly, reason: {0}")]
     Cleaning(String),
+
     /// An Error occured when communicating with firecracker by Unix Domain Socket
     #[error("Agent could not communicate with firecracker process, reason: {0}")]
     Agent(String),
@@ -709,45 +706,31 @@ pub enum MachineError {
 impl Machine {
     /// new initializes a new Machine instance and performs validation of the
     /// provided Config.
-    pub fn new(
-        mut cfg: Config,
-    ) -> Result<(Machine, async_channel::Sender<MachineMessage>), MachineError> {
-        /* Get channel bound settings of the async channel */
-        let channel_bound = std::env::var(ASYNC_CHANNEL_BOUND_ENV);
-        let channel_bound = match channel_bound {
-            Ok(t) => t.parse().map_err(|e| {
-                error!(target: "Machine::new", "non-integer number / overflow number of channel bound");
-                MachineError::ArgWrong(format!("non-integer number / overflow number of channel bound {}: {}", t, e))
-            })?,
-            Err(_) => DEFAULT_ASYNC_CHANNEL_BOUND_NUMS,
-        };
-        /* Create async channel */
-        let (exit_send, exit_recv) = async_channel::bounded(channel_bound);
-        
+    pub fn new(mut cfg: Config) -> Result<Machine, MachineError> {
         /* Validate network */
         cfg.validate_network()?;
 
-        /* create a channel for communicating with microVM (stopping microVM) */
-        let mut machine = Self::default(exit_recv);
+        /* Create a channel for communicating with microVM (stopping microVM) */
+        let mut machine = Self::default();
 
-        // set vmid for microVM
+        /* Set vmid for microVM */
+        /* Assign a random one if not existing */
         if cfg.vmid.is_none() {
             let random_id = uuid::Uuid::new_v4().to_string();
             cfg.vmid = Some(random_id);
         }
         let vmid = cfg.vmid.as_ref().unwrap().to_owned();
+
         info!(target: "Machine::new", "creating a new machine, vmid: {}", vmid);
 
         if cfg.jailer_cfg.is_some() {
-            // jailing the microVM if jailer config provided
-            // validate jailer config
+            /* jailing the microVM if jailer config provided and validate jailer config */
             debug!(target: "Machine::new", "with jailer configuration: {:#?}", cfg.jailer_cfg.as_ref().unwrap());
             cfg.validate_jailer_config()?;
-            // jail the machine
             machine.jail(&mut cfg)?;
             info!(target: "Machine::new", "machine {} jailed", vmid);
         } else {
-            // microVM without jailer
+            /* microVM without jailer */
             debug!(target: "Machine::new", "without jailer configuration");
             cfg.validate()?;
             let c = VMMCommandBuilder::default()
@@ -819,20 +802,16 @@ impl Machine {
         }
 
         debug!(target: "Machine::new", "exiting Machine::new");
-        Ok((machine, exit_send))
+        Ok(machine)
     }
 
     /// Rebuild Machine from raw metadata (MachineCore)
-    pub fn rebuild(
-        core: MachineCore,
-    ) -> Result<(Machine, async_channel::Sender<MachineMessage>), MachineError> {
+    pub fn rebuild(core: MachineCore) -> Result<Machine, MachineError> {
         let agent = Agent::new(
             &core.socket_path,
             core.firecracker_request_timeout,
             core.firecracker_init_timeout,
         );
-        let (exit_ch_send, exit_ch_recv) = async_channel::bounded(64);
-
         let machine = Self {
             cfg: core.cfg,
             agent,
@@ -842,17 +821,16 @@ impl Machine {
             pid: Some(core.pid),
             machine_config: MachineConfiguration::default(),
             start_once: Once::new(),
-            exit_ch: exit_ch_recv,
             fatalerr: None,
             cleanup_once: Once::new(),
         };
 
-        // Consumes start_once to prevent calling Machine::start again
         machine.start_once.call_once(|| {});
 
-        Ok((machine, exit_ch_send))
+        Ok(machine)
     }
 
+    /// Dump the Machine to MachineCore
     pub fn dump_into_core(&self) -> Result<MachineCore, MachineError> {
         let core = MachineCore {
             cfg: self.cfg.to_owned(),
@@ -968,40 +946,35 @@ impl Machine {
 
         if self.rebuilt {
             // if Machine is rebuilt from MachineCore, no child_process provided, only pid
-            // using nix crate
-        } else {
-            // multiple channels to be waited by Machine::wait
-            tokio::select! {
-                output = self.child_process.as_mut().unwrap().wait() => {
-                    if let Err(output) = output {
-                        warn!(target: "Machine::wait", "firecracker exited: {}", output);
-                    } else if let Ok(status) = output {
-                        info!(target: "Machine::wait", "firecracker exited successfully: {}", status);
+            let output = nix::sys::wait::waitpid(
+                nix::unistd::Pid::from_raw(self.pid()? as i32),
+                Some(nix::sys::wait::WaitPidFlag::WUNTRACED | nix::sys::wait::WaitPidFlag::WEXITED),
+            );
+            match output {
+                Err(e) => warn!(target: "Machine::wait", "firecracker exited: {}", e),
+                Ok(status) => match status {
+                    nix::sys::wait::WaitStatus::Exited(_pid, code) => {
+                        info!(target: "Machine::wait", "firecracker exited successfully: {}", code)
                     }
-                    self.do_clean_up().await.map_err(|e| {
-                        error!(target: "Machine::wait", "fail to do cleaning up: {}", e);
-                        MachineError::Cleaning(format!("fail to do cleaning up: {}", e))
-                    })?;
-
-                    self.exit_ch.close();
-                    // self.sig_ch.close();
-                    info!(target: "Machine::wait", "machine {} exited successfully", self.cfg.vmid.as_ref().unwrap());
-                }
-                _exit_msg = self.exit_ch.recv() => {
-                    self.stop_vmm().await.map_err(|e| {
-                        error!(target: "Machine::wait", "fail to stop vmm {}: {}", self.cfg.vmid.as_ref().unwrap(), e);
-                        MachineError::Execute(format!("fail to stop vmm {}: {}", self.cfg.vmid.as_ref().unwrap(), e.to_string()))
-                    })?;
-                    self.do_clean_up().await.map_err(|e| {
-                        error!(target: "Machine::wait", "fail to do cleaning up: {}", e);
-                        MachineError::Execute(format!("fail to do cleaning up: {}", e))
-                    })?;
-
-                    self.exit_ch.close();
-                    info!(target: "Machine::wait", "Machine {} exited due to explicit message sending via channel", self.cfg.vmid.as_ref().unwrap());
+                    _ => warn!(target: "Machine::wait", "firecracker exited abnormally"),
+                },
+            }
+        } else {
+            let output = self.child_process.as_mut().unwrap().wait().await;
+            match output {
+                Err(e) => warn!(target: "Machine::wait", "firecracker exited: {}", e),
+                Ok(status) => {
+                    info!(target: "Machine::wait", "firecracker exited successfully: {}", status)
                 }
             }
         }
+        self.do_clean_up().await.map_err(|e| {
+            error!(target: "Machine::wait", "fail to do cleaning up: {}", e);
+            MachineError::Cleaning(format!("fail to do cleaning up: {}", e))
+        })?;
+
+        info!(target: "Machine::wait", "machine {} exited successfully", self.cfg.vmid.as_ref().unwrap());
+
         Ok(())
     }
 
@@ -1066,6 +1039,8 @@ impl Machine {
             info!(target: "Machine::stop_vmm", "no firecracker process running, not sending SIGTERM");
         }
 
+        self.do_clean_up().await?;
+
         Ok(())
     }
 
@@ -1091,6 +1066,8 @@ impl Machine {
         } else {
             info!(target: "Machine::stop_vmm_force", "stop_vmm_force: no firecracker process running, not sending SIGKILL");
         }
+        
+        self.do_clean_up().await?;
 
         Ok(())
     }
@@ -1173,7 +1150,6 @@ impl Machine {
 
     async fn do_clean_up(&mut self) -> Result<(), MachineError> {
         debug!(target: "Machine::do_clean_up", "called Machine::do_clean_up");
-        // make sure that do cleaning up only call once
         let mut marker = true;
         self.cleanup_once.call_once(|| {
             marker = false;
@@ -1577,23 +1553,16 @@ impl Machine {
     /// and one should never call this function so set as private.
     /// The reason why I do not want to impl Default for Machine
     /// is the same. Just keep it private.
-    fn default(
-        exit_recv: async_channel::Receiver<MachineMessage>,
-        // sig_recv: async_channel::Receiver<MachineMessage>,
-    ) -> Self {
+    fn default() -> Self {
         Machine {
-            // handlers: Handlers::default(),
             cfg: Config::default(),
             agent: Agent::blank(),
             cmd: None,
             child_process: None,
             rebuilt: false,
             pid: None,
-            // logger: None,
             machine_config: MachineConfiguration::default(),
             start_once: Once::new(),
-            exit_ch: exit_recv,
-            // sig_ch: sig_recv,
             fatalerr: None,
             cleanup_once: Once::new(),
         }
@@ -1603,25 +1572,28 @@ impl Machine {
         self.cfg.log_fifo.to_owned()
     }
 
+    /// Set the boot command mannually
     pub fn set_command(&mut self, cmd: tokio::process::Command) {
         self.cmd = Some(cmd);
     }
 
     /// PID returns the machine's running process PID or an error if not running
     pub fn pid(&self) -> Result<u32, MachineError> {
-        if self.cmd.is_none() || self.child_process.is_none() {
-            return Err(MachineError::Execute("machine is not running".to_string()));
+        if self.cmd.is_some() && self.child_process.is_some() {
+            self.child_process
+                .as_ref()
+                .unwrap()
+                .id()
+                .ok_or(MachineError::Execute("process terminated".to_string()))
+        } else if self.pid.is_some() {
+            self.pid
+                .ok_or(MachineError::Execute("Malformed Machine".to_string()))
+        } else {
+            return Err(MachineError::Execute("process terminated".to_string()));
         }
-
-        self.child_process
-            .as_ref()
-            .unwrap()
-            .id()
-            .ok_or(MachineError::Execute(
-                "machine may by not running or already stopped".to_string(),
-            ))
     }
 
+    /// Get boot Config
     pub fn get_config(&self) -> Config {
         self.cfg.to_owned()
     }
@@ -1629,8 +1601,7 @@ impl Machine {
 
 /// method that should be called in start
 impl Machine {
-    /// called by StartVMMHandler
-    /// start_vmm starts the firecracker vmm process and configures logging.
+    /// start_vmm starts the firecracker vmm process.
     pub(super) async fn start_vmm(&mut self) -> Result<(), MachineError> {
         debug!(target: "Machine::start_vmm", "called Machine::start_vmm");
         if self.cfg.socket_path.is_none() {
@@ -1670,8 +1641,6 @@ impl Machine {
                 "failed to start vmm: {}",
                 e.to_string()
             )));
-            self.exit_ch.close();
-            // self.sig_ch.close();
 
             return Err(MachineError::Execute(format!(
                 "failed to start vmm: {}",
@@ -1689,15 +1658,11 @@ impl Machine {
             self.cfg.socket_path.as_ref().unwrap().display()
         );
 
-        // self.setup_signals().await?;
-        // debug!(target: "Machine::start_vmm", "signals set");
-
         self.wait_for_socket(self.agent.firecracker_init_timeout)
             .await
             .map_err(|e| {
                 let msg = e.to_string();
                 self.fatalerr = Some(e);
-                self.exit_ch.close();
                 error!(target: "Machine::start_vmm", "firecracker did not create API socket {}", self.cfg.socket_path.as_ref().unwrap().display());
                 MachineError::Initialize(format!(
                     "firecracker did not create API socket {}: {}",
@@ -1744,7 +1709,6 @@ impl Machine {
             })?;
             Ok(())
         } else {
-            // no log file provided, just return
             info!(target: "Machine::create_log_fifo_or_file", "no log file path provided, just return");
             Ok(())
         }
@@ -1780,13 +1744,11 @@ impl Machine {
             })?;
             Ok(())
         } else {
-            // no metrics path provided, just return
             info!(target: "Machine::create_metrics_fifo_or_file", "no metrics file path provided, just return");
             Ok(())
         }
     }
 
-    /// called by BootstrapLoggingHandler
     pub(super) async fn setup_logging(&self) -> Result<(), MachineError> {
         let path: &PathBuf;
         if self.cfg.log_fifo.is_some() {
@@ -1794,8 +1756,7 @@ impl Machine {
         } else if self.cfg.log_path.is_some() {
             path = self.cfg.log_path.as_ref().unwrap();
         } else {
-            // log path provided, just return
-            info!("VMM logging disabled");
+            info!(target: "Machine::setup_logging", "VMM logging disabled");
             return Ok(());
         }
 
@@ -1823,7 +1784,6 @@ impl Machine {
         Ok(())
     }
 
-    /// called by BootstrapLoggingHandler
     pub(super) async fn setup_metrics(&self) -> Result<(), MachineError> {
         let path: &PathBuf;
         if self.cfg.metrics_fifo.is_some() {
@@ -1831,8 +1791,7 @@ impl Machine {
         } else if self.cfg.metrics_path.is_some() {
             path = self.cfg.metrics_path.as_ref().unwrap();
         } else {
-            // no metrics path provided, just return
-            info!("VMM metrics disabled");
+            info!(target: "Machine::setup_metrics", "VMM metrics disabled");
             return Ok(());
         }
         let metrics = Metrics::default().with_metrics_path(path);
@@ -1843,7 +1802,6 @@ impl Machine {
         Ok(())
     }
 
-    /// called by CreateMachineHandler
     /// create_machine put the machine configuration to firecracker
     /// and refresh(by get from firecracker) the machine configuration stored in `self`
     pub(super) async fn create_machine(&mut self) -> Result<(), MachineError> {
@@ -1851,6 +1809,9 @@ impl Machine {
         if self.cfg.machine_cfg.is_none() {
             // one must provide machine config
             error!(target: "Machine::create_machine", "no machine config provided");
+            self.fatalerr = Some(MachineError::Execute(
+                "no machine config provided".to_string(),
+            ));
             return Err(MachineError::Execute(
                 "no machine config provided".to_string(),
             ));
@@ -1860,6 +1821,10 @@ impl Machine {
             .await
             .map_err(|e| {
                 error!(target: "Machine::create_machine", "fail to put machine configuration");
+                self.fatalerr = Some(MachineError::Initialize(format!(
+                    "PutMachineConfiguration returned {}",
+                    e.to_string()
+                )));
                 MachineError::Initialize(format!(
                     "PutMachineConfiguration returned {}",
                     e.to_string()
@@ -1871,7 +1836,6 @@ impl Machine {
         Ok(())
     }
 
-    /// called by CreateBootSourceHandler
     /// create_boot_source creates a boot source and configure it to microVM
     /// mainly used when creating root file system
     pub(super) async fn create_boot_source(
@@ -1886,9 +1850,6 @@ impl Machine {
             boot_args: kernel_args.to_owned(),
         };
 
-        // validate the boot source
-        // bsrc.validate()?;
-
         self.agent.put_guest_boot_source(&bsrc).await.map_err(|e| {
             error!(target: "Machine::create_boot_source", "PutGuestBootSource: {}", e.to_string());
             MachineError::Initialize(format!("PutGuestBootSource: {}", e.to_string()))
@@ -1898,7 +1859,6 @@ impl Machine {
         Ok(())
     }
 
-    /// called by AddVsocksHandler
     pub(super) async fn add_vsocks(&self) -> Result<(), MachineError> {
         if self.cfg.vsock_devices.is_none() {
             info!(target: "Machine::add_vsocks", "no virtio device socket provided, just return");
@@ -1929,7 +1889,6 @@ impl Machine {
         )))
     }
 
-    /// called by AttachDrivesHandler
     pub(super) async fn attach_drives(&self) -> Result<(), MachineError> {
         if self.cfg.drives.is_none() {
             info!(target: "Machine::attach_drives", "no drive provided, just return");
@@ -2418,7 +2377,7 @@ pub mod test_utils {
             socket_path: Some(socket_path),
             ..Default::default()
         };
-        let (m, _ch) = Machine::new(cfg)?;
+        let m = Machine::new(cfg)?;
         m.wait_for_socket(10.0).await?;
         Ok(())
     }
@@ -2476,7 +2435,7 @@ pub mod test_utils {
             socket_path: Some(socket_path.to_owned()),
             ..Default::default()
         };
-        let (m, _ch) = Machine::new(cfg)?;
+        let m = Machine::new(cfg)?;
         let mut found = false;
         let mut iter = m.cmd.as_ref().unwrap().as_std().get_args();
         loop {
@@ -2511,7 +2470,7 @@ pub mod test_utils {
 
     pub async fn test_pid() -> Result<(), MachineError> {
         let cfg = Config::default().set_disable_validation(true);
-        let (mut m, _exit_send) = Machine::new(cfg)?;
+        let mut m = Machine::new(cfg)?;
         m.start().await?;
         println!("{}", m.pid()?);
         m.stop_vmm().await?;

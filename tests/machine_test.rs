@@ -6,7 +6,7 @@ use nix::{
 };
 use rustcracker::{
     components::{
-        command_builder::VMMCommandBuilder, jailer::JailerConfig, machine::{Config, Machine, MachineError, MachineMessage}
+        command_builder::VMMCommandBuilder, jailer::JailerConfig, machine::{Config, Machine, MachineError}
     }, model::{
         cpu_template::{self, CPUTemplate, CPUTemplateString}, drive::Drive, logger::LogLevel, machine_configuration::MachineConfiguration, network_interface::NetworkInterface
     }, utils::{check_kvm, copy_file, init, StdioTypes, TestArgs, DEFAULT_JAILER_BINARY, FIRECRACKER_BINARY_PATH}
@@ -227,7 +227,7 @@ async fn test_jailer_micro_vm_execution() -> Result<(), MachineError> {
     }
 
     // let (_send, sig_recv) = async_channel::bounded(64);
-    let (mut m, _exit_send) = Machine::new(cfg).map_err(|e| MachineError::Initialize(format!(
+    let mut m = Machine::new(cfg).map_err(|e| MachineError::Initialize(format!(
         "Failed to start VMM: {}", e.to_string()
     )))?;
 
@@ -304,23 +304,7 @@ async fn test_micro_vm_execution() -> Result<(), MachineError> {
     let socket_path = dir.join("test_micro_vm_execution.sock");
     let log_fifo = dir.join("firecracker.log");
     let metrics_fifo = dir.join("firecracker-metrics");
-
-    // let fw = nix::fcntl::open(&captured_log, OFlag::O_CREAT | OFlag::O_RDWR, Mode::S_IRUSR | Mode::S_IWUSR).map_err(|e| {
-    //     MachineError::FileAccess(format!(
-    //         "fail to open file {}: {}", captured_log.display(), e.to_string()
-    //     ))
-    // })?;
-
     let vmlinux_path = dir.join("vmlinux");
-    // let network_ifaces = UniNetworkInterfaces(vec![
-    //     UniNetworkInterface {
-    //         static_configuration: Some(StaticNetworkConfiguration{mac_address:"01-23-45-67-89-AB-CD-EF".to_string(),host_dev_name:Some("tap0".to_string()),ip_configuration: None}),
-    //         cni_configuration: None,
-    //         allow_mmds: None,
-    //         in_rate_limiter: None,
-    //         out_rate_limiter: None,
-    //     }
-    // ]);
     let network_iface = NetworkInterface {
         guest_mac: Some("01-23-45-67-89-AB-CD-EF".to_string()),
         host_dev_name: "tap0".into(),
@@ -365,40 +349,20 @@ async fn test_micro_vm_execution() -> Result<(), MachineError> {
 
     let cmd = VMMCommandBuilder::new().with_socket_path(&socket_path).with_bin(&TestArgs::get_firecracker_binary_path()).build();
     log::debug!("{:#?}", cmd);
-    // let (_send, sig_recv) = async_channel::bounded(64);
-    let (mut m, exit_send) = Machine::new(cfg)?;
+
+    let mut m = Machine::new(cfg)?;
     m.set_command(cmd.into());
 
-    // m.clear_validation();
+    if m.start_vmm_test().await.is_err() {
+        error!("fail to start vmm");
+        panic!("fail to start vmm");
+    }
     
-    let join_handle = tokio::spawn(async move {
-        if m.start_vmm_test().await.is_err() {
-            error!("fail to start vmm");
-            panic!("fail to start vmm");
-        }
+    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
-        // test_attach_root_drive(&mut m).await;
-
-        if m.wait().await.is_err() {
-            error!("fail to wait vmm");
-            panic!("fail to wait vmm");
-        }
-        if m.stop_vmm().await.is_err() {
-            error!("fail to stop vmm");
-        }
-    });
-    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-    exit_send.send(MachineMessage::StopVMM).await.unwrap();
-    info!("exit message sent");
-    tokio::join!(join_handle).0.unwrap();
-
-    // nix::unistd::close(fw).map_err(|e| {
-    //     MachineError::FileRemoving(format!(
-    //         "double closing {}: {}",
-    //         captured_log.display(),
-    //         e.to_string()
-    //     ))
-    // })?;
+    if m.stop_vmm().await.is_err() {
+        error!("fail to stop vmm");
+    }
 
     std::fs::remove_dir_all(&dir).map_err(|e| {
         MachineError::FileRemoving(format!(
@@ -432,7 +396,7 @@ async fn test_start_vmm() -> Result<(), MachineError> {
     let cmd = VMMCommandBuilder::new().with_socket_path(&socket_path).with_bin(&TestArgs::get_firecracker_binary_path()).build();
     
     // let (sig_send, sig_recv) = async_channel::bounded(64);
-    let (mut m, exit_send) = Machine::new(cfg)?;
+    let mut m = Machine::new(cfg)?;
     m.set_command(cmd.into());
 
     // m.clear_validation();
@@ -453,10 +417,6 @@ async fn test_start_vmm() -> Result<(), MachineError> {
 
     let msg = recv.await;
     info!("start_vmm sent: {:#?}", msg);
-
-    // close channels
-    exit_send.close();
-    // sig_send.close();
 
     // delete socket path
     std::fs::remove_file(&socket_path).map_err(|e| {
@@ -499,7 +459,7 @@ async fn test_start_once() -> Result<(), MachineError> {
     let cmd = VMMCommandBuilder::new().with_socket_path(&socket_path).with_bin(&TestArgs::get_firecracker_binary_path()).build();
 
     // let (sig_send, sig_recv) = async_channel::bounded(64);
-    let (mut m, exit_send) = Machine::new(cfg)?;
+    let mut m = Machine::new(cfg)?;
     m.set_command(cmd.into());
 
     let (send1, recv1) = tokio::sync::oneshot::channel();
@@ -524,10 +484,6 @@ async fn test_start_once() -> Result<(), MachineError> {
     info!("start1 sent: {:#?}", msg1);
     let msg2 = recv2.await;
     info!("start2 sent: {:#?}", msg2);
-
-    // close channels
-    exit_send.close();
-    // sig_send.close();
 
     // delete socket path
     std::fs::remove_file(&socket_path).map_err(|e| {
