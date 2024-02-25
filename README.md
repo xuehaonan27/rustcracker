@@ -4,7 +4,7 @@ A crate for communicating with [firecracker](https://github.com/firecracker-micr
 Thanks for supports from all members of LCPU (Linux Club of Peking University).
 
 # Example
-Create 10 microVMs asynchronously.
+Create a microVM.
 You may want to read [this](https://github.com/firecracker-microvm/firecracker/blob/main/docs/getting-started.md) first.
 
 ```Rust

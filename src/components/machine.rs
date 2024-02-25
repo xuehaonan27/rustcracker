@@ -3,6 +3,7 @@ use std::{ffi::OsStr, path::PathBuf, sync::Once};
 use log::{debug, error, info, warn};
 use nix::{fcntl, sys::stat::Mode, unistd};
 use serde::{Deserialize, Serialize};
+use tokio::process::Command;
 
 use crate::{
     components::command_builder::VMMCommandBuilder,
@@ -608,6 +609,7 @@ pub struct Machine {
 
     pub(crate) cmd: Option<tokio::process::Command>,
 
+    /* eliminated in core */
     pub(crate) child_process: Option<tokio::process::Child>,
 
     /// Whether machine is rebuilt from MachineCore
@@ -618,42 +620,11 @@ pub struct Machine {
     /// The actual machine config as reported by Firecracker
     /// id est, not the config set by user, which should be a field of `cfg`
     pub(crate) machine_config: MachineConfiguration,
-
-    /// startOnce ensures that the machine can only be started once
-    pub(crate) start_once: std::sync::Once,
-
-    /// fatalErr records an error that either stops or prevent starting the VMM
-    pub(crate) fatalerr: Option<MachineError>,
-
-    /// cleaning up after the machine terminates
-    pub(crate) cleanup_once: std::sync::Once,
 }
 
 unsafe impl Send for Machine {}
 unsafe impl Sync for Machine {}
-/*
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MachineMessage {
-    /// StopVMM stop the vmm forcefully by calling stop_vmm, which will send
-    /// SIGKILL to the child process (firecracker).
-    StopVMM,
-    /// NormalExit indicates that the child process (firecracker) has exited
-    /// normally.
-    /// Warning: It should only be sent and received inside the
-    /// Machine or sent from the Machine. Users should never try sending
-    /// this by exit_ch sender, which won't be handled.
-    NormalExit,
-    ///  InternelError indicates that the child process (firecracker) has exited
-    /// abnormally.
-    /// Warning: It should only be sent and received inside the
-    /// Machine or sent from the Machine. Users should never try sending
-    /// this by exit_ch sender, which won't be handled.
-    InternalError,
-    SignalSent {
-        signum: u32,
-    },
-}
-*/
+
 #[derive(thiserror::Error, Debug)]
 pub enum MachineError {
     /// Mostly problems related to directories error or unavailable files
@@ -704,49 +675,16 @@ pub enum MachineError {
 impl Machine {
     /// new initializes a new Machine instance and performs validation of the
     /// provided Config.
-    pub fn new(mut cfg: Config) -> Result<Machine, MachineError> {
+    pub fn new(cfg: Config) -> Result<Machine, MachineError> {
         /* Validate Config */
         cfg.validate()?;
 
         /* Validate network */
         cfg.validate_network()?;
 
-        /* Create a channel for communicating with microVM (stopping microVM) */
-        let mut machine = Self::default();
-
-        /* Set vmid for microVM */
-        /* Assign a random one if not existing */
-        if cfg.vmid.is_none() {
-            let random_id = uuid::Uuid::new_v4().to_string();
-            cfg.vmid = Some(random_id);
-        }
-        let vmid = cfg.vmid.as_ref().unwrap().to_owned();
-
-        info!(target: "Machine::new", "creating a new machine, vmid: {}", vmid);
-
-        if cfg.enable_jailer {
-            /* jailing the microVM if jailer config provided and validate jailer config */
-            debug!(target: "Machine::new", "with jailer configuration: {:#?}", cfg.jailer_cfg.as_ref().unwrap());
-            cfg.validate_jailer_config()?;
-            machine.jail(&mut cfg)?;
-            info!(target: "Machine::new", "machine {} jailed", vmid);
-        } else {
-            /* microVM without jailer */
-            debug!(target: "Machine::new", "without jailer configuration");
-            let c = VMMCommandBuilder::default()
-                .with_socket_path(cfg.socket_path.as_ref().unwrap())
-                .with_args(vec![
-                    "--seccomp-level".to_string(),
-                    cfg.seccomp_level
-                        .unwrap_or(SECCOMP_LEVEL_DISABLE)
-                        .to_string(),
-                    "--id".to_string(),
-                    cfg.vmid.as_ref().unwrap().to_string(),
-                ]);
-            let c = c.build();
-            machine.cmd = Some(c.into());
-        }
-        debug!(target: "Machine::new", "start command: {:#?}", machine.cmd);
+        // Re-write cfg
+        let (cfg, cmd) = Machine::jail(cfg)?;
+        debug!(target: "Machine Config", "{}", format!("{:#?}", cfg));
 
         let agent_init_timeout = std::env::var(FIRECRACKER_INIT_TIMEOUT_ENV);
         let agent_init_timeout = match agent_init_timeout {
@@ -770,7 +708,8 @@ impl Machine {
             })?,
             Err(_) => DEFAULT_FIRECRACKER_REQUEST_TIMEOUT_SECONDS,
         };
-        machine.agent = Agent::new(
+
+        let agent = Agent::new(
             cfg.socket_path.as_ref().ok_or(MachineError::Initialize(
                 "no socket_path provided in the config".to_string(),
             ))?,
@@ -779,8 +718,7 @@ impl Machine {
         );
         info!(target: "Machine::new", "machine agent created monitoring socket at {:#?}", cfg.socket_path.as_ref().unwrap());
 
-        // assign machine configuration
-        machine.machine_config = cfg
+        let machine_config = cfg
             .machine_cfg
             .as_ref()
             .ok_or(MachineError::Initialize(
@@ -788,21 +726,15 @@ impl Machine {
             ))?
             .to_owned();
 
-        // assign global configuration
-        machine.cfg = cfg.to_owned();
-
-        // temp: use default network namespace path
-        let mut default_netns_path: PathBuf = DEFAULT_NETNS_DIR.into();
-        default_netns_path = default_netns_path.join(machine.cfg.vmid.as_ref().unwrap());
-
-        // netns setting
-        // if there's no network namespace set, then use default net namespace path
-        if machine.cfg.net_ns.is_none() {
-            machine.cfg.net_ns = Some(default_netns_path);
-        }
-
-        debug!(target: "Machine Config", "{}", format!("{:#?}", machine.cfg));
-        debug!(target: "Machine::new", "exiting Machine::new");
+        let machine = Machine {
+            agent,
+            machine_config,
+            cfg,
+            cmd: Some(cmd),
+            child_process: None,
+            rebuilt: false,
+            pid: None,
+        };
         Ok(machine)
     }
 
@@ -821,12 +753,7 @@ impl Machine {
             rebuilt: true,
             pid: Some(core.pid),
             machine_config: MachineConfiguration::default(),
-            start_once: Once::new(),
-            fatalerr: None,
-            cleanup_once: Once::new(),
         };
-
-        machine.start_once.call_once(|| {});
 
         Ok(machine)
     }
@@ -846,16 +773,6 @@ impl Machine {
     /// Start actually start a Firecracker microVM.
     pub async fn start(&mut self) -> Result<(), MachineError> {
         debug!(target: "Machine::start", "called Machine::start");
-
-        // 0. make sure only start once
-        let mut already_started = true;
-        self.start_once.call_once(|| {
-            debug!(target: "Machine::start", "marking Machine as started");
-            already_started = false;
-        });
-        if already_started {
-            return Err(MachineError::Execute("machine already started".to_string()));
-        }
 
         // 1. start firecracker process
         // added socket clear
@@ -1151,16 +1068,7 @@ impl Machine {
 
     async fn do_clean_up(&mut self) -> Result<(), MachineError> {
         debug!(target: "Machine::do_clean_up", "called Machine::do_clean_up");
-        let mut marker = true;
-        self.cleanup_once.call_once(|| {
-            marker = false;
-        });
-        if marker {
-            error!(target: "Machine::do_clean_up", "cannot call this function more than once");
-            return Err(MachineError::Cleaning(
-                "Cannot cleaning up more than once".to_string(),
-            ));
-        }
+        
         // Without jailer
         if let Some(true) = self.cfg.log_clear {
             if let Err(e) = self.clear_file(&self.cfg.log_fifo).await {
@@ -1463,10 +1371,23 @@ impl Machine {
 
     /// jail will set up proper handlers and remove configuration validation due to
     /// stating of files
-    fn jail(&mut self, cfg: &mut Config) -> Result<(), MachineError> {
+    fn jail(cfg: Config) -> Result<(Config, Command), MachineError> {
         if !cfg.enable_jailer {
-            return Ok(());
+            let cmd = VMMCommandBuilder::default()
+                .with_socket_path(cfg.socket_path.as_ref().unwrap())
+                .with_args(vec![
+                    "--seccomp-level".to_string(),
+                    cfg.seccomp_level
+                        .unwrap_or(SECCOMP_LEVEL_DISABLE)
+                        .to_string(),
+                    "--id".to_string(),
+                    cfg.vmid.as_ref().unwrap().to_string(),
+                ]).build().into();
+            return Ok((cfg, cmd));
         }
+
+        let mut cfg = cfg.clone();
+
         if cfg.jailer_cfg.is_none() {
             return Err(MachineError::Initialize(
                 "jailer config was not set for use".to_string(),
@@ -1563,9 +1484,9 @@ impl Machine {
             builder = builder.with_net_ns(net_ns);
         }
 
-        self.cmd = Some(builder.build().into());
+        let cmd = builder.build().into();
 
-        Ok(())
+        Ok((cfg, cmd))
     }
 }
 
@@ -1580,9 +1501,6 @@ impl Default for Machine {
             rebuilt: false,
             pid: None,
             machine_config: MachineConfiguration::default(),
-            start_once: Once::new(),
-            fatalerr: None,
-            cleanup_once: Once::new(),
         }
     }
 }
@@ -1658,11 +1576,6 @@ impl Machine {
 
         if let Err(e) = start_result {
             error!(target: "Machine::start_vmm", "Failed to start vmm: {}", e.to_string());
-            self.fatalerr = Some(MachineError::Execute(format!(
-                "failed to start vmm: {}",
-                e.to_string()
-            )));
-
             return Err(MachineError::Execute(format!(
                 "failed to start vmm: {}",
                 e.to_string()
@@ -1683,7 +1596,6 @@ impl Machine {
             .await
             .map_err(|e| {
                 let msg = e.to_string();
-                self.fatalerr = Some(e);
                 error!(target: "Machine::start_vmm", "firecracker did not create API socket {}", self.cfg.socket_path.as_ref().unwrap().display());
                 MachineError::Initialize(format!(
                     "firecracker did not create API socket {}: {}",
@@ -1830,9 +1742,6 @@ impl Machine {
         if self.cfg.machine_cfg.is_none() {
             // one must provide machine config
             error!(target: "Machine::create_machine", "no machine config provided");
-            self.fatalerr = Some(MachineError::Execute(
-                "no machine config provided".to_string(),
-            ));
             return Err(MachineError::Execute(
                 "no machine config provided".to_string(),
             ));
@@ -1842,10 +1751,6 @@ impl Machine {
             .await
             .map_err(|e| {
                 error!(target: "Machine::create_machine", "fail to put machine configuration");
-                self.fatalerr = Some(MachineError::Initialize(format!(
-                    "PutMachineConfiguration returned {}",
-                    e.to_string()
-                )));
                 MachineError::Initialize(format!(
                     "PutMachineConfiguration returned {}",
                     e.to_string()
@@ -2216,7 +2121,7 @@ impl Machine {
         Ok(())
     }
 
-    pub async fn get_export_vm_config(&mut self) -> Result<FullVmConfiguration, MachineError> {
+    pub async fn get_export_vm_config(&self) -> Result<FullVmConfiguration, MachineError> {
         debug!(target: "Machine::get_export_vm_config", "called Machine::get_export_vm_config");
         let config: FullVmConfiguration = self.agent.get_export_vm_config().await.map_err(|e| {
             error!(target: "Machine::get_export_vm_config", "unable to inspect vm config: {}", e);
@@ -2268,6 +2173,7 @@ impl Machine {
     }
 }
 
+/*
 pub mod test_utils {
     use std::{collections::HashMap, path::PathBuf};
 
@@ -2498,3 +2404,4 @@ pub mod test_utils {
         Ok(())
     }
 }
+*/
