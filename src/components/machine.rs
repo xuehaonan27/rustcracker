@@ -1,4 +1,4 @@
-use std::{ffi::OsStr, path::PathBuf, sync::Once};
+use std::{ffi::OsStr, path::PathBuf};
 
 use log::{debug, error, info, warn};
 use nix::{fcntl, sys::stat::Mode, unistd};
@@ -2173,7 +2173,7 @@ impl Machine {
     }
 }
 
-/*
+
 pub mod test_utils {
     use std::{collections::HashMap, path::PathBuf};
 
@@ -2404,4 +2404,3 @@ pub mod test_utils {
         Ok(())
     }
 }
-*/
