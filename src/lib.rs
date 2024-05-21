@@ -1,8 +1,9 @@
+pub mod command;
 pub mod micro_http;
 pub mod models;
-pub mod operations;
+pub mod ops_res;
 pub mod ser;
-pub mod command;
+pub mod events;
 
 use std::{io, num::ParseIntError, string::FromUtf8Error};
 
@@ -11,7 +12,10 @@ use serde::{Deserialize, Serialize};
 mod rtck_conn {
     use std::io::{BufRead, Write};
 
-    use crate::{micro_http::{http_io, Http}, RtckResult};
+    use crate::{
+        micro_http::{http_io, Http, HttpResponse},
+        RtckResult,
+    };
 
     pub struct RtckConn<S> {
         // Stream of connection
@@ -25,7 +29,7 @@ mod rtck_conn {
     }
 
     impl<S: BufRead> RtckConn<S> {
-        pub fn read_response(&mut self) -> RtckResult<String> {
+        pub fn read_response(&mut self) -> RtckResult<HttpResponse> {
             http_io::read_response(&mut self.stream)
         }
     }
@@ -40,7 +44,10 @@ mod rtck_conn {
 mod rtck_conn_async {
     use tokio::io::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 
-    use crate::{micro_http::http_io, RtckResult};
+    use crate::{
+        micro_http::{http_io, HttpResponse},
+        RtckResult,
+    };
 
     pub struct RtckConnAsync<S> {
         // Async stream of connection
@@ -54,7 +61,7 @@ mod rtck_conn_async {
     }
 
     impl<S: AsyncBufRead + Unpin> RtckConnAsync<S> {
-        pub async fn read_response(&mut self) -> RtckResult<String> {
+        pub async fn read_response(&mut self) -> RtckResult<HttpResponse> {
             http_io::read_response_async(&mut self.stream).await
         }
     }
@@ -66,12 +73,12 @@ mod rtck_conn_async {
     }
 }
 
-mod rtck {
+pub mod rtck {
     use std::io::{BufRead, Write};
 
     use crate::{
         micro_http::Http,
-        operations::{Operation, Response},
+        ops_res::{Operation, Response},
         rtck_conn::RtckConn,
         RtckResult,
     };
@@ -80,10 +87,18 @@ mod rtck {
         conn: RtckConn<S>,
     }
 
+    impl<S> Rtck<S> {
+        pub fn from_stream(stream: S) -> Self {
+            Self {
+                conn: RtckConn::from_stream(stream),
+            }
+        }
+    }
+
     impl<S: BufRead> Rtck<S> {
         pub fn recv_response<R: Response>(&mut self) -> RtckResult<R::Data> {
             let res = self.conn.read_response()?;
-            Ok(R::decode(res)?)
+            Ok(R::decode(&res)?)
         }
     }
 
@@ -95,19 +110,32 @@ mod rtck {
     }
 }
 
-mod rtck_async {
+pub mod rtck_async {
     use tokio::io::{AsyncBufRead, AsyncWrite};
 
-    use crate::{micro_http::Http, operations::{Operation, Response}, rtck_conn_async::RtckConnAsync, RtckResult};
+    use crate::{
+        micro_http::Http,
+        ops_res::{Operation, Response},
+        rtck_conn_async::RtckConnAsync,
+        RtckResult,
+    };
 
     pub struct RtckAsync<S> {
         conn: RtckConnAsync<S>,
     }
 
+    impl<S> RtckAsync<S> {
+        pub fn from_stream(stream: S) -> Self {
+            Self {
+                conn: RtckConnAsync::from_stream(stream),
+            }
+        }
+    }
+
     impl<S: AsyncBufRead + Unpin> RtckAsync<S> {
         pub async fn recv_response<R: Response>(&mut self) -> RtckResult<R::Data> {
             let res = self.conn.read_response().await?;
-            Ok(R::decode(res)?)
+            Ok(R::decode(&res)?)
         }
     }
 

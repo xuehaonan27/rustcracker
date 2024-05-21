@@ -28,14 +28,30 @@ impl HttpMethod {
     }
 }
 
+pub struct HttpResponse {
+    headers: String,
+    body: String,
+}
+
+impl HttpResponse {
+    pub fn headers(&self) -> &String {
+        &self.headers
+    }
+    pub fn body(&self) -> &String {
+        &self.body
+    }
+}
+
 pub mod http_io {
-    use std::{io::BufRead, str::from_utf8};
+    use std::io::BufRead;
 
     use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt};
 
     use crate::{RtckError, RtckResult};
 
-    pub fn read_response<S: BufRead>(stream: &mut S) -> RtckResult<String> {
+    use super::HttpResponse;
+
+    pub fn read_response<S: BufRead>(stream: &mut S) -> RtckResult<HttpResponse> {
         let mut res = String::new();
         let mut buf = String::new();
 
@@ -58,8 +74,8 @@ pub mod http_io {
             Some(len) => {
                 let mut buf: Vec<u8> = Vec::with_capacity(len);
                 stream.read_exact(&mut buf)?;
-                res += from_utf8(&buf)?;
-                Ok(res)
+                let body = String::from_utf8(buf)?;
+                Ok(HttpResponse { headers: res, body })
             }
             None => Err(RtckError::new(
                 crate::RtckErrorClass::IoError,
@@ -70,7 +86,7 @@ pub mod http_io {
 
     pub async fn read_response_async<S: AsyncBufRead + Unpin>(
         stream: &mut S,
-    ) -> RtckResult<String> {
+    ) -> RtckResult<HttpResponse> {
         let mut res = String::new();
         let mut buf = String::new();
 
@@ -93,8 +109,8 @@ pub mod http_io {
             Some(len) => {
                 let mut buf: Vec<u8> = Vec::with_capacity(len);
                 stream.read_exact(&mut buf).await?;
-                res += from_utf8(&buf)?;
-                Ok(res)
+                let body = String::from_utf8(buf)?;
+                Ok(HttpResponse { headers: res, body })
             }
             None => Err(RtckError::new(
                 crate::RtckErrorClass::IoError,
@@ -107,5 +123,5 @@ pub mod http_io {
 pub trait Http {
     fn encode(&self) -> String;
 
-    fn decode<S: AsRef<str>>(line: &S) -> Self;
+    // fn decode<S: AsRef<str>>(line: &S) -> Self;
 }

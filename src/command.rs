@@ -1,6 +1,6 @@
 use crate::{
     micro_http::{Http, HttpMethod},
-    ser::Serde, RtckResult,
+    ser::Serde,
 };
 
 pub struct Command {
@@ -19,21 +19,5 @@ impl Http for Command {
             s.len(),
             s
         )
-    }
-
-    fn decode<S: AsRef<str>>(line: &S) -> Self {
-        let mut iter = line.as_ref().lines();
-        let mut first_line = iter.next().expect("Should not fail").split_ascii_whitespace().skip(1);
-
-        let code = first_line.next().expect("Should be code");
-        let desc = first_line.next().expect("Should be desc");
-
-        
-
-        for line in line.as_ref().lines() {
-
-        }
-
-        todo!()
     }
 }

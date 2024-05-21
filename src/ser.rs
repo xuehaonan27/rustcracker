@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::models::machine_configuration::MachineConfiguration;
 
 pub(crate) trait Serde {
@@ -19,6 +21,7 @@ impl Serde for MachineConfiguration {
 }
 
 #[repr(transparent)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Empty {}
 
 impl Serde for Empty {

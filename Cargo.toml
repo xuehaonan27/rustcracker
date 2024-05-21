@@ -31,6 +31,3 @@ features = ["serde_derive"]
 
 [dependencies.serde_json]
 version = "1.0.116"
-
-[[bin]]
-name = "demo_server"
