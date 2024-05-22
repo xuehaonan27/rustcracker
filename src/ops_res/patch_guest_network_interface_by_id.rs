@@ -53,6 +53,15 @@ impl PatchGuestNetworkInterfaceByIdRes {
 
 impl Response for PatchGuestNetworkInterfaceByIdRes {
     type Data = Self;
+
+    fn is_succ(&self) -> bool {
+        self.data.is_left()
+    }
+
+    fn is_err(&self) -> bool {
+        self.data.is_right()
+    }
+
     fn blank() -> Self {
         Self {
             data: Either::Right(InternalError {
@@ -60,6 +69,7 @@ impl Response for PatchGuestNetworkInterfaceByIdRes {
             }),
         }
     }
+
     fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {

@@ -1,4 +1,5 @@
 use rustcracker::{
+    events::{Event, GetMachineConfiguration, PutMachineConfiguration},
     models::machine_configuration::MachineConfiguration,
     ops_res::{
         get_machine_configuration::{GetMachineConfigurationOps, GetMachineConfigurationRes},
@@ -40,11 +41,15 @@ fn sync_main() -> RtckResult<()> {
 }
 
 async fn async_main() -> RtckResult<()> {
+    // Select a stream that implements AsyncBufRead and AsyncWrite traits
+    // Connect the stream to target unix socket
     let stream = tokio::io::BufStream::new(tokio::net::UnixStream::connect("/tmp/api.sock").await?);
 
+    // Create an asynchronous Rtck with this stream
     let mut rtck = RtckAsync::from_stream(stream);
 
-    let put_machine_config = PutMachineConfigurationOps::new(MachineConfiguration {
+    // Create an asynchronous event
+    let put_machine_config = PutMachineConfiguration::new(MachineConfiguration {
         cpu_template: None,
         ht_enabled: None,
         mem_size_mib: 256,
@@ -52,17 +57,11 @@ async fn async_main() -> RtckResult<()> {
         vcpu_count: 8,
     });
 
-    // Cooperative.
-    rtck.send_request(&put_machine_config).await?;
-    rtck.recv_response::<PutMachineConfigurationRes>().await?;
+    // Execute this event with the Rtck
+    rtck.execute(&put_machine_config).await?;
 
-    let get_machine_config = GetMachineConfigurationOps::new();
-    rtck.send_request(&get_machine_config).await?;
-    rtck.recv_response::<GetMachineConfigurationRes>().await?;
+    // Inspect the status of the event
+    // let succ = put_machine_config.is_succ()?;
 
-    // let event = GetMachineConfiguration::new(get_machine_config);
-    // rtck.execute(&event).await?;
-    todo!()
+    Ok(())
 }
-
-// Implement bursty version. Add queuing and timeout to Rtcks.

@@ -8,6 +8,8 @@ pub trait Operation {
 
 pub trait Response {
     type Data;
+    fn is_succ(&self) -> bool;
+    fn is_err(&self) -> bool;
     fn blank() -> Self where Self: Sized;
     fn decode(res: &HttpResponse) -> RtckResult<Self> where Self: Sized;
 }

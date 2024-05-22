@@ -5,7 +5,7 @@ pub mod models;
 pub mod ops_res;
 pub mod ser;
 
-use std::{io, num::ParseIntError, string::FromUtf8Error};
+use std::{io, num::ParseIntError, string::FromUtf8Error, sync::PoisonError};
 
 use serde::{Deserialize, Serialize};
 
@@ -114,10 +114,12 @@ pub mod rtck {
         pub fn execute<O: Operation, R: Response>(
             &mut self,
             event: &dyn Event<O, R>,
-        ) -> RtckResult<R> {
+        ) -> RtckResult<()> {
             let op = event.get_ops();
             self.send_request(op)?;
-            self.recv_response::<R>()
+            let res = self.recv_response::<R>()?;
+            event.set_res(res)?;
+            Ok(())
         }
     }
 }
@@ -162,11 +164,13 @@ pub mod rtck_async {
     impl<S: AsyncBufRead + AsyncWrite + Unpin> RtckAsync<S> {
         pub async fn execute<O: Operation + Sync, R: Response>(
             &mut self,
-            event: &dyn Event<O, R>,
-        ) -> RtckResult<R> {
+            event: &(dyn Event<O, R> + Sync),
+        ) -> RtckResult<()> {
             let op = event.get_ops();
             self.send_request(op).await?;
-            self.recv_response::<R>().await
+            let res = self.recv_response::<R>().await?;
+            event.set_res(res)?;
+            Ok(())
         }
     }
 }
@@ -185,6 +189,8 @@ pub enum RtckErrorClass {
     IoError,
     /// Error when parsing
     ParseError,
+    /// Error when the mutex is poisoned
+    SyncError,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -256,6 +262,12 @@ impl From<serde_json::Error> for RtckError {
             class: RtckErrorClass::SerdeError,
             desc: e.to_string(),
         }
+    }
+}
+
+impl<T> From<PoisonError<T>> for RtckError {
+    fn from(e: PoisonError<T>) -> Self {
+        RtckError { class: RtckErrorClass::SyncError, desc: e.to_string() }
     }
 }
 

@@ -34,14 +34,6 @@ pub struct PutMachineConfigurationRes {
 }
 
 impl PutMachineConfigurationRes {
-    pub fn is_succ(&self) -> bool {
-        self.data.is_left()
-    }
-
-    pub fn is_err(&self) -> bool {
-        self.data.is_right()
-    }
-
     pub fn succ(self) -> Empty {
         self.data.left().expect("Response is InternalError")
     }
@@ -53,6 +45,14 @@ impl PutMachineConfigurationRes {
 
 impl Response for PutMachineConfigurationRes {
     type Data = Self;
+    fn is_succ(&self) -> bool {
+        self.data.is_left()
+    }
+
+    fn is_err(&self) -> bool {
+        self.data.is_right()
+    }
+
     fn blank() -> Self {
         Self {
             data: Either::Right(InternalError {
