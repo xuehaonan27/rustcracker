@@ -4,7 +4,7 @@ use crate::ops_res::{
 };
 
 pub trait Event<O: Operation, R: Response> {
-    // fn new(ops: O) -> Self;
+    fn new(ops: O) -> Self where Self: Sized;
 
     fn get_ops(&self) -> &O;
 
@@ -19,9 +19,9 @@ pub struct GetMachineConfiguration {
 }
 
 impl Event<GetMachineConfigurationOps, GetMachineConfigurationRes> for GetMachineConfiguration {
-    // fn new(ops: GetMachineConfigurationOps) -> Self {
-    //     Self { ops, res: GetMachineConfigurationRes::new() }
-    // }
+    fn new(ops: GetMachineConfigurationOps) -> Self {
+        Self { ops, res: GetMachineConfigurationRes::blank() }
+    }
 
     fn get_ops(&self) -> &GetMachineConfigurationOps {
         &self.ops

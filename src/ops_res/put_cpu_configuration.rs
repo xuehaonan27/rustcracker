@@ -52,6 +52,13 @@ impl PutCpuConfigurationRes {
 
 impl Response for PutCpuConfigurationRes {
     type Data = Self;
+    fn blank() -> Self {
+        Self {
+            data: Either::Right(InternalError {
+                fault_message: "Rustcracker: initial empty response".into(),
+            }),
+        }
+    }
     fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
