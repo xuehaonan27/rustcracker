@@ -2,7 +2,7 @@ use either::Either;
 
 use crate::{
     command::Command,
-    micro_http::{HttpMethod, HttpResponse},
+    micro_http::HttpMethod,
     models::{error::InternalError, machine_configuration::MachineConfiguration},
     ser::Empty,
 };
@@ -53,7 +53,7 @@ impl PutMachineConfigurationRes {
 
 impl Response for PutMachineConfigurationRes {
     type Data = Self;
-    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self::Data> {
+    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
                 data: either::Left(serde_json::from_slice(res.body().as_bytes())?),

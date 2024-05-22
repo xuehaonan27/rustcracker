@@ -53,15 +53,7 @@ impl GetMachineConfigurationRes {
 
 impl Response for GetMachineConfigurationRes {
     type Data = Self;
-    fn new() -> Self {
-        Self {
-            data: Either::Right(InternalError {
-                fault_message: "Initial response body".into(),
-            }),
-        }
-    }
-
-    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self::Data> {
+    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
                 data: either::Left(serde_json::from_slice(res.body().as_bytes())?),

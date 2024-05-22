@@ -8,8 +8,7 @@ pub trait Operation {
 
 pub trait Response {
     type Data;
-    fn new() -> Self;
-    fn decode(res: &HttpResponse) -> RtckResult<Self::Data>;
+    fn decode(res: &HttpResponse) -> RtckResult<Self> where Self: Sized;
 }
 
 pub mod create_snapshot;

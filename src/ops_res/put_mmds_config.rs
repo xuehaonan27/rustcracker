@@ -52,7 +52,7 @@ impl PutMmdsConfigRes {
 
 impl Response for PutMmdsConfigRes {
     type Data = Self;
-    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self::Data> {
+    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
                 data: either::Left(serde_json::from_slice(res.body().as_bytes())?),

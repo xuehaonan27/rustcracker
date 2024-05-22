@@ -1,11 +1,15 @@
 use either::Either;
 
-use crate::{command::Command, models::{error::InternalError, instance_action_info::InstanceActionInfo}, ser::Empty};
+use crate::{
+    command::Command,
+    models::{error::InternalError, instance_action_info::InstanceActionInfo},
+    ser::Empty,
+};
 
 use super::{Operation, Response};
 
 pub struct CreateSyncActionOps {
-    data: InstanceActionInfo
+    data: InstanceActionInfo,
 }
 
 impl CreateSyncActionOps {
@@ -19,13 +23,13 @@ impl Operation for CreateSyncActionOps {
         Command {
             method: crate::micro_http::HttpMethod::PUT,
             url: "/actions".into(),
-            data: Box::new(self.data.clone())
+            data: Box::new(self.data.clone()),
         }
     }
 }
 
 pub struct CreateSyncActionRes {
-    data: Either<Empty,InternalError>
+    data: Either<Empty, InternalError>,
 }
 
 impl CreateSyncActionRes {
@@ -48,7 +52,7 @@ impl CreateSyncActionRes {
 
 impl Response for CreateSyncActionRes {
     type Data = Self;
-    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self::Data> {
+    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
                 data: either::Left(serde_json::from_slice(res.body().as_bytes())?),

@@ -97,7 +97,7 @@ pub mod rtck {
     }
 
     impl<S: BufRead> Rtck<S> {
-        pub fn recv_response<R: Response>(&mut self) -> RtckResult<R::Data> {
+        pub fn recv_response<R: Response>(&mut self) -> RtckResult<R> {
             let res = self.conn.read_response()?;
             Ok(R::decode(&res)?)
         }
@@ -114,7 +114,7 @@ pub mod rtck {
         pub fn execute<O: Operation, R: Response>(
             &mut self,
             event: &dyn Event<O, R>,
-        ) -> RtckResult<R::Data> {
+        ) -> RtckResult<R> {
             let op = event.get_ops();
             self.send_request(op)?;
             self.recv_response::<R>()
@@ -146,7 +146,7 @@ pub mod rtck_async {
     }
 
     impl<S: AsyncBufRead + Unpin> RtckAsync<S> {
-        pub async fn recv_response<R: Response>(&mut self) -> RtckResult<R::Data> {
+        pub async fn recv_response<R: Response>(&mut self) -> RtckResult<R> {
             let res = self.conn.read_response().await?;
             Ok(R::decode(&res)?)
         }
@@ -163,7 +163,7 @@ pub mod rtck_async {
         pub async fn execute<O: Operation + Sync, R: Response>(
             &mut self,
             event: &dyn Event<O, R>,
-        ) -> RtckResult<R::Data> {
+        ) -> RtckResult<R> {
             let op = event.get_ops();
             self.send_request(op).await?;
             self.recv_response::<R>().await

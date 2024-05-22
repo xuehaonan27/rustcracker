@@ -1,20 +1,23 @@
 use rustcracker::{
-    models::machine_configuration::MachineConfiguration, ops_res::{
+    models::machine_configuration::MachineConfiguration,
+    ops_res::{
         get_machine_configuration::{GetMachineConfigurationOps, GetMachineConfigurationRes},
         put_machine_configuration::{PutMachineConfigurationOps, PutMachineConfigurationRes},
-    }, rtck::Rtck, rtck_async::RtckAsync, RtckResult
+    },
+    rtck::Rtck,
+    rtck_async::RtckAsync,
+    RtckResult,
 };
 
 fn main() {
     sync_main().expect("sync main error");
 
-    tokio::spawn(async {
-        async_main()
-    });
+    tokio::spawn(async { async_main() });
 }
 
 fn sync_main() -> RtckResult<()> {
-    let stream = bufstream::BufStream::new(std::os::unix::net::UnixStream::connect("/tmp/api.sock")?);
+    let stream =
+        bufstream::BufStream::new(std::os::unix::net::UnixStream::connect("/tmp/api.sock")?);
 
     let mut rtck = Rtck::from_stream(stream);
 
@@ -57,8 +60,8 @@ async fn async_main() -> RtckResult<()> {
     rtck.send_request(&get_machine_config).await?;
     rtck.recv_response::<GetMachineConfigurationRes>().await?;
 
-    let event = GetMachineConfiguration::new(get_machine_config);
-    rtck.execute(&event).await?;
+    // let event = GetMachineConfiguration::new(get_machine_config);
+    // rtck.execute(&event).await?;
     todo!()
 }
 
