@@ -2,38 +2,37 @@ use either::Either;
 
 use crate::{
     command::Command,
-    micro_http::{HttpMethod, HttpResponse},
-    models::{error::InternalError, machine_configuration::MachineConfiguration},
+    models::{error::InternalError, instance_info::InstanceInfo},
     ser::Empty,
 };
 
 use super::{Operation, Response};
 
-pub struct PutMachineConfigurationOps {
-    data: MachineConfiguration,
+pub struct DescribeInstanceOps {
+    data: Empty,
 }
 
-impl PutMachineConfigurationOps {
-    pub fn new(data: MachineConfiguration) -> Self {
-        Self { data }
+impl DescribeInstanceOps {
+    pub fn new() -> Self {
+        Self { data: Empty {} }
     }
 }
 
-impl Operation for PutMachineConfigurationOps {
-    fn encode(&self) -> Command {
+impl Operation for DescribeInstanceOps {
+    fn encode(&self) -> crate::command::Command {
         Command {
-            method: HttpMethod::PUT,
-            url: "/machine-config".into(),
-            data: Box::new(self.data.clone()),
+            method: crate::micro_http::HttpMethod::GET,
+            url: "/".into(),
+            data: Box::new(self.data),
         }
     }
 }
 
-pub struct PutMachineConfigurationRes {
-    data: Either<Empty, InternalError>,
+pub struct DescribeInstanceRes {
+    data: Either<InstanceInfo, InternalError>,
 }
 
-impl PutMachineConfigurationRes {
+impl DescribeInstanceRes {
     pub fn is_succ(&self) -> bool {
         self.data.is_left()
     }
@@ -42,7 +41,7 @@ impl PutMachineConfigurationRes {
         self.data.is_right()
     }
 
-    pub fn succ(self) -> Empty {
+    pub fn succ(self) -> InstanceInfo {
         self.data.left().expect("Response is InternalError")
     }
 
@@ -51,7 +50,7 @@ impl PutMachineConfigurationRes {
     }
 }
 
-impl Response for PutMachineConfigurationRes {
+impl Response for DescribeInstanceRes {
     type Data = Self;
     fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self::Data> {
         if res.is_fine() {

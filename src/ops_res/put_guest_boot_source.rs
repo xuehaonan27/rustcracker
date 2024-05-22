@@ -2,38 +2,37 @@ use either::Either;
 
 use crate::{
     command::Command,
-    micro_http::{HttpMethod, HttpResponse},
-    models::{error::InternalError, machine_configuration::MachineConfiguration},
+    models::{boot_source::BootSource, error::InternalError},
     ser::Empty,
 };
 
 use super::{Operation, Response};
 
-pub struct PutMachineConfigurationOps {
-    data: MachineConfiguration,
+pub struct PutGuestBootSourceOps {
+    data: BootSource,
 }
 
-impl PutMachineConfigurationOps {
-    pub fn new(data: MachineConfiguration) -> Self {
+impl PutGuestBootSourceOps {
+    pub fn new(data: BootSource) -> Self {
         Self { data }
     }
 }
 
-impl Operation for PutMachineConfigurationOps {
-    fn encode(&self) -> Command {
+impl Operation for PutGuestBootSourceOps {
+    fn encode(&self) -> crate::command::Command {
         Command {
-            method: HttpMethod::PUT,
-            url: "/machine-config".into(),
+            method: crate::micro_http::HttpMethod::PUT,
+            url: "/boot-source".into(),
             data: Box::new(self.data.clone()),
         }
     }
 }
 
-pub struct PutMachineConfigurationRes {
+pub struct PutGuestBootSourceRes {
     data: Either<Empty, InternalError>,
 }
 
-impl PutMachineConfigurationRes {
+impl PutGuestBootSourceRes {
     pub fn is_succ(&self) -> bool {
         self.data.is_left()
     }
@@ -51,7 +50,7 @@ impl PutMachineConfigurationRes {
     }
 }
 
-impl Response for PutMachineConfigurationRes {
+impl Response for PutGuestBootSourceRes {
     type Data = Self;
     fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self::Data> {
         if res.is_fine() {

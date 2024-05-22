@@ -2,38 +2,38 @@ use either::Either;
 
 use crate::{
     command::Command,
-    micro_http::{HttpMethod, HttpResponse},
-    models::{error::InternalError, machine_configuration::MachineConfiguration},
+    models::{error::InternalError, partial_network_interface::PartialNetworkInterface},
     ser::Empty,
 };
 
 use super::{Operation, Response};
 
-pub struct PutMachineConfigurationOps {
-    data: MachineConfiguration,
+pub struct PatchGuestNetworkInterfaceByIdOps {
+    data: PartialNetworkInterface,
 }
 
-impl PutMachineConfigurationOps {
-    pub fn new(data: MachineConfiguration) -> Self {
+impl PatchGuestNetworkInterfaceByIdOps {
+    pub fn new(data: PartialNetworkInterface) -> Self {
         Self { data }
     }
 }
 
-impl Operation for PutMachineConfigurationOps {
-    fn encode(&self) -> Command {
+impl Operation for PatchGuestNetworkInterfaceByIdOps {
+    fn encode(&self) -> crate::command::Command {
+        let iface_id = &self.data.iface_id;
         Command {
-            method: HttpMethod::PUT,
-            url: "/machine-config".into(),
+            method: crate::micro_http::HttpMethod::PATCH,
+            url: format!("/network-interfaces/{iface_id}"),
             data: Box::new(self.data.clone()),
         }
     }
 }
 
-pub struct PutMachineConfigurationRes {
+pub struct PatchGuestNetworkInterfaceByIdRes {
     data: Either<Empty, InternalError>,
 }
 
-impl PutMachineConfigurationRes {
+impl PatchGuestNetworkInterfaceByIdRes {
     pub fn is_succ(&self) -> bool {
         self.data.is_left()
     }
@@ -51,7 +51,7 @@ impl PutMachineConfigurationRes {
     }
 }
 
-impl Response for PutMachineConfigurationRes {
+impl Response for PatchGuestNetworkInterfaceByIdRes {
     type Data = Self;
     fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self::Data> {
         if res.is_fine() {

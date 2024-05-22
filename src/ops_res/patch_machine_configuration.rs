@@ -2,38 +2,37 @@ use either::Either;
 
 use crate::{
     command::Command,
-    micro_http::{HttpMethod, HttpResponse},
     models::{error::InternalError, machine_configuration::MachineConfiguration},
     ser::Empty,
 };
 
 use super::{Operation, Response};
 
-pub struct PutMachineConfigurationOps {
+pub struct PatchMachineConfigurationOps {
     data: MachineConfiguration,
 }
 
-impl PutMachineConfigurationOps {
+impl PatchMachineConfigurationOps {
     pub fn new(data: MachineConfiguration) -> Self {
         Self { data }
     }
 }
 
-impl Operation for PutMachineConfigurationOps {
-    fn encode(&self) -> Command {
+impl Operation for PatchMachineConfigurationOps {
+    fn encode(&self) -> crate::command::Command {
         Command {
-            method: HttpMethod::PUT,
+            method: crate::micro_http::HttpMethod::PATCH,
             url: "/machine-config".into(),
             data: Box::new(self.data.clone()),
         }
     }
 }
 
-pub struct PutMachineConfigurationRes {
+pub struct PatchMachineConfigurationRes {
     data: Either<Empty, InternalError>,
 }
 
-impl PutMachineConfigurationRes {
+impl PatchMachineConfigurationRes {
     pub fn is_succ(&self) -> bool {
         self.data.is_left()
     }
@@ -51,7 +50,7 @@ impl PutMachineConfigurationRes {
     }
 }
 
-impl Response for PutMachineConfigurationRes {
+impl Response for PatchMachineConfigurationRes {
     type Data = Self;
     fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self::Data> {
         if res.is_fine() {

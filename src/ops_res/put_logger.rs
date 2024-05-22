@@ -2,38 +2,37 @@ use either::Either;
 
 use crate::{
     command::Command,
-    micro_http::{HttpMethod, HttpResponse},
-    models::{error::InternalError, machine_configuration::MachineConfiguration},
+    models::{error::InternalError, logger::Logger},
     ser::Empty,
 };
 
 use super::{Operation, Response};
 
-pub struct PutMachineConfigurationOps {
-    data: MachineConfiguration,
+pub struct PutLoggerOps {
+    data: Logger,
 }
 
-impl PutMachineConfigurationOps {
-    pub fn new(data: MachineConfiguration) -> Self {
+impl PutLoggerOps {
+    pub fn new(data: Logger) -> Self {
         Self { data }
     }
 }
 
-impl Operation for PutMachineConfigurationOps {
-    fn encode(&self) -> Command {
+impl Operation for PutLoggerOps {
+    fn encode(&self) -> crate::command::Command {
         Command {
-            method: HttpMethod::PUT,
-            url: "/machine-config".into(),
+            method: crate::micro_http::HttpMethod::PUT,
+            url: "/logger".into(),
             data: Box::new(self.data.clone()),
         }
     }
 }
 
-pub struct PutMachineConfigurationRes {
+pub struct PutLoggerRes {
     data: Either<Empty, InternalError>,
 }
 
-impl PutMachineConfigurationRes {
+impl PutLoggerRes {
     pub fn is_succ(&self) -> bool {
         self.data.is_left()
     }
@@ -51,7 +50,7 @@ impl PutMachineConfigurationRes {
     }
 }
 
-impl Response for PutMachineConfigurationRes {
+impl Response for PutLoggerRes {
     type Data = Self;
     fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self::Data> {
         if res.is_fine() {

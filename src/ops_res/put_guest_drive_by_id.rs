@@ -1,39 +1,38 @@
 use either::Either;
 
 use crate::{
-    command::Command,
-    micro_http::{HttpMethod, HttpResponse},
-    models::{error::InternalError, machine_configuration::MachineConfiguration},
+    models::{drive::Drive, error::InternalError},
     ser::Empty,
 };
 
 use super::{Operation, Response};
 
-pub struct PutMachineConfigurationOps {
-    data: MachineConfiguration,
+pub struct PutGuestDriveByIdOps {
+    data: Drive,
 }
 
-impl PutMachineConfigurationOps {
-    pub fn new(data: MachineConfiguration) -> Self {
+impl PutGuestDriveByIdOps {
+    pub fn new(data: Drive) -> Self {
         Self { data }
     }
 }
 
-impl Operation for PutMachineConfigurationOps {
-    fn encode(&self) -> Command {
-        Command {
-            method: HttpMethod::PUT,
-            url: "/machine-config".into(),
+impl Operation for PutGuestDriveByIdOps {
+    fn encode(&self) -> crate::command::Command {
+        let drive_id = &self.data.drive_id;
+        crate::command::Command {
+            method: crate::micro_http::HttpMethod::PUT,
+            url: format!("/drives/{drive_id}"),
             data: Box::new(self.data.clone()),
         }
     }
 }
 
-pub struct PutMachineConfigurationRes {
+pub struct PutGuestDriveByIdRes {
     data: Either<Empty, InternalError>,
 }
 
-impl PutMachineConfigurationRes {
+impl PutGuestDriveByIdRes {
     pub fn is_succ(&self) -> bool {
         self.data.is_left()
     }
@@ -51,7 +50,7 @@ impl PutMachineConfigurationRes {
     }
 }
 
-impl Response for PutMachineConfigurationRes {
+impl Response for PutGuestDriveByIdRes {
     type Data = Self;
     fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self::Data> {
         if res.is_fine() {

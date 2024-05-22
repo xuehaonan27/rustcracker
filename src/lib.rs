@@ -1,9 +1,9 @@
 pub mod command;
+pub mod events;
 pub mod micro_http;
 pub mod models;
 pub mod ops_res;
 pub mod ser;
-pub mod events;
 
 use std::{io, num::ParseIntError, string::FromUtf8Error};
 
@@ -13,7 +13,7 @@ mod rtck_conn {
     use std::io::{BufRead, Write};
 
     use crate::{
-        micro_http::{http_io, Http, HttpResponse},
+        micro_http::{http_io, HttpResponse},
         RtckResult,
     };
 
@@ -77,6 +77,7 @@ pub mod rtck {
     use std::io::{BufRead, Write};
 
     use crate::{
+        events::Event,
         micro_http::Http,
         ops_res::{Operation, Response},
         rtck_conn::RtckConn,
@@ -104,8 +105,19 @@ pub mod rtck {
 
     impl<S: Write> Rtck<S> {
         pub fn send_request(&mut self, ops: &dyn Operation) -> RtckResult<()> {
-            let req = ops.encode().encode();
+            let req = ops.encode().encode()?;
             self.conn.write_request(&req)
+        }
+    }
+
+    impl<S: BufRead + Write> Rtck<S> {
+        pub fn execute<O: Operation, R: Response>(
+            &mut self,
+            event: &dyn Event<O, R>,
+        ) -> RtckResult<R::Data> {
+            let op = event.get_ops();
+            self.send_request(op)?;
+            self.recv_response::<R>()
         }
     }
 }
@@ -114,6 +126,7 @@ pub mod rtck_async {
     use tokio::io::{AsyncBufRead, AsyncWrite};
 
     use crate::{
+        events::Event,
         micro_http::Http,
         ops_res::{Operation, Response},
         rtck_conn_async::RtckConnAsync,
@@ -140,9 +153,20 @@ pub mod rtck_async {
     }
 
     impl<S: AsyncWrite + Unpin> RtckAsync<S> {
-        pub async fn send_request(&mut self, ops: &dyn Operation) -> RtckResult<()> {
-            let req = ops.encode().encode();
+        pub async fn send_request(&mut self, ops: &(dyn Operation + Sync)) -> RtckResult<()> {
+            let req = ops.encode().encode()?;
             self.conn.write_request(&req).await
+        }
+    }
+
+    impl<S: AsyncBufRead + AsyncWrite + Unpin> RtckAsync<S> {
+        pub async fn execute<O: Operation + Sync, R: Response>(
+            &mut self,
+            event: &dyn Event<O, R>,
+        ) -> RtckResult<R::Data> {
+            let op = event.get_ops();
+            self.send_request(op).await?;
+            self.recv_response::<R>().await
         }
     }
 }

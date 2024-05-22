@@ -29,11 +29,19 @@ impl HttpMethod {
 }
 
 pub struct HttpResponse {
+    code: usize,
     headers: String,
     body: String,
 }
 
 impl HttpResponse {
+    pub fn is_fine(&self) -> bool {
+        if self.code == 200 || self.code == 204 {
+            true
+        } else {
+            false
+        }
+    }
     pub fn headers(&self) -> &String {
         &self.headers
     }
@@ -55,6 +63,19 @@ pub mod http_io {
         let mut res = String::new();
         let mut buf = String::new();
 
+        // Get HTTP status code
+        stream.read_line(&mut buf)?;
+        res += &buf;
+        let code = buf
+            .split_ascii_whitespace()
+            .skip(1)
+            .next()
+            .ok_or(RtckError::new(
+                crate::RtckErrorClass::ParseError,
+                "Malformed HTTP response",
+            ))?
+            .parse::<usize>()?;
+
         const PATTERN: &'static str = "Content-Length: ";
         let mut len = None::<usize>;
         loop {
@@ -75,7 +96,11 @@ pub mod http_io {
                 let mut buf: Vec<u8> = Vec::with_capacity(len);
                 stream.read_exact(&mut buf)?;
                 let body = String::from_utf8(buf)?;
-                Ok(HttpResponse { headers: res, body })
+                Ok(HttpResponse {
+                    code,
+                    headers: res,
+                    body,
+                })
             }
             None => Err(RtckError::new(
                 crate::RtckErrorClass::IoError,
@@ -89,6 +114,19 @@ pub mod http_io {
     ) -> RtckResult<HttpResponse> {
         let mut res = String::new();
         let mut buf = String::new();
+
+        // Get HTTP status code
+        stream.read_line(&mut buf).await?;
+        res += &buf;
+        let code = buf
+            .split_ascii_whitespace()
+            .skip(1)
+            .next()
+            .ok_or(RtckError::new(
+                crate::RtckErrorClass::ParseError,
+                "Malformed HTTP response",
+            ))?
+            .parse::<usize>()?;
 
         const PATTERN: &'static str = "Content-Length: ";
         let mut len = None::<usize>;
@@ -110,7 +148,11 @@ pub mod http_io {
                 let mut buf: Vec<u8> = Vec::with_capacity(len);
                 stream.read_exact(&mut buf).await?;
                 let body = String::from_utf8(buf)?;
-                Ok(HttpResponse { headers: res, body })
+                Ok(HttpResponse {
+                    code,
+                    headers: res,
+                    body,
+                })
             }
             None => Err(RtckError::new(
                 crate::RtckErrorClass::IoError,
@@ -121,7 +163,5 @@ pub mod http_io {
 }
 
 pub trait Http {
-    fn encode(&self) -> String;
-
-    // fn decode<S: AsRef<str>>(line: &S) -> Self;
+    fn encode(&self) -> RtckResult<String>;
 }

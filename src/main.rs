@@ -1,12 +1,16 @@
 use rustcracker::{
     models::machine_configuration::MachineConfiguration, ops_res::{
-        get_machine_configuration::{GetMachineConfigurationOperation, GetMachineConfigurationResponse},
-        put_machine_configuration::{PutMachineConfigurationOperation, PutMachineConfigurationResponse},
+        get_machine_configuration::{GetMachineConfigurationOps, GetMachineConfigurationRes},
+        put_machine_configuration::{PutMachineConfigurationOps, PutMachineConfigurationRes},
     }, rtck::Rtck, rtck_async::RtckAsync, RtckResult
 };
 
 fn main() {
     sync_main().expect("sync main error");
+
+    tokio::spawn(async {
+        async_main()
+    });
 }
 
 fn sync_main() -> RtckResult<()> {
@@ -14,7 +18,7 @@ fn sync_main() -> RtckResult<()> {
 
     let mut rtck = Rtck::from_stream(stream);
 
-    let put_machine_config = PutMachineConfigurationOperation::new(MachineConfiguration {
+    let put_machine_config = PutMachineConfigurationOps::new(MachineConfiguration {
         cpu_template: None,
         ht_enabled: None,
         mem_size_mib: 256,
@@ -23,23 +27,13 @@ fn sync_main() -> RtckResult<()> {
     });
 
     rtck.send_request(&put_machine_config)?;
-    rtck.recv_response::<PutMachineConfigurationResponse>()?;
+    rtck.recv_response::<PutMachineConfigurationRes>()?;
 
-    let get_machine_config = GetMachineConfigurationOperation::new();
+    let get_machine_config = GetMachineConfigurationOps::new();
     rtck.send_request(&get_machine_config)?;
-    rtck.recv_response::<GetMachineConfigurationResponse>()?;
+    rtck.recv_response::<GetMachineConfigurationRes>()?;
 
     todo!()
-}
-
-/// Event
-pub struct PutMachineConfiguration {
-
-}
-
-/// Async event
-pub struct PutMachineConfigurationAsync {
-
 }
 
 async fn async_main() -> RtckResult<()> {
@@ -47,7 +41,7 @@ async fn async_main() -> RtckResult<()> {
 
     let mut rtck = RtckAsync::from_stream(stream);
 
-    let put_machine_config = PutMachineConfigurationOperation::new(MachineConfiguration {
+    let put_machine_config = PutMachineConfigurationOps::new(MachineConfiguration {
         cpu_template: None,
         ht_enabled: None,
         mem_size_mib: 256,
@@ -57,11 +51,14 @@ async fn async_main() -> RtckResult<()> {
 
     // Cooperative.
     rtck.send_request(&put_machine_config).await?;
-    rtck.recv_response::<PutMachineConfigurationResponse>().await?;
+    rtck.recv_response::<PutMachineConfigurationRes>().await?;
 
-    let get_machine_config = GetMachineConfigurationOperation::new();
+    let get_machine_config = GetMachineConfigurationOps::new();
     rtck.send_request(&get_machine_config).await?;
-    rtck.recv_response::<GetMachineConfigurationResponse>().await?;
+    rtck.recv_response::<GetMachineConfigurationRes>().await?;
+
+    let event = GetMachineConfiguration::new(get_machine_config);
+    rtck.execute(&event).await?;
     todo!()
 }
 
