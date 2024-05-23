@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// Consumption from the token bucket is unbounded in speed which allows for bursts bound in size
 /// by the amount of tokens available. Once the token bucket is empty, consumption speed is bound
 /// by the refill_rate.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TokenBucket {
     /// The initial size of a token bucket.
     /// Minimum: 0

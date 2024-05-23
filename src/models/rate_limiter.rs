@@ -4,7 +4,7 @@ use super::token_bucket::TokenBucket;
 /// RateLimiter Defines an IO rate limiter with independent bytes/s and ops/s limits.
 /// Limits are defined by configuring each of the _bandwidth_ and _ops_ token buckets.
 /// This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RateLimiter {
     /// Token bucket with bytes as tokens
     #[serde(rename = "banwidth")]

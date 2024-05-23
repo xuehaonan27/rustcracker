@@ -1,9 +1,16 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{models::{balloon::Balloon, drive::Drive, logger::LogLevel, machine_configuration::MachineConfiguration, network_interface::NetworkInterface, vsock::Vsock}, RtckError, RtckErrorClass, RtckResult};
+use crate::{
+    models::{
+        balloon::Balloon, drive::Drive, logger::LogLevel,
+        machine_configuration::MachineConfiguration, network_interface::NetworkInterface,
+        vsock::Vsock,
+    },
+    RtckError, RtckErrorClass, RtckResult,
+};
 
 /// Firecracker configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FirecrackerConfig {
     /// log_path defines the file path where the Firecracker log is located.
     /// will be disabled if log_fifo is set
@@ -93,7 +100,6 @@ pub struct FirecrackerConfig {
     pub init_metadata: Option<String>,
 }
 
-
 impl FirecrackerConfig {
     pub fn validate(&self) -> RtckResult<()> {
         todo!()
@@ -104,7 +110,7 @@ impl FirecrackerConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct JailerConfig {
     // GID the jailer switches to as it execs the target binary.
     pub gid: Option<u32>,
@@ -144,7 +150,7 @@ impl JailerConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GlobalConfig {
     pub using_jailer: bool,
     pub jailer_bin: Option<String>,
@@ -152,7 +158,7 @@ pub struct GlobalConfig {
     pub socket_path: String,
     pub frck_bin: String,
     pub frck_config: FirecrackerConfig,
-    
+
     // Where to put firecracker exported config
     pub frck_export: Option<String>,
 }
@@ -208,3 +214,85 @@ impl GlobalConfig {
 }
 
 // Global Config for Firecracker
+
+#[cfg(test)]
+mod test {
+    use crate::models::{
+        balloon::Balloon, drive::Drive, logger::LogLevel,
+        machine_configuration::MachineConfiguration, network_interface::NetworkInterface,
+    };
+
+    use super::{FirecrackerConfig, GlobalConfig};
+
+    #[test]
+    fn test_write_config_consistent() {
+        const SAVE_PATH: &'static str = "/tmp/test_firecracker_export_config.json";
+
+        let frck_config = FirecrackerConfig {
+            log_path: Some("/var/log/firecracker/vm.log".to_string()),
+            log_level: Some(LogLevel::Error),
+            log_clear: Some(true),
+            metrics_path: Some("/var/metrics/firecracker/metrics".to_string()),
+            metrics_clear: Some(true),
+            kernel_image_path: Some("/images/ubuntu_22_04.img".to_string()),
+            initrd_path: Some("/initrd/initrd_0".to_string()),
+            kernel_args: Some("console=ttyS0 reboot=k panic=1 pci=off".to_string()),
+            drives: Some(vec![Drive {
+                drive_id: "rootfs".to_string(),
+                path_on_host: "./ubuntu-22.04.ext4".to_string(),
+                is_read_only: false,
+                is_root_device: true,
+                partuuid: None,
+                cache_type: None,
+                rate_limiter: None,
+                io_engine: None,
+                socket: None,
+            }]),
+            network_interfaces: Some(vec![NetworkInterface {
+                guest_mac: Some("06:00:AC:10:00:02".to_string()),
+                host_dev_name: "tap0".to_string(),
+                iface_id: "net1".to_string(),
+                rx_rate_limiter: None,
+                tx_rate_limiter: None,
+            }]),
+            vsock_devices: None,
+            machine_cfg: Some(MachineConfiguration {
+                cpu_template: None,
+                ht_enabled: None,
+                mem_size_mib: 256,
+                track_dirty_pages: None,
+                vcpu_count: 8,
+            }),
+            vmid: Some("test_machine".to_string()),
+            net_ns: Some("mynetns".to_string()),
+            network_clear: Some(true),
+            seccomp_level: None,
+            mmds_address: None,
+            balloon: Some(Balloon {
+                amount_mib: 64,
+                deflate_on_oom: true,
+                stats_polling_interval_s: None,
+            }),
+            init_metadata: Some("This is initial metadata".to_string()),
+        };
+
+        let config = GlobalConfig {
+            using_jailer: false,
+            jailer_bin: None,
+            jailer_config: None,
+            socket_path: "/tmp/firecracker.sock".to_string(),
+            frck_bin: "/usr/bin/firecracker".to_string(),
+            frck_config,
+            frck_export: Some(SAVE_PATH.to_string()),
+        };
+
+        config.export_config().expect("Fail to export config");
+
+        let vec = std::fs::read(SAVE_PATH).expect("Fail to read config from file");
+
+        let config_: FirecrackerConfig =
+            serde_json::from_slice(&vec).expect("Fail to deserialize the config");
+
+        assert_eq!(config.frck_config, config_);
+    }
+}

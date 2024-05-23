@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 /// the features exposed to the guest are the same as in the selected instance type.
 /// This parameter has been deprecated and it will be removed in future Firecracker
 /// release.
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CPUTemplate(
     /// default: "None"
     pub CPUTemplateString,
 );
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CPUTemplateString {
     #[serde(rename = "C3")]
     C3,

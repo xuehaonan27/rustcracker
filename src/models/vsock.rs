@@ -26,7 +26,7 @@ E.g. "/path/to/host_vsock.sock_52" for port number 52.
 /// For guest-initiated connections, Firecracker will expect host software to be
 /// bound and listening on Unix sockets at `uds_path_<PORT>`.
 /// E.g. "/path/to/host_vsock.sock_52" for port number 52.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Vsock {
     /// Guest Vsock CID
     /// Required: true

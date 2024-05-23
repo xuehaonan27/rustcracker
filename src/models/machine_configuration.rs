@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::cpu_template::CPUTemplate;
 
 /// # Example
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MachineConfiguration {
     /// cpu template
     #[serde(rename = "cpu_template", skip_serializing_if = "Option::is_none")]

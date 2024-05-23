@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::rate_limiter::RateLimiter;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Drive {
     /// drive id
     /// Required: true
@@ -59,7 +59,7 @@ pub struct Drive {
     pub socket: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CacheType {
     #[serde(rename = "Unsafe")]
     Unsafe,
@@ -67,7 +67,7 @@ pub enum CacheType {
     WriteBack,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IoEngine {
     #[serde(rename = "Sync")]
     Sync,
