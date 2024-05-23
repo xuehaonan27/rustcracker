@@ -3,22 +3,6 @@ use serde::{Deserialize, Serialize};
 use super::cpu_template::CPUTemplate;
 
 /// # Example
-///
-/// ```
-/// // This piece of code will give you a machine configuration with
-/// // CPU template set to C3, 8 virtual CPU, memory
-/// // size set to 1024 MiB, hyperthreading enabled and
-/// // dirty pages tracking disabled.
-/// use rustcracker::model::machine_configuration::MachineConfiguration;
-/// use rustcracker::model::cpu_template::{CPUTemplate, CPUTemplateString};
-/// let machine_config =
-///     MachineConfiguration::default()
-///         .with_cpu_template(&CPUTemplate(CPUTemplateString::C3))
-///         .with_vcpu_count(8)
-///         .with_mem_size_mib(1024)
-///         .set_hyperthreading(true)
-///         .set_track_dirty_pages(false);
-/// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MachineConfiguration {
     /// cpu template

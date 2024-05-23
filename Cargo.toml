@@ -3,6 +3,11 @@ name = "rustcracker"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["tokio"]
+tokio = []
+tower = []
+
 [dependencies]
 hyper = { version = "1.3.1", features = ["client"] }
 bufstream = { version = "0.1.4", features = ["tokio"] }

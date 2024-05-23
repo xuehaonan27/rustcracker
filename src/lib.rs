@@ -1,5 +1,8 @@
 pub mod command;
+pub mod config;
 pub mod events;
+pub mod local;
+pub mod machine;
 pub mod micro_http;
 pub mod models;
 pub mod ops_res;
@@ -77,7 +80,7 @@ pub mod rtck {
     use std::io::{BufRead, Write};
 
     use crate::{
-        events::Event,
+        events::events::Event,
         micro_http::Http,
         ops_res::{Operation, Response},
         rtck_conn::RtckConn,
@@ -113,22 +116,23 @@ pub mod rtck {
     impl<S: BufRead + Write> Rtck<S> {
         pub fn execute<O: Operation, R: Response>(
             &mut self,
-            event: &dyn Event<O, R>,
+            event: &mut dyn Event<O, R>,
         ) -> RtckResult<()> {
             let op = event.get_ops();
             self.send_request(op)?;
             let res = self.recv_response::<R>()?;
-            event.set_res(res)?;
+            event.set_res(res);
             Ok(())
         }
     }
 }
 
+#[cfg(feature = "tokio")]
 pub mod rtck_async {
     use tokio::io::{AsyncBufRead, AsyncWrite};
 
     use crate::{
-        events::Event,
+        events::events_async::EventAsync,
         micro_http::Http,
         ops_res::{Operation, Response},
         rtck_conn_async::RtckConnAsync,
@@ -164,12 +168,12 @@ pub mod rtck_async {
     impl<S: AsyncBufRead + AsyncWrite + Unpin> RtckAsync<S> {
         pub async fn execute<O: Operation + Sync, R: Response>(
             &mut self,
-            event: &(dyn Event<O, R> + Sync),
+            event: &(dyn EventAsync<O, R> + Sync),
         ) -> RtckResult<()> {
             let op = event.get_ops();
             self.send_request(op).await?;
             let res = self.recv_response::<R>().await?;
-            event.set_res(res)?;
+            event.set_res(res);
             Ok(())
         }
     }
@@ -191,6 +195,10 @@ pub enum RtckErrorClass {
     ParseError,
     /// Error when the mutex is poisoned
     SyncError,
+    /// Error when validating the configuration
+    ConfigError,
+    /// Error when manipulating with firecracker or jailer
+    RemoteError,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -267,7 +275,10 @@ impl From<serde_json::Error> for RtckError {
 
 impl<T> From<PoisonError<T>> for RtckError {
     fn from(e: PoisonError<T>) -> Self {
-        RtckError { class: RtckErrorClass::SyncError, desc: e.to_string() }
+        RtckError {
+            class: RtckErrorClass::SyncError,
+            desc: e.to_string(),
+        }
     }
 }
 
@@ -295,5 +306,20 @@ mod error_serde {
         error: RtckErrorValueSer<'a>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<&'a Any>,
+    }
+}
+
+pub fn pressure_test(write_times: usize) {
+    use crate::micro_http::{bench, bench_async};
+    println!("Running http test pressure");
+    bench::test_read_pressure_interactive(write_times);
+
+    #[cfg(feature = "tokio")]
+    {
+        let rt = tokio::runtime::Runtime::new().expect("Fail to spawn runtime");
+        rt.block_on(async {
+            println!("Running async http test pressure");
+            bench_async::test_read_pressure(write_times).await;
+        })
     }
 }

@@ -1,16 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 /// Describes the balloon device statistics.
-/// # Example
-///
-/// ```
-/// // This piece of code will give you a balloon statistics
-/// // update structure with new statistics polling interval
-/// // set to 10 seconds which is used for updating the balloon
-/// // device. Before or after machine startup.
-/// use rustcracker::model::balloon_stats_update::BalloonStatsUpdate;
-/// let balloon_stats_update = BalloonStatsUpdate::new(10);
-/// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BalloonStatsUpdate {
     /// Interval in seconds between refreshing statistics.

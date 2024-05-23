@@ -1,22 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 /// Balloon device descriptor.
-///
-/// # Example
-///
-/// ```
-/// // This piece of code will give you a Balloon
-/// // configuration with target size set to 256 MiB,
-/// // deflating on out-of-memory enabled, statistics
-/// // refreshing enabled and set to 10 seconds between
-/// // two refreshing.
-/// use rustcracker::model::balloon::Balloon;
-///
-/// let balloon = Balloon::new()
-///     .with_amount_mib(256)
-///     .set_deflate_on_oom(true)
-///     .with_stats_polling_interval_s(10);
-/// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Balloon {
     /// Target balloon size in MiB
