@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -102,7 +104,51 @@ pub struct FirecrackerConfig {
 
 impl FirecrackerConfig {
     pub fn validate(&self) -> RtckResult<()> {
-        todo!()
+        match &self.log_path {
+            None => (),
+            Some(path) => {
+                let path = PathBuf::from(path);
+                if path.exists() {
+                    return Err(RtckError::new(
+                        RtckErrorClass::ConfigError,
+                        "Log path already occupied".to_string(),
+                    ));
+                }
+            }
+        }
+
+        match &self.metrics_path {
+            None => (),
+            Some(path) => {
+                let path = PathBuf::from(path);
+                if path.exists() {
+                    return Err(RtckError::new(
+                        RtckErrorClass::ConfigError,
+                        "Metrics path already occupied".to_string(),
+                    ));
+                }
+            }
+        }
+
+        match &self.kernel_image_path {
+            None => {
+                return Err(RtckError::new(
+                    RtckErrorClass::ConfigError,
+                    "Kernel image file must be specified in configuration".to_string(),
+                ))
+            }
+            Some(path) => {
+                let path = PathBuf::from(path);
+                if !path.exists() || !path.is_file() {
+                    return Err(RtckError::new(
+                        RtckErrorClass::ConfigError,
+                        "Kernel image file missing".to_string(),
+                    ));
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub fn to_vec(&self) -> RtckResult<Vec<u8>> {
@@ -112,52 +158,128 @@ impl FirecrackerConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct JailerConfig {
-    // GID the jailer switches to as it execs the target binary.
+    // `gid` the jailer switches to as it execs the target binary.
     pub gid: Option<u32>,
 
-    // UID the jailer switches to as it execs the target binary.
+    // `uid` the jailer switches to as it execs the target binary.
     pub uid: Option<u32>,
 
-    // ID is the unique VM identification string, which may contain alphanumeric
+    // `id` is the unique VM identification string, which may contain alphanumeric
     // characters and hyphens. The maximum id length is currently 64 characters
     pub id: Option<String>,
 
-    // NumaNode represents the NUMA node the process gets assigned to.
+    // `numa_node` represents the NUMA node the process gets assigned to.
     pub numa_node: Option<usize>,
 
-    // ExecFile is the path to the Firecracker binary that will be exec-ed by
+    // `exec_file` is the path to the Firecracker binary that will be exec-ed by
     // the jailer. The user can provide a path to any binary, but the interaction
     // with the jailer is mostly Firecracker specific.
     pub exec_file: Option<String>,
 
-    // JailerBinary specifies the jailer binary to be used for setting up the
+    // `jailer_bin` specifies the jailer binary to be used for setting up the
     // Firecracker VM jail.
     // If not specified it defaults to "jailer".
     pub jailer_bin: Option<String>,
 
-    // ChrootBaseDir represents the base folder where chroot jails are built. The
+    // `chroot_base_dir` represents the base folder where chroot jails are built. The
     // default is /srv/jailer
     pub chroot_base_dir: Option<String>,
 
-    //  Daemonize is set to true, call setsid() and redirect STDIN, STDOUT, and
-    //  STDERR to /dev/null
+    // `daemonize` is set to true, call setsid() and redirect STDIN, STDOUT, and
+    // STDERR to /dev/null
     pub daemonize: Option<bool>,
 }
 
 impl JailerConfig {
     pub fn validate(&self) -> RtckResult<()> {
-        todo!()
+        match &self.exec_file {
+            None => {
+                log::error!(
+                    "[Rustcracker {}:{}:JailerConfig::validate missing exec_file]",
+                    file!(),
+                    line!()
+                );
+                return Err(RtckError::new(
+                    RtckErrorClass::ConfigError,
+                    "Executable file (firecracker) must be specified in configuration".to_string(),
+                ));
+            }
+            Some(path) => {
+                let path = PathBuf::from(path);
+                if !path.exists() || !path.is_file() {
+                    log::error!(
+                        "[Rustcracker {}:{}:JailerConfig::validate missing exec_file]",
+                        file!(),
+                        line!()
+                    );
+                    return Err(RtckError::new(
+                        RtckErrorClass::ConfigError,
+                        "Missing executable file in jailer".to_string(),
+                    ));
+                }
+            }
+        }
+
+        match &self.jailer_bin {
+            None => {
+                log::error!(
+                    "[Rustcracker {}:{}:JailerConfig::validate missing jailer_bin]",
+                    file!(),
+                    line!()
+                );
+                return Err(RtckError::new(
+                    RtckErrorClass::ConfigError,
+                    "Jailer binary must be specified in configuration".to_string(),
+                ));
+            }
+            Some(path) => {
+                let path = PathBuf::from(path);
+                if !path.exists() || !path.is_file() {
+                    log::error!(
+                        "[Rustcracker {}:{}:JailerConfig::validate missing jailer_bin]",
+                        file!(),
+                        line!()
+                    );
+                    return Err(RtckError::new(
+                        RtckErrorClass::ConfigError,
+                        "Missing jailer binary".to_string(),
+                    ));
+                }
+            }
+        }
+
+        match &self.chroot_base_dir {
+            None => (),
+            Some(path) => log::info!(
+                "[Rustcracker {}:{}:JailerConfig::validate using chroot_base_dir = {}]",
+                file!(),
+                line!(),
+                path
+            ),
+        }
+
+        Ok(())
+    }
+
+    pub fn to_vec(&self) -> RtckResult<Vec<u8>> {
+        Ok(serde_json::to_vec(&self)?)
+    }
+
+    pub fn get_exec_file(&self) -> Option<&String> {
+        self.exec_file.as_ref()
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GlobalConfig {
-    pub using_jailer: bool,
+    pub using_jailer: Option<bool>,
     pub jailer_bin: Option<String>,
     pub jailer_config: Option<JailerConfig>,
-    pub socket_path: String,
-    pub frck_bin: String,
-    pub frck_config: FirecrackerConfig,
+
+    pub socket_path: Option<String>,
+
+    pub frck_bin: Option<String>,
+    pub frck_config: Option<FirecrackerConfig>,
 
     // Where to put firecracker exported config
     pub frck_export: Option<String>,
@@ -165,13 +287,19 @@ pub struct GlobalConfig {
 
 impl GlobalConfig {
     pub fn validate(&self) -> RtckResult<()> {
-        if self.using_jailer {
+        if self.using_jailer.is_none() || *self.using_jailer.as_ref().unwrap() {
             match &self.jailer_bin {
-                Some(path) if std::fs::metadata(path).is_err() => {
+                Some(path) if !PathBuf::from(path).exists() => {
                     return Err(RtckError::new(
                         RtckErrorClass::ConfigError,
                         "Jailer bin missing".to_string(),
                     ));
+                }
+                None => {
+                    return Err(RtckError::new(
+                        RtckErrorClass::ConfigError,
+                        "Jailer bin missing".to_string(),
+                    ))
                 }
                 _ => (),
             }
@@ -187,18 +315,52 @@ impl GlobalConfig {
             }
         }
 
-        if std::fs::metadata(&self.frck_bin).is_err() {
-            return Err(RtckError::new(
-                RtckErrorClass::ConfigError,
-                "Firecracker bin missing".to_string(),
-            ));
+        match &self.frck_bin {
+            None => {
+                return Err(RtckError::new(
+                    RtckErrorClass::ConfigError,
+                    "Missing firecracker bin entry".to_string(),
+                ))
+            }
+            Some(path) => {
+                let path = PathBuf::from(path);
+                if !path.exists() || !path.is_file() {
+                    return Err(RtckError::new(
+                        RtckErrorClass::ConfigError,
+                        "Firecracker bin missing".to_string(),
+                    ));
+                }
+            }
         }
 
-        if std::fs::metadata(&self.socket_path).is_ok() {
-            return Err(RtckError::new(
-                RtckErrorClass::ConfigError,
-                "Socket already exists".to_string(),
-            ));
+        if self.frck_export.is_some() {
+            match &self.frck_config {
+                None => {
+                    return Err(RtckError::new(
+                        RtckErrorClass::ConfigError,
+                        "Set exporting config but no config".to_string(),
+                    ))
+                }
+                Some(_) => (),
+            }
+        }
+
+        match &self.socket_path {
+            None => {
+                return Err(RtckError::new(
+                    RtckErrorClass::ConfigError,
+                    "Missing socket path entry".to_string(),
+                ))
+            }
+            Some(path) => {
+                let path = PathBuf::from(path);
+                if path.exists() {
+                    return Err(RtckError::new(
+                        RtckErrorClass::ConfigError,
+                        "Socket already exists".to_string(),
+                    ));
+                }
+            }
         }
 
         Ok(())
@@ -208,7 +370,35 @@ impl GlobalConfig {
     pub fn export_config(&self) -> RtckResult<()> {
         match &self.frck_export {
             None => Ok(()),
-            Some(path) => Ok(std::fs::write(path, self.frck_config.to_vec()?)?),
+            Some(path) => Ok(std::fs::write(
+                path,
+                self.frck_config
+                    .as_ref()
+                    .ok_or(RtckError::new(
+                        RtckErrorClass::ConfigError,
+                        "No firecracker config".to_string(),
+                    ))?
+                    .to_vec()?,
+            )?),
+        }
+    }
+
+    /// Export the firecracker config
+    #[cfg(feature = "tokio")]
+    pub async fn export_config_async(&self) -> RtckResult<()> {
+        match &self.frck_export {
+            None => Ok(()),
+            Some(path) => Ok(tokio::fs::write(
+                path,
+                self.frck_config
+                    .as_ref()
+                    .ok_or(RtckError::new(
+                        RtckErrorClass::ConfigError,
+                        "No firecracker config".to_string(),
+                    ))?
+                    .to_vec()?,
+            )
+            .await?),
         }
     }
 }
@@ -277,12 +467,12 @@ mod test {
         };
 
         let config = GlobalConfig {
-            using_jailer: false,
+            using_jailer: Some(false),
             jailer_bin: None,
             jailer_config: None,
-            socket_path: "/tmp/firecracker.sock".to_string(),
-            frck_bin: "/usr/bin/firecracker".to_string(),
-            frck_config,
+            socket_path: Some("/tmp/firecracker.sock".to_string()),
+            frck_bin: Some("/usr/bin/firecracker".to_string()),
+            frck_config: Some(frck_config),
             frck_export: Some(SAVE_PATH.to_string()),
         };
 
@@ -293,6 +483,6 @@ mod test {
         let config_: FirecrackerConfig =
             serde_json::from_slice(&vec).expect("Fail to deserialize the config");
 
-        assert_eq!(config.frck_config, config_);
+        assert_eq!(config.frck_config, Some(config_));
     }
 }

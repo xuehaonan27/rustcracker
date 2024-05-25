@@ -34,12 +34,20 @@ pub struct PutMachineConfigurationRes {
 }
 
 impl PutMachineConfigurationRes {
-    pub fn succ(self) -> Empty {
-        self.data.left().expect("Response is InternalError")
+    pub fn is_succ(&self) -> bool {
+        self.data.is_left()
     }
 
-    pub fn err(self) -> InternalError {
-        self.data.right().expect("Response is successful")
+    pub fn is_err(&self) -> bool {
+        self.data.is_right()
+    }
+
+    pub fn succ(&self) -> &Empty {
+        self.data.as_ref().left().expect("Response is InternalError")
+    }
+
+    pub fn err(&self) -> &InternalError {
+        self.data.as_ref().right().expect("Response is successful")
     }
 }
 

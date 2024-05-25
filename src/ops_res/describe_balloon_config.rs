@@ -37,12 +37,12 @@ impl DescribeBalloonConfigRes {
         self.data.is_right()
     }
 
-    pub fn succ(self) -> Balloon {
-        self.data.left().expect("Response is InternalError")
+    pub fn succ(&self) -> &Balloon {
+        self.data.as_ref().left().expect("Response is InternalError")
     }
 
-    pub fn err(self) -> InternalError {
-        self.data.right().expect("Response is successful")
+    pub fn err(&self) -> &InternalError {
+        self.data.as_ref().right().expect("Response is successful")
     }
 }
 
