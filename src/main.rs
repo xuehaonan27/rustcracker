@@ -4,9 +4,19 @@ use rustcracker::{
     events::{
         events::{self, Event},
         events_async::{self, EventAsync},
-    }, models::{
-        boot_source::BootSource, drive::Drive, instance_action_info::{ActionType, InstanceActionInfo}, logger::{LogLevel, Logger}, machine_configuration::MachineConfiguration, network_interface::NetworkInterface
-    }, pressure_test, rtck::Rtck, rtck_async::RtckAsync, RtckResult
+    },
+    models::{
+        boot_source::BootSource,
+        drive::Drive,
+        instance_action_info::{ActionType, InstanceActionInfo},
+        logger::{LogLevel, Logger},
+        machine_configuration::MachineConfiguration,
+        network_interface::NetworkInterface,
+    },
+    pressure_test,
+    rtck::Rtck,
+    rtck_async::RtckAsync,
+    RtckResult,
 };
 
 fn main() {
@@ -111,13 +121,14 @@ async fn async_main<P: AsRef<Path>>(socket: P) -> RtckResult<()> {
 
     rtck.execute(&put_guest_drive_by_id).await?;
 
-    let put_guest_network_interface_by_id = events_async::PutGuestNetworkInterfaceById::new(NetworkInterface {
-        guest_mac: Some("06:00:AC:10:00:02".to_string()),
-        host_dev_name: "tap0".to_string(),
-        iface_id: "net1".to_string(),
-        rx_rate_limiter: None,
-        tx_rate_limiter: None,
-    });
+    let put_guest_network_interface_by_id =
+        events_async::PutGuestNetworkInterfaceById::new(NetworkInterface {
+            guest_mac: Some("06:00:AC:10:00:02".to_string()),
+            host_dev_name: "tap0".to_string(),
+            iface_id: "net1".to_string(),
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+        });
 
     rtck.execute(&put_guest_network_interface_by_id).await?;
 
@@ -156,6 +167,33 @@ async fn async_main<P: AsRef<Path>>(socket: P) -> RtckResult<()> {
     });
 
     rtck.execute(&start_machine).await?;
+
+    Ok(())
+}
+
+async fn _demo_use_async_machine() -> RtckResult<()> {
+    use rustcracker::config::GlobalConfig;
+    let config = GlobalConfig {
+        ..Default::default()
+    };
+
+    use rustcracker::machine::machine_async;
+    use rustcracker::models::snapshot_create_params;
+    let machine = machine_async::Machine::create(&config).await?;
+    machine.configure().await?;
+    machine.start().await?;
+    machine.pause().await?;
+    machine
+        .snapshot(
+            "/snapshot/state/demo",
+            "/snapshot/mem/demo",
+            snapshot_create_params::SnapshotType::Diff,
+        )
+        .await?;
+    machine.resume().await?;
+    machine.stop().await?;
+    machine.delete().await?;
+    machine.delete_and_clean().await?;
 
     Ok(())
 }

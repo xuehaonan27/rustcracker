@@ -26,7 +26,7 @@ pub mod firecracker {
             Ok(Self {
                 bin: handle_entry(&config.frck_bin)?,
                 socket: handle_entry(&config.socket_path)?,
-                config_path: config.frck_export.clone(),
+                config_path: config.frck_export_path.clone(),
             })
         }
 
@@ -43,8 +43,6 @@ pub mod firecracker {
 }
 
 pub mod firecracker_async {
-    use tokio::{fs, io::BufStream, net::UnixStream, time};
-
     use crate::{config::GlobalConfig, RtckError, RtckErrorClass, RtckResult};
 
     use super::handle_entry;
@@ -59,18 +57,11 @@ pub mod firecracker_async {
 
         // Path to the config file
         config_path: Option<String>,
-
-        // Machine log
-        machine_log_path: Option<String>,
     }
 
     impl FirecrackerAsync {
         pub fn get_socket(&self) -> &String {
             &self.socket
-        }
-
-        pub fn get_machine_log_path(&self) -> Option<&String> {
-            self.machine_log_path.as_ref()
         }
     }
 
@@ -79,14 +70,7 @@ pub mod firecracker_async {
             Ok(Self {
                 bin: handle_entry(&config.frck_bin)?,
                 socket: handle_entry(&config.socket_path)?,
-                config_path: config.frck_export.clone(),
-                machine_log_path: match &config.frck_config {
-                    None => None,
-                    Some(frck_config) => match &frck_config.logger {
-                        None => None,
-                        Some(logger) => Some(logger.log_path.clone()),
-                    },
-                },
+                config_path: config.frck_export_path.clone(),
             })
         }
 
@@ -100,10 +84,12 @@ pub mod firecracker_async {
             Ok(c.spawn()?)
         }
 
-        pub async fn waiting_socket(&self, timeout: time::Duration) -> RtckResult<()> {
+        /// Waiting for the socket set by firecracker
+        #[cfg(feature = "tokio")]
+        pub async fn waiting_socket(&self, timeout: tokio::time::Duration) -> RtckResult<()> {
             // FIXME: better error handling. Give it a class.
-            Ok(time::timeout(timeout, async {
-                while fs::try_exists(&self.socket).await.is_err() {}
+            Ok(tokio::time::timeout(timeout, async {
+                while tokio::fs::try_exists(&self.socket).await.is_err() {}
             })
             .await
             .map_err(|_| {
@@ -114,8 +100,10 @@ pub mod firecracker_async {
             })?)
         }
 
-        pub async fn connect(&self) -> RtckResult<BufStream<UnixStream>> {
-            Ok(BufStream::new(UnixStream::connect(&self.socket).await?))
+        /// Connect to the socket
+        #[cfg(feature = "tokio")]
+        pub async fn connect(&self) -> RtckResult<tokio::io::BufStream<tokio::net::UnixStream>> {
+            Ok(tokio::io::BufStream::new(tokio::net::UnixStream::connect(&self.socket).await?))
         }
     }
 }
@@ -181,8 +169,6 @@ pub mod jailer {
 pub mod jailer_async {
     use std::path::PathBuf;
 
-    use tokio::{fs, io::BufStream, net::UnixStream, time};
-
     use crate::{
         config::GlobalConfig,
         local::{handle_entry, handle_entry_default, handle_entry_ref},
@@ -232,15 +218,25 @@ pub mod jailer_async {
 
         // Machine log path seen by Rtck
         machine_log_path_export: Option<PathBuf>,
+
+        // Metrics path seen by firecracker
+        metrics_path_jailed: Option<String>,
+
+        // Metrics path seen by Rtck
+        metrics_path_export: Option<PathBuf>,
     }
 
     impl JailerAsync {
-        pub fn get_socket_path_exported(&self) -> RtckResult<&PathBuf> {
-            Ok(handle_entry_ref(self.socket_path_export.as_ref())?)
+        pub fn get_socket_path_exported(&self) -> Option<&PathBuf> {
+            self.socket_path_export.as_ref()
         }
 
         pub fn get_log_path_exported(&self) -> Option<&PathBuf> {
             self.machine_log_path_export.as_ref()
+        }
+
+        pub fn get_metrics_path_exported(&self) -> Option<&PathBuf> {
+            self.metrics_path_export.as_ref()
         }
 
         pub fn get_jailer_workspace_dir(&self) -> RtckResult<&PathBuf> {
@@ -270,7 +266,7 @@ pub mod jailer_async {
                 ),
                 daemonize: jailer_config.daemonize.unwrap_or(false),
                 socket: config.socket_path.clone(),
-                config_path: config.frck_export.clone(),
+                config_path: config.frck_export_path.clone(),
 
                 jailer_workspace_dir: None,
                 socket_path_export: None,
@@ -283,6 +279,14 @@ pub mod jailer_async {
                     },
                 },
                 machine_log_path_export: None,
+                metrics_path_jailed: match &config.frck_config {
+                    None => None,
+                    Some(frck_config) => match &frck_config.metrics {
+                        None => None,
+                        Some(metrics) => Some(metrics.metrics_path.clone()),
+                    },
+                },
+                metrics_path_export: None,
             })
         }
 
@@ -327,6 +331,13 @@ pub mod jailer_async {
                 }
             }
 
+            match &self.metrics_path_jailed {
+                None => (),
+                Some(metrics_path) => {
+                    self.metrics_path_export = Some(jailer_workspace_dir.join(&metrics_path));
+                }
+            }
+
             Ok(())
         }
 
@@ -359,12 +370,14 @@ pub mod jailer_async {
             Ok(cmd.spawn()?)
         }
 
-        pub async fn waiting_socket(&self, timeout: time::Duration) -> RtckResult<()> {
+        /// Waiting for the socket set by firecracker
+        #[cfg(feature = "tokio")]
+        pub async fn waiting_socket(&self, timeout: tokio::time::Duration) -> RtckResult<()> {
             let socket_path = handle_entry(&self.socket_path_export)?;
             let socket_path = socket_path.as_os_str();
             // FIXME: better error handling. Give it a class.
-            Ok(time::timeout(timeout, async {
-                while fs::try_exists(socket_path).await.is_err() {}
+            Ok(tokio::time::timeout(timeout, async {
+                while tokio::fs::try_exists(socket_path).await.is_err() {}
             })
             .await
             .map_err(|_| {
@@ -376,9 +389,10 @@ pub mod jailer_async {
         }
 
         /// Connect to the socket
-        pub async fn connect(&self) -> RtckResult<BufStream<UnixStream>> {
-            Ok(BufStream::new(
-                UnixStream::connect(handle_entry(&self.socket_path_export)?).await?,
+        #[cfg(feature = "tokio")]
+        pub async fn connect(&self) -> RtckResult<tokio::io::BufStream<tokio::net::UnixStream>> {
+            Ok(tokio::io::BufStream::new(
+                tokio::net::UnixStream::connect(handle_entry(&self.socket_path_export)?).await?,
             ))
         }
     }
@@ -477,25 +491,40 @@ pub mod local {
     }
 }
 
+#[cfg(feature = "tokio")]
 pub mod local_async {
     use std::path::{Path, PathBuf};
 
-    use tokio::fs::{create_dir_all, remove_dir_all, remove_file, File};
-
-    use crate::RtckResult;
+    use crate::{config::GlobalConfig, RtckResult};
 
     use super::{firecracker_async::FirecrackerAsync, jailer_async::JailerAsync};
 
     pub struct LocalAsync {
         socket_path: PathBuf,
         machine_log_path: Option<PathBuf>,
+        metrics_path: Option<PathBuf>,
         jail_path: Option<PathBuf>,
+
+        machine_log_clear: Option<bool>,
+        metrics_clear: Option<bool>,
+        network_clear: Option<bool>,
     }
 
     impl LocalAsync {
-        pub fn from_jailer(jailer: &JailerAsync) -> RtckResult<Self> {
-            let socket_path = jailer.get_socket_path_exported()?.clone();
+        /// Construct a LocalAsync with information from JailerAsync and GlobalConfig
+        pub fn from_jailer(jailer: &JailerAsync, config: &GlobalConfig) -> RtckResult<Self> {
+            let socket_path = jailer.get_socket_path_exported().cloned();
+            let socket_path = if let Some(socket_path) = socket_path {
+                socket_path
+            } else {
+                log::error!("[LocalAsync::from_jailer fail to get socket_path]");
+                return Err(crate::RtckError::new(
+                    crate::RtckErrorClass::ConfigError,
+                    "Fail to get socket_path".to_string(),
+                ));
+            };
             let machine_log_path = jailer.get_log_path_exported().cloned();
+            let metrics_path = jailer.get_metrics_path_exported().cloned();
 
             // If construct from jailer, then the jailer path must be known
             let jail_path = jailer.get_jailer_workspace_dir()?.clone();
@@ -503,24 +532,43 @@ pub mod local_async {
             Ok(Self {
                 socket_path,
                 machine_log_path,
+                metrics_path,
                 jail_path: Some(jail_path),
+                machine_log_clear: config.log_clear,
+                metrics_clear: config.metrics_clear,
+                network_clear: config.network_clear,
             })
         }
 
-        pub fn from_frck(frck: &FirecrackerAsync) -> RtckResult<Self> {
+        /// Construct a LocalAsync with information from FirecrackerAsync and GlobalConfig
+        pub fn from_frck(frck: &FirecrackerAsync, config: &GlobalConfig) -> RtckResult<Self> {
             let socket_path = PathBuf::from(frck.get_socket().clone());
-            let machine_log_path = if let Some(path) = frck.get_machine_log_path() {
-                Some(PathBuf::from(path))
-            } else {
-                None
-            };
-
+            let machine_log_path = match &config.frck_config {
+                None => None,
+                Some(frck_config) => match &frck_config.logger {
+                    None => None,
+                    Some(logger) => Some(logger.log_path.clone()),
+                },
+            }
+            .map(PathBuf::from);
+            let metrics_path = match &config.frck_config {
+                None => None,
+                Some(frck_config) => match &frck_config.metrics {
+                    None => None,
+                    Some(metrics) => Some(metrics.metrics_path.clone()),
+                },
+            }
+            .map(PathBuf::from);
             let jail_path = None;
 
             Ok(Self {
                 socket_path,
                 machine_log_path,
+                metrics_path,
                 jail_path,
+                machine_log_clear: config.log_clear,
+                metrics_clear: config.metrics_clear,
+                network_clear: config.network_clear,
             })
         }
 
@@ -533,22 +581,26 @@ pub mod local_async {
         }
 
         /// Create machine log
+        #[cfg(feature = "tokio")]
         pub async fn create_machine_log(&self) -> RtckResult<()> {
             if let Some(path) = &self.machine_log_path {
-                File::create(path).await?;
+                tokio::fs::File::create(path).await?;
             }
             Ok(())
         }
 
         /// Create jailer directory
+        #[cfg(feature = "tokio")]
         pub async fn create_jailer_dir(&self) -> RtckResult<()> {
             if let Some(path) = &self.jail_path {
-                create_dir_all(path).await?;
+                tokio::fs::create_dir_all(path).await?;
             }
             Ok(())
         }
+
         /// Move the log to desired position
         /// Might need several switch from and to jail
+        #[cfg(feature = "tokio")]
         pub async fn cp_machine_log<P: AsRef<Path>>(&self, to: P) -> RtckResult<()> {
             match &self.machine_log_path {
                 None => log::error!("Fail to move machine log to {:?}", to.as_ref()),
@@ -581,23 +633,48 @@ pub mod local_async {
             }
         }
 
-        /// Remove only the socket
+        /// Remove the socket
+        #[cfg(feature = "tokio")]
         pub async fn rm_socket(&self) -> RtckResult<()> {
-            Ok(remove_file(&self.socket_path).await?)
+            Ok(tokio::fs::remove_file(&self.socket_path).await?)
         }
 
         /// Remove the machine log
+        #[cfg(feature = "tokio")]
         pub async fn rm_machine_log(&self) -> RtckResult<()> {
-            if let Some(path) = &self.machine_log_path {
-                remove_file(path).await?
+            if let Some(true) = self.machine_log_clear {
+                if let Some(path) = &self.machine_log_path {
+                    tokio::fs::remove_file(path).await?
+                }
+            }
+            Ok(())
+        }
+
+        /// Remove the metrics
+        #[cfg(feature = "tokio")]
+        pub async fn rm_metrics(&self) -> RtckResult<()> {
+            if let Some(true) = self.metrics_clear {
+                if let Some(path) = &self.metrics_path {
+                    tokio::fs::remove_file(path).await?
+                }
+            }
+            Ok(())
+        }
+
+        /// Remove the networks
+        #[cfg(feature = "tokio")]
+        pub async fn rm_networks(&self) -> RtckResult<()> {
+            if let Some(true) = self.network_clear {
+                todo!()
             }
             Ok(())
         }
 
         /// Remove the jail directory
+        #[cfg(feature = "tokio")]
         pub async fn rm_jail(&self) -> RtckResult<()> {
             if let Some(path) = &self.jail_path {
-                remove_dir_all(path).await?
+                tokio::fs::remove_dir_all(path).await?
             }
             Ok(())
         }

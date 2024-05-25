@@ -2,10 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    models::*,
-    RtckError, RtckErrorClass, RtckResult,
-};
+use crate::{models::*, RtckError, RtckErrorClass, RtckResult};
 
 /// Firecracker configuration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -238,7 +235,7 @@ pub struct GlobalConfig {
     pub frck_config: Option<FirecrackerConfig>,
 
     // Where to put firecracker exported config
-    pub frck_export: Option<String>,
+    pub frck_export_path: Option<String>,
 
     // log_clear defines whether rustcracker should remove log files after microVM
     // was removed. Default to false.
@@ -260,6 +257,24 @@ pub struct GlobalConfig {
     //	2 : advanced filtering. This adds further checks on some of the
     //			parameters of the allowed syscalls.
     pub seccomp_level: Option<usize>,
+}
+
+impl Default for GlobalConfig {
+    fn default() -> Self {
+        Self {
+            using_jailer: None,
+            jailer_bin: None,
+            jailer_config: None,
+            socket_path: None,
+            frck_bin: None,
+            frck_config: None,
+            frck_export_path: None,
+            log_clear: None,
+            metrics_clear: None,
+            network_clear: None,
+            seccomp_level: None,
+        }
+    }
 }
 
 impl GlobalConfig {
@@ -310,7 +325,7 @@ impl GlobalConfig {
             }
         }
 
-        if self.frck_export.is_some() {
+        if self.frck_export_path.is_some() {
             match &self.frck_config {
                 None => {
                     return Err(RtckError::new(
@@ -345,7 +360,7 @@ impl GlobalConfig {
 
     /// Export the firecracker config
     pub fn export_config(&self) -> RtckResult<()> {
-        match &self.frck_export {
+        match &self.frck_export_path {
             None => Ok(()),
             Some(path) => Ok(std::fs::write(
                 path,
@@ -363,7 +378,7 @@ impl GlobalConfig {
     /// Export the firecracker config
     #[cfg(feature = "tokio")]
     pub async fn export_config_async(&self) -> RtckResult<()> {
-        match &self.frck_export {
+        match &self.frck_export_path {
             None => Ok(()),
             Some(path) => Ok(tokio::fs::write(
                 path,
@@ -384,9 +399,17 @@ impl GlobalConfig {
 
 #[cfg(test)]
 mod test {
-    use crate::{config::boot_source, models::{
-        balloon::Balloon, drive::Drive, logger::{self, LogLevel}, machine_configuration::MachineConfiguration, metrics, network_interface::NetworkInterface
-    }};
+    use crate::{
+        config::boot_source,
+        models::{
+            balloon::Balloon,
+            drive::Drive,
+            logger::{self, LogLevel},
+            machine_configuration::MachineConfiguration,
+            metrics,
+            network_interface::NetworkInterface,
+        },
+    };
 
     use super::{FirecrackerConfig, GlobalConfig};
 
@@ -396,12 +419,12 @@ mod test {
 
         let frck_config = FirecrackerConfig {
             logger: Some(logger::Logger {
-                            log_path: "/var/log/firecracker/vm.log".to_string(),
-                            level: Some(LogLevel::Error),
-                            show_level: None,
-                            show_log_origin: Some(true),
-                            module: None,
-                        }),
+                log_path: "/var/log/firecracker/vm.log".to_string(),
+                level: Some(LogLevel::Error),
+                show_level: None,
+                show_log_origin: Some(true),
+                module: None,
+            }),
             metrics: Some(metrics::Metrics {
                 metrics_path: "/var/metrics/firecracker/metrics".to_string(),
             }),
@@ -456,7 +479,7 @@ mod test {
             socket_path: Some("/tmp/firecracker.sock".to_string()),
             frck_bin: Some("/usr/bin/firecracker".to_string()),
             frck_config: Some(frck_config),
-            frck_export: Some(SAVE_PATH.to_string()),
+            frck_export_path: Some(SAVE_PATH.to_string()),
             log_clear: Some(false),
             metrics_clear: Some(false),
             network_clear: Some(false),

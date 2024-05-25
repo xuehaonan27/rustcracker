@@ -99,11 +99,6 @@ pub mod machine {
 
 pub mod machine_async {
     use parking_lot::Mutex;
-    use tokio::{
-        io::{AsyncBufRead, AsyncWrite, BufStream},
-        net::UnixStream,
-        time,
-    };
 
     use crate::{
         config::GlobalConfig,
@@ -136,7 +131,8 @@ pub mod machine_async {
         }
     }
 
-    impl Machine<BufStream<UnixStream>> {
+    #[cfg(feature = "tokio")]
+    impl Machine<tokio::io::BufStream<tokio::net::UnixStream>> {
         /// Create a machine from scratch, using default stream
         pub async fn create(config: &GlobalConfig) -> RtckResult<Self> {
             config.validate()?;
@@ -144,7 +140,7 @@ pub mod machine_async {
             let frck = FirecrackerAsync::from_config(config)?;
             let mut jailer = JailerAsync::from_config(config).ok();
 
-            if config.frck_export.is_some() {
+            if config.frck_export_path.is_some() {
                 config.export_config_async().await?;
             }
 
@@ -154,18 +150,25 @@ pub mod machine_async {
                 let jailer = jailer.as_mut().unwrap();
                 jailer.jail()?;
                 let child = jailer.launch().await?;
-                jailer.waiting_socket(time::Duration::from_secs(3)).await?;
+                jailer
+                    .waiting_socket(tokio::time::Duration::from_secs(3))
+                    .await?;
 
                 (
                     jailer.connect().await?,
                     child,
-                    LocalAsync::from_jailer(jailer)?,
+                    LocalAsync::from_jailer(jailer, config)?,
                 )
             } else {
                 // Firecracker launch and connect
                 let child = frck.launch().await?;
-                frck.waiting_socket(time::Duration::from_secs(3)).await?;
-                (frck.connect().await?, child, LocalAsync::from_frck(&frck)?)
+                frck.waiting_socket(tokio::time::Duration::from_secs(3))
+                    .await?;
+                (
+                    frck.connect().await?,
+                    child,
+                    LocalAsync::from_frck(&frck, config)?,
+                )
             };
 
             // Set up local environment
@@ -185,6 +188,8 @@ pub mod machine_async {
         }
     }
 
+    #[cfg(feature = "tokio")]
+    use tokio::io::{AsyncBufRead, AsyncWrite};
     impl<S: AsyncBufRead + AsyncWrite + Unpin> Machine<S> {
         /// Ping firecracker to check its soundness
         pub async fn ping_remote(&self) -> RtckResult<()> {
@@ -207,7 +212,7 @@ pub mod machine_async {
         /// valid firecracker configuration (`frck_config`).
         pub async fn configure(&self) -> RtckResult<()> {
             // If configuration has been exported, then the machine should have been configured.
-            if self.config.frck_export.is_some() {
+            if self.config.frck_export_path.is_some() {
                 return Ok(());
             }
 
@@ -431,6 +436,7 @@ pub mod machine_async {
         /// Delete the machine by notifying firecracker
         pub async fn delete(&self) -> RtckResult<()> {
             // Stop the machine first
+            self.stop().await?;
             let query_status = events_async::DescribeInstance::new();
             self.rtck.lock().execute(&query_status).await?;
 
