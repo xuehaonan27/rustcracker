@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Describes the Firecracker version.
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FirecrackerVersion {
     /// Firecracker build version.
     #[serde(rename = "firecracker_version")]

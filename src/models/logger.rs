@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LogLevel {
     #[serde(rename = "Error")]
     Error,
@@ -19,7 +19,7 @@ pub enum LogLevel {
 /// Describes the configuration option for the logging capability.
 /// logger can only be constructed once
 /// and cannot update after configuration
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Logger {
     /// Set the level. The possible values are case-insensitive.
     /// Enum: [Error Warning Info Debug]
@@ -42,16 +42,4 @@ pub struct Logger {
     /// The module path to filter log messages by. example: api_server::request
     #[serde(rename = "module", skip_serializing_if = "Option::is_none")]
     pub module: Option<String>,
-}
-
-impl Default for Logger {
-    fn default() -> Self {
-        Self {
-            level: Some(LogLevel::Info),
-            log_path: "".into(),
-            show_level: None,
-            show_log_origin: None,
-            module: None,
-        }
-    }
 }

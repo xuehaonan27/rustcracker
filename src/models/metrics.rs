@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Describes the configuration option for the metrics capability.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Metrics {
     /// Path to the named pipe or file where the JSON-formatted metrics are flushed.
     /// Required: true

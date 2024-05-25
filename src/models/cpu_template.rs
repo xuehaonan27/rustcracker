@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 /// the features exposed to the guest are the same as in the selected instance type.
 /// This parameter has been deprecated and it will be removed in future Firecracker
 /// release.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CPUTemplate(
     /// default: "None"
     pub CPUTemplateString,
 );
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CPUTemplateString {
     #[serde(rename = "C3")]
     C3,
@@ -30,7 +30,7 @@ pub enum CPUTemplateString {
 
 /// The CPU configuration template defines a set of bit maps as modifiers
 /// of flags accessed by register to be disabled/enabled for the microvm.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CPUConfig {
     // A collection of CPUIDs to be modified. (x86_64)
     pub cpuid_modifiers: Vec<CpuIdModifier>,
@@ -43,7 +43,7 @@ pub struct CPUConfig {
 }
 
 /// CPUID modifiers. Only for x86_64.
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CpuIdModifier {
     /// CPUID leaf index (or function). Must be a string containing an integer.
     /// Examples: ["0x1", "0x2"]
@@ -61,7 +61,7 @@ pub struct CpuIdModifier {
 }
 
 /// CPUID register modifier
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Modifiers {
     /// CPUID register name
     /// One of ["eax", "ebx", "ecx", "edx"]
@@ -74,7 +74,7 @@ pub struct Modifiers {
     pub bitmap: String,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ModifierRegisterName {
     #[serde(rename = "eax")]
     EAX,
@@ -87,7 +87,7 @@ pub enum ModifierRegisterName {
 }
 
 /// MSR modifiers. Only for x86_64.
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MsrModifier {
     /// MSR address/identifier. Must be a string containing an integer.
     /// Example: ["0x10a"]
@@ -100,7 +100,7 @@ pub struct MsrModifier {
     pub bitmap: String,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RegModifier {
     /// ARM register address/identifier. Must be a string containing an integer. See https://docs.kernel.org/virt/kvm/api.html#kvm-set-one-reg
     /// Example: ["0x603000000013c020"]

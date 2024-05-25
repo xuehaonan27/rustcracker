@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Defines the MMDS configuration.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MmdsConfig {
     /// Enumeration indicating the MMDS version to be configured.
     #[serde(rename = "version", skip_serializing_if = "Option::is_none")]
@@ -22,7 +22,7 @@ pub struct MmdsConfig {
     pub network_interfaces: Vec<String>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Version {
     #[serde(rename = "V1")]
     V1,

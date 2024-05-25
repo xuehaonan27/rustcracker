@@ -3,111 +3,72 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    models::{
-        balloon::Balloon, drive::Drive, logger::LogLevel,
-        machine_configuration::MachineConfiguration, network_interface::NetworkInterface,
-        vsock::Vsock,
-    },
+    models::*,
     RtckError, RtckErrorClass, RtckResult,
 };
 
 /// Firecracker configuration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FirecrackerConfig {
-    /// log_path defines the file path where the Firecracker log is located.
-    /// will be disabled if log_fifo is set
-    pub log_path: Option<String>,
+    // logger defines the logger for microVM.
+    pub logger: Option<logger::Logger>,
 
-    /// log_level defines the verbosity of Firecracker logging.  Valid values are
-    /// "Error", "Warning", "Info", and "Debug", and are case-sensitive.
-    pub log_level: Option<LogLevel>,
+    // metrics defines the file path where the Firecracker metrics
+    // is located.
+    pub metrics: Option<metrics::Metrics>,
 
-    /// log_clear defines whether rustcracker should remove log files after microVM
-    /// was removed. Default to false.
-    pub log_clear: Option<bool>,
+    // boot_source defines the kernel image path, initrd path and kernel args.
+    pub boot_source: Option<boot_source::BootSource>,
 
-    /// metrics_path defines the file path where the Firecracker metrics
-    /// is located.
-    /// will be disabled if metrics_fifo is set
-    pub metrics_path: Option<String>,
+    // drives specifies BlockDevices that should be made available to the
+    // microVM.
+    pub drives: Option<Vec<drive::Drive>>,
 
-    /// metrics_clear defines whether rustcracker should remove log files after microVM
-    /// was removed. Default to false.
-    pub metrics_clear: Option<bool>,
+    // network_interfaces specifies the tap devices that should be made available
+    // to the microVM.
+    pub network_interfaces: Option<Vec<network_interface::NetworkInterface>>,
 
-    /// kernel_image_path defines the file path where the kernel image is located.
-    /// The kernel image must be an uncompressed ELF image.
-    pub kernel_image_path: Option<String>,
+    // vsock_devices specifies the vsock devices that should be made available to
+    // the microVM.
+    pub vsock_devices: Option<Vec<vsock::Vsock>>,
 
-    /// initrd_path defines the file path where initrd image is located.
-    /// This parameter is optional.
-    pub initrd_path: Option<String>,
+    // cpu_config defines the CPU configuration of microVM.
+    pub cpu_config: Option<cpu_template::CPUConfig>,
 
-    /// kernel_args defines the command-line arguments that should be passed to
-    /// the kernel.
-    pub kernel_args: Option<String>,
+    // machine_cfg represents the firecracker microVM process configuration
+    pub machine_config: Option<machine_configuration::MachineConfiguration>,
 
-    /// drives specifies BlockDevices that should be made available to the
-    /// microVM.
-    pub drives: Option<Vec<Drive>>,
-
-    /// network_interfaces specifies the tap devices that should be made available
-    /// to the microVM.
-    pub network_interfaces: Option<Vec<NetworkInterface>>,
-
-    /// fifo_log_writer is an io.Writer(Stdio) that is used to redirect the contents of the
-    /// fifo log to the writer.
-    /// pub(crate) fifo_log_writer: Option<std::process::Stdio>,
-    // pub fifo_log_writer: Option<String>,
-
-    /// vsock_devices specifies the vsock devices that should be made available to
-    /// the microVM.
-    pub vsock_devices: Option<Vec<Vsock>>,
-
-    /// machine_cfg represents the firecracker microVM process configuration
-    pub machine_cfg: Option<MachineConfiguration>,
-
-    /// (Optional) vmid is a unique identifier for this VM. It's set to a
-    /// random uuid if not provided by the user. It's used to set Firecracker's instance ID.
-    /// If CNI configuration is provided as part of NetworkInterfaces,
-    /// the vmid is used to set CNI ContainerID and create a network namespace path.
+    // (Optional) vmid is a unique identifier for this VM. It's set to a
+    // random uuid if not provided by the user. It's used to set Firecracker's instance ID.
+    // If CNI configuration is provided as part of NetworkInterfaces,
+    // the vmid is used to set CNI ContainerID and create a network namespace path.
     pub vmid: Option<String>,
 
-    /// net_ns represents the path to a network namespace handle. If present, the
-    /// application will use this to join the associated network namespace
+    // net_ns represents the path to a network namespace handle. If present, the
+    // application will use this to join the associated network namespace
     pub net_ns: Option<String>,
 
-    /// network_clear defines whether rustcracker should clear networking
-    /// after the microVM is removed. Default to false.
-    pub network_clear: Option<bool>,
-
-    /// seccomp_level specifies whether seccomp filters should be installed and how
-    /// restrictive they should be. Possible values are:
-    ///
-    ///	0 : (default): disabled.
-    ///	1 : basic filtering. This prohibits syscalls not whitelisted by Firecracker.
-    ///	2 : advanced filtering. This adds further checks on some of the
-    ///			parameters of the allowed syscalls.
-    pub seccomp_level: Option<usize>,
-
-    /// mmds_address is IPv4 address used by guest applications when issuing requests to MMDS.
-    /// It is possible to use a valid IPv4 link-local address (169.254.0.0/16).
-    /// If not provided, the default address (169.254.169.254) will be used.
+    // mmds_address is IPv4 address used by guest applications when issuing requests to MMDS.
+    // It is possible to use a valid IPv4 link-local address (169.254.0.0/16).
+    // If not provided, the default address (169.254.169.254) will be used.
     pub mmds_address: Option<std::net::Ipv4Addr>,
 
-    /// balloon is Balloon device that is to be put to the machine
-    pub balloon: Option<Balloon>,
+    // balloon is Balloon device that is to be put to the machine
+    pub balloon: Option<balloon::Balloon>,
 
-    /// init_metadata is initial metadata that is to be assigned to the machine
+    // entropy_device defines the entropy device used by microVM.
+    pub entropy_device: Option<entropy_device::EntropyDevice>,
+
+    // init_metadata is initial metadata that is to be assigned to the machine
     pub init_metadata: Option<String>,
 }
 
 impl FirecrackerConfig {
     pub fn validate(&self) -> RtckResult<()> {
-        match &self.log_path {
+        match &self.logger {
             None => (),
-            Some(path) => {
-                let path = PathBuf::from(path);
+            Some(logger) => {
+                let path = PathBuf::from(&logger.log_path);
                 if path.exists() {
                     return Err(RtckError::new(
                         RtckErrorClass::ConfigError,
@@ -117,10 +78,10 @@ impl FirecrackerConfig {
             }
         }
 
-        match &self.metrics_path {
+        match &self.metrics {
             None => (),
-            Some(path) => {
-                let path = PathBuf::from(path);
+            Some(metrics) => {
+                let path = PathBuf::from(&metrics.metrics_path);
                 if path.exists() {
                     return Err(RtckError::new(
                         RtckErrorClass::ConfigError,
@@ -130,15 +91,10 @@ impl FirecrackerConfig {
             }
         }
 
-        match &self.kernel_image_path {
-            None => {
-                return Err(RtckError::new(
-                    RtckErrorClass::ConfigError,
-                    "Kernel image file must be specified in configuration".to_string(),
-                ))
-            }
-            Some(path) => {
-                let path = PathBuf::from(path);
+        match &self.boot_source {
+            None => log::warn!("[FirecrackerConfig::validate must designate boot source]"),
+            Some(boot_source) => {
+                let path = PathBuf::from(&boot_source.kernel_image_path);
                 if !path.exists() || !path.is_file() {
                     return Err(RtckError::new(
                         RtckErrorClass::ConfigError,
@@ -283,6 +239,27 @@ pub struct GlobalConfig {
 
     // Where to put firecracker exported config
     pub frck_export: Option<String>,
+
+    // log_clear defines whether rustcracker should remove log files after microVM
+    // was removed. Default to false.
+    pub log_clear: Option<bool>,
+
+    // metrics_clear defines whether rustcracker should remove log files after microVM
+    // was removed. Default to false.
+    pub metrics_clear: Option<bool>,
+
+    // network_clear defines whether rustcracker should clear networking
+    // after the microVM is removed. Default to false.
+    pub network_clear: Option<bool>,
+
+    // seccomp_level specifies whether seccomp filters should be installed and how
+    // restrictive they should be. Possible values are:
+    //
+    //	0 : (default): disabled.
+    //	1 : basic filtering. This prohibits syscalls not whitelisted by Firecracker.
+    //	2 : advanced filtering. This adds further checks on some of the
+    //			parameters of the allowed syscalls.
+    pub seccomp_level: Option<usize>,
 }
 
 impl GlobalConfig {
@@ -407,10 +384,9 @@ impl GlobalConfig {
 
 #[cfg(test)]
 mod test {
-    use crate::models::{
-        balloon::Balloon, drive::Drive, logger::LogLevel,
-        machine_configuration::MachineConfiguration, network_interface::NetworkInterface,
-    };
+    use crate::{config::boot_source, models::{
+        balloon::Balloon, drive::Drive, logger::{self, LogLevel}, machine_configuration::MachineConfiguration, metrics, network_interface::NetworkInterface
+    }};
 
     use super::{FirecrackerConfig, GlobalConfig};
 
@@ -419,14 +395,21 @@ mod test {
         const SAVE_PATH: &'static str = "/tmp/test_firecracker_export_config.json";
 
         let frck_config = FirecrackerConfig {
-            log_path: Some("/var/log/firecracker/vm.log".to_string()),
-            log_level: Some(LogLevel::Error),
-            log_clear: Some(true),
-            metrics_path: Some("/var/metrics/firecracker/metrics".to_string()),
-            metrics_clear: Some(true),
-            kernel_image_path: Some("/images/ubuntu_22_04.img".to_string()),
-            initrd_path: Some("/initrd/initrd_0".to_string()),
-            kernel_args: Some("console=ttyS0 reboot=k panic=1 pci=off".to_string()),
+            logger: Some(logger::Logger {
+                            log_path: "/var/log/firecracker/vm.log".to_string(),
+                            level: Some(LogLevel::Error),
+                            show_level: None,
+                            show_log_origin: Some(true),
+                            module: None,
+                        }),
+            metrics: Some(metrics::Metrics {
+                metrics_path: "/var/metrics/firecracker/metrics".to_string(),
+            }),
+            boot_source: Some(boot_source::BootSource {
+                boot_args: Some("console=ttyS0 reboot=k panic=1 pci=off".to_string()),
+                initrd_path: None,
+                kernel_image_path: "/images/ubuntu_22_04.img".to_string(),
+            }),
             drives: Some(vec![Drive {
                 drive_id: "rootfs".to_string(),
                 path_on_host: "./ubuntu-22.04.ext4".to_string(),
@@ -446,7 +429,8 @@ mod test {
                 tx_rate_limiter: None,
             }]),
             vsock_devices: None,
-            machine_cfg: Some(MachineConfiguration {
+            cpu_config: None,
+            machine_config: Some(MachineConfiguration {
                 cpu_template: None,
                 ht_enabled: None,
                 mem_size_mib: 256,
@@ -455,14 +439,13 @@ mod test {
             }),
             vmid: Some("test_machine".to_string()),
             net_ns: Some("mynetns".to_string()),
-            network_clear: Some(true),
-            seccomp_level: None,
             mmds_address: None,
             balloon: Some(Balloon {
                 amount_mib: 64,
                 deflate_on_oom: true,
                 stats_polling_interval_s: None,
             }),
+            entropy_device: None,
             init_metadata: Some("This is initial metadata".to_string()),
         };
 
@@ -474,6 +457,10 @@ mod test {
             frck_bin: Some("/usr/bin/firecracker".to_string()),
             frck_config: Some(frck_config),
             frck_export: Some(SAVE_PATH.to_string()),
+            log_clear: Some(false),
+            metrics_clear: Some(false),
+            network_clear: Some(false),
+            seccomp_level: None,
         };
 
         config.export_config().expect("Fail to export config");

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MemoryBackend {
     #[serde(rename = "backend_type")]
     pub backend_type: BackendType,
@@ -13,7 +13,7 @@ pub struct MemoryBackend {
     pub backend_path: String,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BackendType {
     #[serde(rename = "File")]
     File,

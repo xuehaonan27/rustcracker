@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use super::rate_limiter::RateLimiter;
-#[derive(Serialize, Deserialize, Debug, Clone)]
+use super::rate_limiter;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PartialDrive {
     /// drive id
     /// Required: true
@@ -16,5 +16,5 @@ pub struct PartialDrive {
 
     /// rate limiter
     #[serde(rename = "rate_limiter", skip_serializing_if = "Option::is_none")]
-    pub rate_limiter: Option<RateLimiter>,
+    pub rate_limiter: Option<rate_limiter::RateLimiter>,
 }

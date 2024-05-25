@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// The current detailed state (Not started, Running, Paused) of the Firecracker instance.
 /// This value is read-only for the control-plane.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum State {
     #[serde(rename = "Not started")]
     NotStarted,
@@ -13,7 +13,7 @@ pub enum State {
 }
 
 /// Describes MicroVM instance information.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InstanceInfo {
     /// Application name.
     /// Required: true

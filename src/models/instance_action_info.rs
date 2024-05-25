@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ActionType {
     #[serde(rename = "FlushMetrics")]
     FlushMetrics,
@@ -11,7 +11,7 @@ pub enum ActionType {
 }
 
 /// Variant wrapper containing the real action.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InstanceActionInfo {
     /// Enumeration indicating what type of action is contained in the payload
     /// Required: true

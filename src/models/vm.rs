@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 // VM Defines the microVM running state.
 // It is especially useful in the snapshotting context.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Vm {
     /// state
     /// Required: true
@@ -10,7 +10,7 @@ pub struct Vm {
     pub state: State,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum State {
     #[serde(rename = "Paused")]
     Paused,

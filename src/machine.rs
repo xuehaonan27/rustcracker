@@ -5,11 +5,7 @@ pub mod machine {
         config::GlobalConfig,
         events::events,
         local::{firecracker::Firecracker, jailer::Jailer, local::Local},
-        models::{
-            instance_action_info::{ActionType, InstanceActionInfo},
-            snapshot_create_params::{SnapshotCreateParams, SnapshotType},
-            vm,
-        },
+        models::{instance_action_info, snapshot_create_params, vm},
         rtck::Rtck,
         RtckError, RtckErrorClass, RtckResult,
     };
@@ -40,9 +36,10 @@ pub mod machine {
         }
 
         pub fn start(&mut self) -> RtckResult<()> {
-            let mut start_machine = events::CreateSyncAction::new(InstanceActionInfo {
-                action_type: ActionType::InstanceStart,
-            });
+            let mut start_machine =
+                events::CreateSyncAction::new(instance_action_info::InstanceActionInfo {
+                    action_type: instance_action_info::ActionType::InstanceStart,
+                });
 
             self.rtck.execute(&mut start_machine)?;
             Ok(())
@@ -67,9 +64,10 @@ pub mod machine {
         }
 
         pub async fn stop(&mut self) -> RtckResult<()> {
-            let mut stop_machine = events::CreateSyncAction::new(InstanceActionInfo {
-                action_type: ActionType::SendCtrlAtlDel,
-            });
+            let mut stop_machine =
+                events::CreateSyncAction::new(instance_action_info::InstanceActionInfo {
+                    action_type: instance_action_info::ActionType::SendCtrlAtlDel,
+                });
 
             self.rtck.execute(&mut stop_machine)?;
             Ok(())
@@ -83,14 +81,15 @@ pub mod machine {
             &mut self,
             state_path: P,
             mem_path: Q,
-            _type: SnapshotType,
+            _type: snapshot_create_params::SnapshotType,
         ) -> RtckResult<()> {
-            let mut create_snapshot = events::CreateSnapshot::new(SnapshotCreateParams {
-                mem_file_path: state_path.as_ref().to_string(),
-                snapshot_path: mem_path.as_ref().to_string(),
-                snapshot_type: Some(_type),
-                version: None,
-            });
+            let mut create_snapshot =
+                events::CreateSnapshot::new(snapshot_create_params::SnapshotCreateParams {
+                    mem_file_path: state_path.as_ref().to_string(),
+                    snapshot_path: mem_path.as_ref().to_string(),
+                    snapshot_type: Some(_type),
+                    version: None,
+                });
 
             self.rtck.execute(&mut create_snapshot)?;
             Ok(())
@@ -107,21 +106,15 @@ pub mod machine_async {
     };
 
     use crate::{
-        config::{FirecrackerConfig, GlobalConfig},
-        events::events_async,
+        config::GlobalConfig,
+        events::events_async::{self, EventAsync},
         local::{
-            firecracker_async::FirecrackerAsync, handle_entry, jailer_async::JailerAsync,
-            local_async::LocalAsync,
+            firecracker_async::FirecrackerAsync, jailer_async::JailerAsync, local_async::LocalAsync,
         },
         models::{
             instance_action_info::{ActionType, InstanceActionInfo},
             snapshot_create_params::{SnapshotCreateParams, SnapshotType},
             vm,
-        },
-        ops_res::{
-            put_balloon, put_cpu_configuration, put_entropy, put_guest_boot_source,
-            put_guest_drive_by_id, put_guest_network_interface_by_id, put_guest_vsock,
-            put_mmds_config,
         },
         rtck_async::RtckAsync,
         RtckError, RtckErrorClass, RtckResult,
@@ -133,6 +126,14 @@ pub mod machine_async {
         jailer: Option<JailerAsync>,
         frck: FirecrackerAsync,
         config: GlobalConfig,
+        child: Mutex<tokio::process::Child>,
+    }
+
+    impl<S> Machine<S> {
+        /// Dump the global configuration of the machine for future use
+        pub fn get_config(&self) -> GlobalConfig {
+            self.config.clone()
+        }
     }
 
     impl Machine<BufStream<UnixStream>> {
@@ -142,26 +143,29 @@ pub mod machine_async {
 
             let frck = FirecrackerAsync::from_config(config)?;
             let mut jailer = JailerAsync::from_config(config).ok();
-            let frck_config = config.frck_config.clone().unwrap();
 
             if config.frck_export.is_some() {
                 config.export_config_async().await?;
             }
 
-            let (stream, local) = if config.using_jailer.unwrap() {
+            let (stream, child, local) = if config.using_jailer.unwrap() {
                 // Set up for jailing
                 assert!(jailer.is_some());
                 let jailer = jailer.as_mut().unwrap();
                 jailer.jail()?;
-                jailer.launch().await?;
+                let child = jailer.launch().await?;
                 jailer.waiting_socket(time::Duration::from_secs(3)).await?;
 
-                (jailer.connect().await?, LocalAsync::from_jailer(jailer)?)
+                (
+                    jailer.connect().await?,
+                    child,
+                    LocalAsync::from_jailer(jailer)?,
+                )
             } else {
                 // Firecracker launch and connect
-                frck.launch().await?;
+                let child = frck.launch().await?;
                 frck.waiting_socket(time::Duration::from_secs(3)).await?;
-                (frck.connect().await?, LocalAsync::from_frck(&frck)?)
+                (frck.connect().await?, child, LocalAsync::from_frck(&frck)?)
             };
 
             // Set up local environment
@@ -176,6 +180,7 @@ pub mod machine_async {
                 jailer,
                 frck,
                 config: config.clone(),
+                child: Mutex::new(child),
             })
         }
     }
@@ -206,7 +211,6 @@ pub mod machine_async {
                 return Ok(());
             }
 
-            use crate::models::*;
             use events_async::*;
 
             // User must guarantee that proper
@@ -217,50 +221,38 @@ pub mod machine_async {
 
             // Logger
             {
-                // let put_logger = PutLogger::new(logger::Logger {
-                //     level: frck_config.log_level,
-                //     log_path: frck_config.log_path,
-                //     show_level: frck_config.lo
-                // });
+                if let Some(logger) = &frck_config.logger {
+                    let put_logger = PutLogger::new(logger.clone());
+                    self.rtck.lock().execute(&put_logger).await?;
+                    if put_logger.is_err() {
+                        log::error!("[PutLogger failed, error = {}]", put_logger.get_res().err());
+                    }
+                }
             }
 
-            // Guest boot source
+            // Metrics
             {
-                if let Some(kernel_image_path) = &frck_config.kernel_image_path {
-                    let put_guest_boot_source = PutGuestBootSource::new(boot_source::BootSource {
-                        boot_args: frck_config.kernel_args.clone(),
-                        initrd_path: frck_config.initrd_path.clone(),
-                        kernel_image_path: kernel_image_path.clone(),
-                    });
-                    self.rtck.lock().execute(&put_guest_boot_source).await?;
-                    if put_guest_boot_source.is_err() {
+                if let Some(metrics) = &frck_config.metrics {
+                    let put_metrics = PutMetrics::new(metrics.clone());
+                    self.rtck.lock().execute(&put_metrics).await?;
+                    if put_metrics.is_err() {
                         log::error!(
-                            "[PutGuestBootSource failed, error = {}]",
-                            put_guest_boot_source.get_res().err()
+                            "[PutMetrics failed, error = {}]",
+                            put_metrics.get_res().err()
                         );
                     }
                 }
             }
 
-            // CPU configuration
+            // Guest boot source
             {
-                // let put_cpu_configuration = PutCpuConfiguration::new(cpu_template::CPUConfig {
-                //     cpuid_modifiers: (),
-                //     msr_modifiers: (),
-                //     reg_modifiers: (),
-                // });
-            }
-
-            // Machine configuration
-            {
-                if let Some(machine_cfg) = &frck_config.machine_cfg {
-                    let put_machine_configuration =
-                        PutMachineConfiguration::new(machine_cfg.clone());
-                    self.rtck.lock().execute(&put_machine_configuration).await?;
-                    if put_machine_configuration.is_err() {
+                if let Some(boot_source) = &frck_config.boot_source {
+                    let put_guest_boot_source = PutGuestBootSource::new(boot_source.clone());
+                    self.rtck.lock().execute(&put_guest_boot_source).await?;
+                    if put_guest_boot_source.is_err() {
                         log::error!(
-                            "[PutMachineConfiguration failed, error = {}]",
-                            put_machine_configuration.get_res().err()
+                            "[PutGuestBootSource failed, error = {}]",
+                            put_guest_boot_source.get_res().err()
                         );
                     }
                 }
@@ -318,6 +310,35 @@ pub mod machine_async {
                 }
             }
 
+            // CPU configuration
+            {
+                if let Some(cpu_config) = &frck_config.cpu_config {
+                    let put_cpu_configuration = PutCpuConfiguration::new(cpu_config.clone());
+                    self.rtck.lock().execute(&put_cpu_configuration).await?;
+                    if put_cpu_configuration.is_err() {
+                        log::error!(
+                            "[PutCpuConfiguration failed, error = {}]",
+                            put_cpu_configuration.get_res().err()
+                        );
+                    }
+                }
+            }
+
+            // Machine configuration
+            {
+                if let Some(machine_config) = &frck_config.machine_config {
+                    let put_machine_configuration =
+                        PutMachineConfiguration::new(machine_config.clone());
+                    self.rtck.lock().execute(&put_machine_configuration).await?;
+                    if put_machine_configuration.is_err() {
+                        log::error!(
+                            "[PutMachineConfiguration failed, error = {}]",
+                            put_machine_configuration.get_res().err()
+                        );
+                    }
+                }
+            }
+
             // Balloon
             {
                 if let Some(balloon) = &frck_config.balloon {
@@ -332,38 +353,29 @@ pub mod machine_async {
                 }
             }
 
-            // Metrics
+            // Entropy device
             {
-                if let Some(path) = &frck_config.metrics_path {
-                    let put_metrics = PutMetrics::new(metrics::Metrics {
-                        metrics_path: path.clone(),
-                    });
-                    self.rtck.lock().execute(&put_metrics).await?;
-                    if put_metrics.is_err() {
+                if let Some(entropy_device) = &frck_config.entropy_device {
+                    let put_entropy = PutEntropy::new(entropy_device.clone());
+                    self.rtck.lock().execute(&put_entropy).await?;
+                    if put_entropy.is_err() {
                         log::error!(
-                            "[PutMetrics failed, error = {}]",
-                            put_metrics.get_res().err()
+                            "[PutEntropy failed, error = {}]",
+                            put_entropy.get_res().err()
                         );
                     }
                 }
             }
 
+            // Initial mmds content
             {
                 if let Some(content) = &frck_config.init_metadata {
                     let put_mmds = PutMmds::new(content.clone());
                     self.rtck.lock().execute(&put_mmds).await?;
                     if put_mmds.is_err() {
-                        log::error!(
-                            "[PutMmds failed, error = {}]",
-                            put_mmds.get_res().err()
-                        );
+                        log::error!("[PutMmds failed, error = {}]", put_mmds.get_res().err());
                     }
                 }
-            }
-
-            // Entropy device
-            {
-                // let put_entropy = PutEntropy::new(data)
             }
 
             Ok(())
@@ -381,9 +393,7 @@ pub mod machine_async {
 
         /// Pause the machine by notifying the hypervisor
         pub async fn pause(&self) -> RtckResult<()> {
-            let pause_machine = events_async::PatchVm::new(vm::Vm {
-                state: vm::State::Paused,
-            });
+            let pause_machine = events_async::PatchVm::new(vm::VM_STATE_PAUSED);
 
             self.rtck.lock().execute(&pause_machine).await?;
             Ok(())
@@ -391,9 +401,7 @@ pub mod machine_async {
 
         /// Resume the machine by notifying the hypervisor
         pub async fn resume(&self) -> RtckResult<()> {
-            let resume_machine = events_async::PatchVm::new(vm::Vm {
-                state: vm::State::Resumed,
-            });
+            let resume_machine = events_async::PatchVm::new(vm::VM_STATE_RESUMED);
 
             self.rtck.lock().execute(&resume_machine).await?;
             Ok(())
@@ -409,13 +417,50 @@ pub mod machine_async {
             Ok(())
         }
 
+        /// Stop the machine forcefully by killing the firecracker process
+        pub async fn stop_force(&self) -> RtckResult<()> {
+            self.child.lock().kill().await.map_err(|e| {
+                log::error!("[Machine::stop_force killing failed, error = {}]", e);
+                RtckError::new(
+                    RtckErrorClass::MachineError,
+                    "Fail to kill the machine".to_string(),
+                )
+            })
+        }
+
+        /// Delete the machine by notifying firecracker
         pub async fn delete(&self) -> RtckResult<()> {
-            todo!()
+            // Stop the machine first
+            let query_status = events_async::DescribeInstance::new();
+            self.rtck.lock().execute(&query_status).await?;
+
+            if query_status.is_err() {
+                log::error!(
+                    "[Machine::delete query status failed, error = {}]",
+                    query_status.get_res().err()
+                );
+                return Err(RtckError::new(
+                    RtckErrorClass::MachineError,
+                    "Fail to query status".to_string(),
+                ));
+            }
+
+            let state = query_status.get_res().succ().state;
+
+            use crate::models::instance_info;
+            if state == instance_info::State::Running {
+                log::warn!("[Machine::delete cannot stop the machine, killing...]");
+                self.stop_force().await?;
+            }
+
+            Ok(())
         }
 
         /// Delete the machine and do cleaning at the same time
-        pub async fn delete_clean(&self) -> RtckResult<()> {
-            todo!()
+        pub async fn delete_and_clean(&self) -> RtckResult<()> {
+            self.delete().await?;
+            self.local.full_clean().await;
+            Ok(())
         }
 
         /// Create a snapshot

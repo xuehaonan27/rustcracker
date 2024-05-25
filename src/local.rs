@@ -1,10 +1,7 @@
-use std::fmt::Display;
-
 use crate::{RtckError, RtckErrorClass, RtckResult};
 
 /// Module for manipulating host firecracker process
 pub mod firecracker {
-    use std::cell::Cell;
 
     use crate::{config::GlobalConfig, RtckResult};
 
@@ -20,9 +17,6 @@ pub mod firecracker {
 
         // Path to the config file
         config_path: Option<String>,
-
-        // Child process
-        child: Cell<Option<std::process::Child>>,
     }
 
     impl Firecracker {
@@ -33,7 +27,6 @@ pub mod firecracker {
                 bin: handle_entry(&config.frck_bin)?,
                 socket: handle_entry(&config.socket_path)?,
                 config_path: config.frck_export.clone(),
-                child: Cell::new(None),
             })
         }
 
@@ -50,7 +43,6 @@ pub mod firecracker {
 }
 
 pub mod firecracker_async {
-    use parking_lot::Mutex;
     use tokio::{fs, io::BufStream, net::UnixStream, time};
 
     use crate::{config::GlobalConfig, RtckError, RtckErrorClass, RtckResult};
@@ -90,12 +82,10 @@ pub mod firecracker_async {
                 config_path: config.frck_export.clone(),
                 machine_log_path: match &config.frck_config {
                     None => None,
-                    Some(frck_config) => {
-                        match &frck_config.log_path {
-                            None => None,
-                            Some(path) => Some(path.clone()),
-                        }
-                    }
+                    Some(frck_config) => match &frck_config.logger {
+                        None => None,
+                        Some(logger) => Some(logger.log_path.clone()),
+                    },
                 },
             })
         }
@@ -191,7 +181,6 @@ pub mod jailer {
 pub mod jailer_async {
     use std::path::PathBuf;
 
-    use parking_lot::Mutex;
     use tokio::{fs, io::BufStream, net::UnixStream, time};
 
     use crate::{
@@ -288,12 +277,10 @@ pub mod jailer_async {
                 config_path_jailed: None,
                 machine_log_path_jailed: match &config.frck_config {
                     None => None,
-                    Some(frck_config) => {
-                        match &frck_config.log_path {
-                            None => None,
-                            Some(path) => Some(path.clone()),
-                        }
-                    }
+                    Some(frck_config) => match &frck_config.logger {
+                        None => None,
+                        Some(logger) => Some(logger.log_path.clone()),
+                    },
                 },
                 machine_log_path_export: None,
             })
@@ -332,7 +319,14 @@ pub mod jailer_async {
                     std::fs::copy(config_path, config_path_export)?;
                 }
             }
-            
+
+            match &self.machine_log_path_jailed {
+                None => (),
+                Some(log_path) => {
+                    self.machine_log_path_export = Some(jailer_workspace_dir.join(&log_path));
+                }
+            }
+
             Ok(())
         }
 
@@ -396,9 +390,7 @@ pub mod local {
         path::Path,
     };
 
-    use crate::{config::GlobalConfig, RtckResult};
-
-    use super::handle_entry;
+    use crate::RtckResult;
 
     pub struct Local {
         socket_path: String,
@@ -407,22 +399,6 @@ pub mod local {
     }
 
     impl Local {
-        /// Derive from config
-        pub fn from_config(config: &GlobalConfig) -> RtckResult<Self> {
-            let socket_path = handle_entry(&config.socket_path)?;
-            let machine_log_path = handle_entry(&config.frck_config)?.log_path;
-            let jail_path = match &config.jailer_config {
-                None => None,
-                Some(config) => config.chroot_base_dir.clone(),
-            };
-
-            Ok(Self {
-                socket_path,
-                machine_log_path,
-                jail_path,
-            })
-        }
-
         /// Create machine log
         pub fn create_machine_log(&self) -> RtckResult<()> {
             if let Some(path) = &self.machine_log_path {
@@ -446,14 +422,18 @@ pub mod local {
 
         /// Move the log to desired position
         /// Might need several switch from and to jail
-        pub fn mv_machine_log<P: AsRef<Path>>(&self, to: P) -> RtckResult<()> {
-            todo!()
-        }
+        pub fn cp_machine_log<P: AsRef<Path>>(&self, to: P) -> RtckResult<()> {
+            match &self.machine_log_path {
+                None => log::error!("Fail to move machine log to {:?}", to.as_ref()),
+                Some(path) => {
+                    let res = std::fs::copy(path, to.as_ref());
+                    if res.is_err() {
+                        log::error!("Fail to move machine log to {:?}", to.as_ref());
+                    }
+                }
+            }
 
-        /// Move the metrics to desired position
-        /// Might need several switch from and to jail
-        pub fn mv_metrics<P: AsRef<Path>>(&self, to: P) -> RtckResult<()> {
-            todo!()
+            Ok(())
         }
 
         /// Do full cleaning up, ignoring possible failures and report them to logger
@@ -502,9 +482,9 @@ pub mod local_async {
 
     use tokio::fs::{create_dir_all, remove_dir_all, remove_file, File};
 
-    use crate::{config::GlobalConfig, RtckResult};
+    use crate::RtckResult;
 
-    use super::{firecracker_async::FirecrackerAsync, handle_entry, jailer_async::JailerAsync};
+    use super::{firecracker_async::FirecrackerAsync, jailer_async::JailerAsync};
 
     pub struct LocalAsync {
         socket_path: PathBuf,
@@ -520,7 +500,11 @@ pub mod local_async {
             // If construct from jailer, then the jailer path must be known
             let jail_path = jailer.get_jailer_workspace_dir()?.clone();
 
-            Ok(Self { socket_path, machine_log_path, jail_path: Some(jail_path) })
+            Ok(Self {
+                socket_path,
+                machine_log_path,
+                jail_path: Some(jail_path),
+            })
         }
 
         pub fn from_frck(frck: &FirecrackerAsync) -> RtckResult<Self> {
@@ -630,7 +614,10 @@ pub(crate) fn handle_entry<T: Clone>(option: &Option<T>) -> RtckResult<T> {
 
 #[doc(hidden)]
 pub(crate) fn handle_entry_ref<T>(option: Option<&T>) -> RtckResult<&T> {
-    option.ok_or(RtckError::new(RtckErrorClass::ConfigError, "Missing config entry".to_string()))
+    option.ok_or(RtckError::new(
+        RtckErrorClass::ConfigError,
+        "Missing config entry".to_string(),
+    ))
 }
 
 #[doc(hidden)]

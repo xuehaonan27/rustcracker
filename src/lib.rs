@@ -199,6 +199,8 @@ pub enum RtckErrorClass {
     ConfigError,
     /// Error when manipulating with firecracker or jailer
     RemoteError,
+    /// Error of machine
+    MachineError,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
