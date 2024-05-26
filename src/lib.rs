@@ -1,12 +1,15 @@
 pub mod command;
 pub mod config;
 pub mod events;
+pub mod firecracker;
+pub mod jailer;
 pub mod local;
 pub mod machine;
 pub mod micro_http;
 pub mod models;
 pub mod ops_res;
 pub mod ser;
+pub mod database;
 
 use std::{io, num::ParseIntError, string::FromUtf8Error, sync::PoisonError};
 
@@ -324,4 +327,25 @@ pub fn pressure_test(write_times: usize) {
             bench_async::test_read_pressure(write_times).await;
         })
     }
+}
+
+#[doc(hidden)]
+pub(crate) fn handle_entry_ref<T>(option: Option<&T>) -> RtckResult<&T> {
+    option.ok_or(RtckError::new(
+        RtckErrorClass::ConfigError,
+        "Missing config entry".to_string(),
+    ))
+}
+
+#[doc(hidden)]
+pub(crate) fn handle_entry_default<T: Clone>(option: &Option<T>, default: T) -> T {
+    option.clone().unwrap_or(default)
+}
+
+#[doc(hidden)]
+pub(crate) fn possible_malformed_entry<T: ?Sized>(option: Option<&T>) -> RtckResult<&T> {
+    option.ok_or(RtckError::new(
+        RtckErrorClass::ConfigError,
+        "Malformed config entry".to_string(),
+    ))
 }

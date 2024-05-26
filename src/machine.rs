@@ -4,7 +4,9 @@ pub mod machine {
     use crate::{
         config::GlobalConfig,
         events::events::{self, Event},
-        local::{firecracker::Firecracker, jailer::Jailer, local::Local},
+        firecracker::firecracker::Firecracker,
+        jailer::jailer::Jailer,
+        local::local::Local,
         models::{instance_action_info, snapshot_create_params, vm},
         rtck::Rtck,
         RtckError, RtckErrorClass, RtckResult,
@@ -111,11 +113,14 @@ pub mod machine {
                     let mut put_logger = PutLogger::new(logger.clone());
                     self.rtck.execute(&mut put_logger)?;
                     if put_logger.is_err() {
-                        log::error!("[PutLogger failed, error = {}]", put_logger.get_res_mut().err());
+                        log::error!(
+                            "[PutLogger failed, error = {}]",
+                            put_logger.get_res_mut().err()
+                        );
                     }
                 }
             }
-            
+
             // Metrics
             {
                 if let Some(metrics) = &frck_config.metrics {
@@ -166,8 +171,7 @@ pub mod machine {
                     for iface in ifaces {
                         let mut put_guest_network_interface_by_id =
                             PutGuestNetworkInterfaceById::new(iface.clone());
-                        self.rtck
-                            .execute(&mut put_guest_network_interface_by_id)?;
+                        self.rtck.execute(&mut put_guest_network_interface_by_id)?;
                         if put_guest_network_interface_by_id.is_err() {
                             log::error!(
                                 "[PutGuestNetworkInterfaceById failed, error = {}]",
@@ -380,9 +384,9 @@ pub mod machine_async {
     use crate::{
         config::GlobalConfig,
         events::events_async::{self, EventAsync},
-        local::{
-            firecracker_async::FirecrackerAsync, jailer_async::JailerAsync, local_async::LocalAsync,
-        },
+        firecracker::firecracker_async::FirecrackerAsync,
+        jailer::jailer_async::JailerAsync,
+        local::local_async::LocalAsync,
         models::{
             instance_action_info::{ActionType, InstanceActionInfo},
             snapshot_create_params::{SnapshotCreateParams, SnapshotType},
