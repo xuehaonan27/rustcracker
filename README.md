@@ -3,6 +3,9 @@ A crate for communicating with [firecracker](https://github.com/firecracker-micr
 
 Thanks for supports from all members of LCPU (Linux Club of Peking University).
 
+# Break Changes
+The API of rustcracker 2.0.0 has a break change, which is completely incompatible with 1.x, and is cleaner, more organized and easier to use.
+
 # Example
 ```Rust
 async fn _demo_use_async_machine() -> RtckResult<()> {
