@@ -6,7 +6,7 @@ use crate::{
     ser::Empty,
 };
 
-use super::{Operation, Response};
+use super::{RtckOperation, RtckResponse};
 
 pub struct PutGuestVsockOps {
     data: Vsock,
@@ -18,10 +18,10 @@ impl PutGuestVsockOps {
     }
 }
 
-impl Operation for PutGuestVsockOps {
+impl RtckOperation for PutGuestVsockOps {
     fn encode(&self) -> crate::command::Command {
         Command {
-            method: crate::micro_http::HttpMethod::PUT,
+            method: crate::micro_http::Method::Put,
             url: "/vsock".into(),
             data: Box::new(self.data.clone()),
         }
@@ -50,7 +50,7 @@ impl PutGuestVsockRes {
     }
 }
 
-impl Response for PutGuestVsockRes {
+impl RtckResponse for PutGuestVsockRes {
     type Data = Self;
 
     fn is_succ(&self) -> bool {
@@ -69,7 +69,7 @@ impl Response for PutGuestVsockRes {
         }
     }
 
-    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
+    fn decode(res: &crate::micro_http::Response) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
                 data: either::Left(serde_json::from_slice(res.body().as_bytes())?),

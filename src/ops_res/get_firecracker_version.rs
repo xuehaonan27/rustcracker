@@ -6,7 +6,7 @@ use crate::{
     ser::Empty,
 };
 
-use super::{Operation, Response};
+use super::{RtckOperation, RtckResponse};
 
 pub struct GetFirecrackerVersionOps {
     data: Empty,
@@ -18,10 +18,10 @@ impl GetFirecrackerVersionOps {
     }
 }
 
-impl Operation for GetFirecrackerVersionOps {
+impl RtckOperation for GetFirecrackerVersionOps {
     fn encode(&self) -> crate::command::Command {
         Command {
-            method: crate::micro_http::HttpMethod::GET,
+            method: crate::micro_http::Method::Get,
             url: "/version".into(),
             data: Box::new(self.data),
         }
@@ -50,7 +50,7 @@ impl GetFirecrackerVersionRes {
     }
 }
 
-impl Response for GetFirecrackerVersionRes {
+impl RtckResponse for GetFirecrackerVersionRes {
     type Data = Self;
 
     fn is_succ(&self) -> bool {
@@ -69,7 +69,7 @@ impl Response for GetFirecrackerVersionRes {
         }
     }
 
-    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
+    fn decode(res: &crate::micro_http::Response) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
                 data: either::Left(serde_json::from_slice(res.body().as_bytes())?),

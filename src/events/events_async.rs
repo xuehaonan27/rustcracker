@@ -58,11 +58,11 @@ use crate::{
         put_metrics::{PutMetricsOps, PutMetricsRes},
         put_mmds::{PutMmdsOps, PutMmdsRes},
         put_mmds_config::{PutMmdsConfigOps, PutMmdsConfigRes},
-        Operation, Response,
+        RtckOperation, RtckResponse,
     },
 };
 
-pub trait EventAsync<O: Operation, R: Response> {
+pub trait EventAsync<O: RtckOperation, R: RtckResponse> {
     fn get_ops(&self) -> &O;
 
     fn get_ops_mut(&mut self) -> &mut O;

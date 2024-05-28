@@ -6,7 +6,7 @@ use crate::{
     ser::Empty,
 };
 
-use super::{Operation, Response};
+use super::{RtckOperation, RtckResponse};
 
 pub struct PutBalloonOps {
     data: Balloon,
@@ -18,10 +18,10 @@ impl PutBalloonOps {
     }
 }
 
-impl Operation for PutBalloonOps {
+impl RtckOperation for PutBalloonOps {
     fn encode(&self) -> crate::command::Command {
         Command {
-            method: crate::micro_http::HttpMethod::PUT,
+            method: crate::micro_http::Method::Put,
             url: "/balloon".into(),
             data: Box::new(self.data.clone()),
         }
@@ -50,7 +50,7 @@ impl PutBalloonRes {
     }
 }
 
-impl Response for PutBalloonRes {
+impl RtckResponse for PutBalloonRes {
     type Data = Self;
 
     fn is_succ(&self) -> bool {
@@ -69,7 +69,7 @@ impl Response for PutBalloonRes {
         }
     }
 
-    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
+    fn decode(res: &crate::micro_http::Response) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
                 data: either::Left(serde_json::from_slice(res.body().as_bytes())?),

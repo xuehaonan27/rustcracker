@@ -6,7 +6,7 @@ use crate::{
     ser::Empty,
 };
 
-use super::{Operation, Response};
+use super::{RtckOperation, RtckResponse};
 
 pub struct PatchVmOps {
     data: Vm,
@@ -18,10 +18,10 @@ impl PatchVmOps {
     }
 }
 
-impl Operation for PatchVmOps {
+impl RtckOperation for PatchVmOps {
     fn encode(&self) -> crate::command::Command {
         Command {
-            method: crate::micro_http::HttpMethod::PATCH,
+            method: crate::micro_http::Method::Patch,
             url: "/vm".into(),
             data: Box::new(self.data.clone()),
         }
@@ -50,7 +50,7 @@ impl PatchVmRes {
     }
 }
 
-impl Response for PatchVmRes {
+impl RtckResponse for PatchVmRes {
     type Data = Self;
 
     fn is_succ(&self) -> bool {
@@ -69,7 +69,7 @@ impl Response for PatchVmRes {
         }
     }
 
-    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
+    fn decode(res: &crate::micro_http::Response) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
                 data: either::Left(serde_json::from_slice(res.body().as_bytes())?),

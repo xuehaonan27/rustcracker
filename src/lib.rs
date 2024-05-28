@@ -19,7 +19,7 @@ mod rtck_conn {
     use std::io::{BufRead, Write};
 
     use crate::{
-        micro_http::{http_io, HttpResponse},
+        micro_http::{http_io, Response},
         RtckResult,
     };
 
@@ -35,7 +35,7 @@ mod rtck_conn {
     }
 
     impl<S: BufRead> RtckConn<S> {
-        pub fn read_response(&mut self) -> RtckResult<HttpResponse> {
+        pub fn read_response(&mut self) -> RtckResult<Response> {
             http_io::read_response(&mut self.stream)
         }
     }
@@ -51,7 +51,7 @@ mod rtck_conn_async {
     use tokio::io::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 
     use crate::{
-        micro_http::{http_io, HttpResponse},
+        micro_http::{http_io, Response},
         RtckResult,
     };
 
@@ -67,7 +67,7 @@ mod rtck_conn_async {
     }
 
     impl<S: AsyncBufRead + Unpin> RtckConnAsync<S> {
-        pub async fn read_response(&mut self) -> RtckResult<HttpResponse> {
+        pub async fn read_response(&mut self) -> RtckResult<Response> {
             http_io::read_response_async(&mut self.stream).await
         }
     }
@@ -85,7 +85,7 @@ pub mod rtck {
     use crate::{
         events::events::Event,
         micro_http::Http,
-        ops_res::{Operation, Response},
+        ops_res::{RtckOperation, RtckResponse},
         rtck_conn::RtckConn,
         RtckResult,
     };
@@ -103,21 +103,21 @@ pub mod rtck {
     }
 
     impl<S: BufRead> Rtck<S> {
-        pub fn recv_response<R: Response>(&mut self) -> RtckResult<R> {
+        pub fn recv_response<R: RtckResponse>(&mut self) -> RtckResult<R> {
             let res = self.conn.read_response()?;
             Ok(R::decode(&res)?)
         }
     }
 
     impl<S: Write> Rtck<S> {
-        pub fn send_request(&mut self, ops: &dyn Operation) -> RtckResult<()> {
+        pub fn send_request(&mut self, ops: &dyn RtckOperation) -> RtckResult<()> {
             let req = ops.encode().encode()?;
             self.conn.write_request(&req)
         }
     }
 
     impl<S: BufRead + Write> Rtck<S> {
-        pub fn execute<O: Operation, R: Response>(
+        pub fn execute<O: RtckOperation, R: RtckResponse>(
             &mut self,
             event: &mut dyn Event<O, R>,
         ) -> RtckResult<()> {
@@ -137,7 +137,7 @@ pub mod rtck_async {
     use crate::{
         events::events_async::EventAsync,
         micro_http::Http,
-        ops_res::{Operation, Response},
+        ops_res::{RtckOperation, RtckResponse},
         rtck_conn_async::RtckConnAsync,
         RtckResult,
     };
@@ -155,21 +155,21 @@ pub mod rtck_async {
     }
 
     impl<S: AsyncBufRead + Unpin> RtckAsync<S> {
-        pub async fn recv_response<R: Response>(&mut self) -> RtckResult<R> {
+        pub async fn recv_response<R: RtckResponse>(&mut self) -> RtckResult<R> {
             let res = self.conn.read_response().await?;
             Ok(R::decode(&res)?)
         }
     }
 
     impl<S: AsyncWrite + Unpin> RtckAsync<S> {
-        pub async fn send_request(&mut self, ops: &(dyn Operation + Sync)) -> RtckResult<()> {
+        pub async fn send_request(&mut self, ops: &(dyn RtckOperation + Sync)) -> RtckResult<()> {
             let req = ops.encode().encode()?;
             self.conn.write_request(&req).await
         }
     }
 
     impl<S: AsyncBufRead + AsyncWrite + Unpin> RtckAsync<S> {
-        pub async fn execute<O: Operation + Sync, R: Response>(
+        pub async fn execute<O: RtckOperation + Sync, R: RtckResponse>(
             &mut self,
             event: &(dyn EventAsync<O, R> + Sync),
         ) -> RtckResult<()> {

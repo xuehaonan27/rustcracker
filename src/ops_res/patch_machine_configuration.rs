@@ -6,7 +6,7 @@ use crate::{
     ser::Empty,
 };
 
-use super::{Operation, Response};
+use super::{RtckOperation, RtckResponse};
 
 pub struct PatchMachineConfigurationOps {
     data: MachineConfiguration,
@@ -18,10 +18,10 @@ impl PatchMachineConfigurationOps {
     }
 }
 
-impl Operation for PatchMachineConfigurationOps {
+impl RtckOperation for PatchMachineConfigurationOps {
     fn encode(&self) -> crate::command::Command {
         Command {
-            method: crate::micro_http::HttpMethod::PATCH,
+            method: crate::micro_http::Method::Patch,
             url: "/machine-config".into(),
             data: Box::new(self.data.clone()),
         }
@@ -50,7 +50,7 @@ impl PatchMachineConfigurationRes {
     }
 }
 
-impl Response for PatchMachineConfigurationRes {
+impl RtckResponse for PatchMachineConfigurationRes {
     type Data = Self;
 
     fn is_succ(&self) -> bool {
@@ -69,7 +69,7 @@ impl Response for PatchMachineConfigurationRes {
         }
     }
 
-    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
+    fn decode(res: &crate::micro_http::Response) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
                 data: either::Left(serde_json::from_slice(res.body().as_bytes())?),

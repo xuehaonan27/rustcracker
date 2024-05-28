@@ -5,7 +5,7 @@ use crate::{
     ser::Empty,
 };
 
-use super::{Operation, Response};
+use super::{RtckOperation, RtckResponse};
 
 pub struct PutGuestDriveByIdOps {
     data: Drive,
@@ -17,11 +17,11 @@ impl PutGuestDriveByIdOps {
     }
 }
 
-impl Operation for PutGuestDriveByIdOps {
+impl RtckOperation for PutGuestDriveByIdOps {
     fn encode(&self) -> crate::command::Command {
         let drive_id = &self.data.drive_id;
         crate::command::Command {
-            method: crate::micro_http::HttpMethod::PUT,
+            method: crate::micro_http::Method::Put,
             url: format!("/drives/{drive_id}"),
             data: Box::new(self.data.clone()),
         }
@@ -50,7 +50,7 @@ impl PutGuestDriveByIdRes {
     }
 }
 
-impl Response for PutGuestDriveByIdRes {
+impl RtckResponse for PutGuestDriveByIdRes {
     type Data = Self;
 
     fn is_succ(&self) -> bool {
@@ -69,7 +69,7 @@ impl Response for PutGuestDriveByIdRes {
         }
     }
 
-    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
+    fn decode(res: &crate::micro_http::Response) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
                 data: either::Left(serde_json::from_slice(res.body().as_bytes())?),

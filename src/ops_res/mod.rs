@@ -1,17 +1,17 @@
 use crate::command::Command;
-use crate::micro_http::HttpResponse;
+use crate::micro_http::Response;
 use crate::RtckResult;
 
-pub trait Operation {
+pub trait RtckOperation {
     fn encode(&self) -> Command;
 }
 
-pub trait Response {
+pub trait RtckResponse {
     type Data;
     fn is_succ(&self) -> bool;
     fn is_err(&self) -> bool;
     fn blank() -> Self where Self: Sized;
-    fn decode(res: &HttpResponse) -> RtckResult<Self> where Self: Sized;
+    fn decode(res: &Response) -> RtckResult<Self> where Self: Sized;
 }
 
 pub mod create_snapshot;

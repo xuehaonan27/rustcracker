@@ -2,7 +2,7 @@ use either::Either;
 
 use crate::{command::Command, models::{balloon::Balloon, error::InternalError}, ser::Empty};
 
-use super::{Operation, Response};
+use super::{RtckOperation, RtckResponse};
 
 pub struct DescribeBalloonConfigOps {
     data: Empty,
@@ -14,10 +14,10 @@ impl DescribeBalloonConfigOps {
     }
 }
 
-impl Operation for DescribeBalloonConfigOps {
+impl RtckOperation for DescribeBalloonConfigOps {
     fn encode(&self) -> crate::command::Command {
         Command {
-            method: crate::micro_http::HttpMethod::GET,
+            method: crate::micro_http::Method::Get,
             url: "/balloon".into(),
             data: Box::new(self.data)
         }
@@ -46,7 +46,7 @@ impl DescribeBalloonConfigRes {
     }
 }
 
-impl Response for DescribeBalloonConfigRes {
+impl RtckResponse for DescribeBalloonConfigRes {
     type Data = Self;
 
     fn is_succ(&self) -> bool {
@@ -65,7 +65,7 @@ impl Response for DescribeBalloonConfigRes {
         }
     }
 
-    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
+    fn decode(res: &crate::micro_http::Response) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
                 data: either::Left(serde_json::from_slice(res.body().as_bytes())?),

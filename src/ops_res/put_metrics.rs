@@ -6,7 +6,7 @@ use crate::{
     ser::Empty,
 };
 
-use super::{Operation, Response};
+use super::{RtckOperation, RtckResponse};
 
 pub struct PutMetricsOps {
     data: Metrics,
@@ -18,10 +18,10 @@ impl PutMetricsOps {
     }
 }
 
-impl Operation for PutMetricsOps {
+impl RtckOperation for PutMetricsOps {
     fn encode(&self) -> crate::command::Command {
         Command {
-            method: crate::micro_http::HttpMethod::PUT,
+            method: crate::micro_http::Method::Put,
             url: "/metrics".into(),
             data: Box::new(self.data.clone()),
         }
@@ -50,7 +50,7 @@ impl PutMetricsRes {
     }
 }
 
-impl Response for PutMetricsRes {
+impl RtckResponse for PutMetricsRes {
     type Data = Self;
 
     fn is_succ(&self) -> bool {
@@ -69,7 +69,7 @@ impl Response for PutMetricsRes {
         }
     }
 
-    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
+    fn decode(res: &crate::micro_http::Response) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
                 data: either::Left(serde_json::from_slice(res.body().as_bytes())?),

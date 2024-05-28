@@ -6,7 +6,7 @@ use crate::{
     ser::Empty,
 };
 
-use super::{Operation, Response};
+use super::{RtckOperation, RtckResponse};
 
 pub struct GetExportVmConfigOps {
     data: Empty,
@@ -18,10 +18,10 @@ impl GetExportVmConfigOps {
     }
 }
 
-impl Operation for GetExportVmConfigOps {
+impl RtckOperation for GetExportVmConfigOps {
     fn encode(&self) -> crate::command::Command {
         Command {
-            method: crate::micro_http::HttpMethod::GET,
+            method: crate::micro_http::Method::Get,
             url: "/vm/config".into(),
             data: Box::new(self.data),
         }
@@ -50,7 +50,7 @@ impl GetExportVmConfigRes {
     }
 }
 
-impl Response for GetExportVmConfigRes {
+impl RtckResponse for GetExportVmConfigRes {
     type Data = Self;
 
     fn is_succ(&self) -> bool {
@@ -69,7 +69,7 @@ impl Response for GetExportVmConfigRes {
         }
     }
 
-    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
+    fn decode(res: &crate::micro_http::Response) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
                 data: either::Left(serde_json::from_slice(res.body().as_bytes())?),

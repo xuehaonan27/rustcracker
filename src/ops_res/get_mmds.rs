@@ -2,7 +2,7 @@ use either::Either;
 
 use crate::{command::Command, models::error::InternalError, ser::Empty};
 
-use super::{Operation, Response};
+use super::{RtckOperation, RtckResponse};
 
 pub struct GetMmdsOps {
     data: Empty,
@@ -14,10 +14,10 @@ impl GetMmdsOps {
     }
 }
 
-impl Operation for GetMmdsOps {
+impl RtckOperation for GetMmdsOps {
     fn encode(&self) -> crate::command::Command {
         Command {
-            method: crate::micro_http::HttpMethod::GET,
+            method: crate::micro_http::Method::Get,
             url: "/mmds".into(),
             data: Box::new(self.data),
         }
@@ -46,7 +46,7 @@ impl GetMmdsRes {
     }
 }
 
-impl Response for GetMmdsRes {
+impl RtckResponse for GetMmdsRes {
     type Data = Self;
 
     fn is_succ(&self) -> bool {
@@ -65,7 +65,7 @@ impl Response for GetMmdsRes {
         }
     }
 
-    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
+    fn decode(res: &crate::micro_http::Response) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
                 data: either::Left(serde_json::from_slice(res.body().as_bytes())?),

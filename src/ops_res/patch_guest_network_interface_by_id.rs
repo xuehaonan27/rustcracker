@@ -6,7 +6,7 @@ use crate::{
     ser::Empty,
 };
 
-use super::{Operation, Response};
+use super::{RtckOperation, RtckResponse};
 
 pub struct PatchGuestNetworkInterfaceByIdOps {
     data: PartialNetworkInterface,
@@ -18,11 +18,11 @@ impl PatchGuestNetworkInterfaceByIdOps {
     }
 }
 
-impl Operation for PatchGuestNetworkInterfaceByIdOps {
+impl RtckOperation for PatchGuestNetworkInterfaceByIdOps {
     fn encode(&self) -> crate::command::Command {
         let iface_id = &self.data.iface_id;
         Command {
-            method: crate::micro_http::HttpMethod::PATCH,
+            method: crate::micro_http::Method::Patch,
             url: format!("/network-interfaces/{iface_id}"),
             data: Box::new(self.data.clone()),
         }
@@ -51,7 +51,7 @@ impl PatchGuestNetworkInterfaceByIdRes {
     }
 }
 
-impl Response for PatchGuestNetworkInterfaceByIdRes {
+impl RtckResponse for PatchGuestNetworkInterfaceByIdRes {
     type Data = Self;
 
     fn is_succ(&self) -> bool {
@@ -70,7 +70,7 @@ impl Response for PatchGuestNetworkInterfaceByIdRes {
         }
     }
 
-    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
+    fn decode(res: &crate::micro_http::Response) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
                 data: either::Left(serde_json::from_slice(res.body().as_bytes())?),

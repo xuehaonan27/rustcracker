@@ -6,7 +6,7 @@ use crate::{
     ser::Empty,
 };
 
-use super::{Operation, Response};
+use super::{RtckOperation, RtckResponse};
 
 pub struct PutMmdsConfigOps {
     data: MmdsConfig,
@@ -18,10 +18,10 @@ impl PutMmdsConfigOps {
     }
 }
 
-impl Operation for PutMmdsConfigOps {
+impl RtckOperation for PutMmdsConfigOps {
     fn encode(&self) -> crate::command::Command {
         Command {
-            method: crate::micro_http::HttpMethod::PUT,
+            method: crate::micro_http::Method::Put,
             url: "/mmds/config".into(),
             data: Box::new(self.data.clone()),
         }
@@ -50,7 +50,7 @@ impl PutMmdsConfigRes {
     }
 }
 
-impl Response for PutMmdsConfigRes {
+impl RtckResponse for PutMmdsConfigRes {
     type Data = Self;
 
     fn is_succ(&self) -> bool {
@@ -69,7 +69,7 @@ impl Response for PutMmdsConfigRes {
         }
     }
 
-    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
+    fn decode(res: &crate::micro_http::Response) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
                 data: either::Left(serde_json::from_slice(res.body().as_bytes())?),

@@ -1,40 +1,55 @@
+pub mod body;
+pub mod error;
+pub mod header;
+pub mod media_type;
+pub mod method;
+pub mod request;
+pub mod response;
+pub mod version;
+pub mod encoding;
+
+pub use body::Body;
+pub use error::ClientError;
+pub use error::ConnectionError;
+pub use error::HttpHeaderError;
+pub use error::RequestError;
+pub use error::ResponseError;
+pub use error::VersionError;
+pub use error::EncodingError;
+pub use header::Header;
+pub use header::RequestHeaders;
+pub use media_type::MediaType;
+pub use method::Method;
+pub use version::Version;
+pub use encoding::Encoding;
+
 use crate::RtckResult;
 
-pub enum HttpMethod {
-    GET,
-    PUT,
-    PATCH,
+pub mod ascii {
+    pub const CR: u8 = b'\r';
+    pub const COLON: u8 = b':';
+    pub const LF: u8 = b'\n';
+    pub const SP: u8 = b' ';
+    pub const CRLF_LEN: usize = 2;
 }
 
-impl HttpMethod {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            HttpMethod::GET => "GET",
-            HttpMethod::PATCH => "PATCH",
-            HttpMethod::PUT => "PUT",
-        }
-    }
-
-    pub fn from_str(s: &str) -> RtckResult<Self> {
-        match s {
-            "GET" | "Get" | "get" => Ok(HttpMethod::GET),
-            "PUT" | "Put" | "put" => Ok(HttpMethod::PUT),
-            "PATCH" | "Patch" | "patch" => Ok(HttpMethod::PATCH),
-            _ => Err(crate::RtckError {
-                class: crate::RtckErrorClass::ParseError,
-                desc: "Error HTTP method".to_string(),
-            }),
-        }
-    }
+/// Finds the first occurrence of `sequence` in the `bytes` slice.
+///
+/// Returns the starting position of the `sequence` in `bytes` or `None` if the
+/// `sequence` is not found.
+pub(crate) fn find(bytes: &[u8], sequence: &[u8]) -> Option<usize> {
+    bytes
+        .windows(sequence.len())
+        .position(|window| window == sequence)
 }
 
-pub struct HttpResponse {
+pub struct Response {
     code: usize,
     headers: String,
     body: String,
 }
 
-impl HttpResponse {
+impl Response {
     pub fn is_fine(&self) -> bool {
         if self.code == 200 || self.code == 204 {
             true
@@ -57,9 +72,9 @@ pub mod http_io {
 
     use crate::{RtckError, RtckResult};
 
-    use super::HttpResponse;
+    use super::Response;
 
-    pub fn read_response<S: BufRead>(stream: &mut S) -> RtckResult<HttpResponse> {
+    pub fn read_response<S: BufRead>(stream: &mut S) -> RtckResult<Response> {
         let mut res = String::new();
         let mut buf = String::new();
 
@@ -115,7 +130,7 @@ pub mod http_io {
                 let mut buf: Vec<u8> = vec![0; len];
                 stream.read_exact(&mut buf)?;
                 let body = String::from_utf8(buf)?;
-                Ok(HttpResponse {
+                Ok(Response {
                     code,
                     headers: res,
                     body,
@@ -130,7 +145,7 @@ pub mod http_io {
 
     pub async fn read_response_async<S: AsyncBufRead + Unpin>(
         stream: &mut S,
-    ) -> RtckResult<HttpResponse> {
+    ) -> RtckResult<Response> {
         let mut res = String::new();
         let mut buf = String::new();
 
@@ -185,7 +200,7 @@ pub mod http_io {
                 let mut buf: Vec<u8> = vec![0; len];
                 stream.read_exact(&mut buf).await?;
                 let body = String::from_utf8(buf)?;
-                Ok(HttpResponse {
+                Ok(Response {
                     code,
                     headers: res,
                     body,

@@ -2,7 +2,7 @@ use either::Either;
 
 use crate::{command::Command, models::{error::InternalError, partial_drive::PartialDrive}, ser::Empty};
 
-use super::{Operation, Response};
+use super::{RtckOperation, RtckResponse};
 
 pub struct PatchGuestDriveByIdOps {
     data: PartialDrive,
@@ -14,11 +14,11 @@ impl PatchGuestDriveByIdOps {
     }
 }
 
-impl Operation for PatchGuestDriveByIdOps {
+impl RtckOperation for PatchGuestDriveByIdOps {
     fn encode(&self) -> crate::command::Command {
         let drive_id = &self.data.drive_id;
         Command {
-            method: crate::micro_http::HttpMethod::PATCH,
+            method: crate::micro_http::Method::Patch,
             url: format!("/drives/{drive_id}"),
             data: Box::new(self.data.clone()),
         }
@@ -47,7 +47,7 @@ impl PatchGuestDriveByIdRes {
     }
 }
 
-impl Response for PatchGuestDriveByIdRes {
+impl RtckResponse for PatchGuestDriveByIdRes {
     type Data = Self;
 
     fn is_succ(&self) -> bool {
@@ -66,7 +66,7 @@ impl Response for PatchGuestDriveByIdRes {
         }
     }
 
-    fn decode(res: &crate::micro_http::HttpResponse) -> crate::RtckResult<Self> {
+    fn decode(res: &crate::micro_http::Response) -> crate::RtckResult<Self> {
         if res.is_fine() {
             Ok(Self {
                 data: either::Left(serde_json::from_slice(res.body().as_bytes())?),
