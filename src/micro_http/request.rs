@@ -77,7 +77,7 @@ pub struct RequestLine {
 }
 
 impl RequestLine {
-    fn new(method: Method, uri: Uri, http_version: Version) -> Self {
+    pub fn new(method: Method, uri: Uri, http_version: Version) -> Self {
         Self { method, uri, http_version }
     }
 

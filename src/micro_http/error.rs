@@ -161,7 +161,6 @@ impl From<VersionError> for RequestError {
         match e {
             VersionError::InvalidHttpVersion(inner) => RequestError::InvalidHttpVersion(inner),
         }
-        
     }
 }
 
@@ -191,7 +190,7 @@ impl From<EncodingError> for ResponseError {
     fn from(e: EncodingError) -> Self {
         match e {
             EncodingError::HeaderError(inner) => ResponseError::HeaderError(inner),
-            EncodingError::InvalidValue => ResponseError::InvalidResponse
+            EncodingError::InvalidValue => ResponseError::InvalidResponse,
         }
     }
 }
@@ -240,6 +239,36 @@ impl Display for ConnectionError {
             Self::ParseError(inner) => write!(f, "Parsing error: {}", inner),
             Self::StreamReadError(inner) => write!(f, "Reading stream error: {}", inner),
             Self::StreamWriteError(inner) => write!(f, "Writing stream error: {}", inner),
+        }
+    }
+}
+
+/// Errors pertaining to `HttpServer`.
+#[derive(Debug)]
+pub enum ServerError {
+    /// Error from one of the connections.
+    ConnectionError(ConnectionError),
+    /// Epoll operations failed.
+    IOError(std::io::Error),
+    /// Overflow occurred while processing messages.
+    Overflow,
+    /// Server maximum capacity has been reached.
+    ServerFull,
+    /// Shutdown requested.
+    ShutdownEvent,
+    /// Underflow occurred while processing messages.
+    Underflow,
+}
+
+impl Display for ServerError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            Self::ConnectionError(inner) => write!(f, "Connection error: {}", inner),
+            Self::IOError(inner) => write!(f, "IO error: {}", inner),
+            Self::Overflow => write!(f, "Overflow occured while processing messages."),
+            Self::ServerFull => write!(f, "Server is full."),
+            Self::Underflow => write!(f, "Underflow occured while processing messages."),
+            Self::ShutdownEvent => write!(f, "Shutdown requested."),
         }
     }
 }
