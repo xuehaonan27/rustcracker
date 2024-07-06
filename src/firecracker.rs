@@ -1,11 +1,13 @@
 /// Module for manipulating host firecracker process
 pub mod firecracker {
 
-    use std::{path::PathBuf, sync::Arc};
+    use std::{
+        os::unix::net::UnixStream,
+        path::PathBuf,
+        sync::{Arc, Condvar, Mutex},
+    };
 
-    use parking_lot::{Condvar, Mutex};
-
-    use crate::{config::GlobalConfig, local::handle_entry, RtckError, RtckErrorClass, RtckResult};
+    use crate::{config::GlobalConfig, local::handle_entry, RtckError, RtckResult};
 
     pub struct Firecracker {
         // Path to local firecracker bin
@@ -43,7 +45,8 @@ pub mod firecracker {
                 Some(config_path) => c = c.arg("--config-file").arg(&config_path),
                 None => (),
             }
-            Ok(c.spawn()?)
+            c.spawn()
+                .map_err(|_| RtckError::Firecracker("spawn fail".to_string()))
         }
 
         /// Waiting for the socket set by firecracker
@@ -53,25 +56,36 @@ pub mod firecracker {
 
             // Wait for the socket
             let path = PathBuf::from(&self.socket);
-            std::thread::spawn(move || {
+            std::thread::spawn(move || -> RtckResult<()> {
                 let &(ref lock, ref cvar) = &*pair_peer;
-                let mut created = lock.lock();
+                let mut created = lock
+                    .lock()
+                    .map_err(|_| RtckError::Firecracker("waiting socket".to_string()))?;
 
                 while !path.exists() {}
 
                 *created = true;
                 cvar.notify_one();
+
+                Ok(())
             });
 
             let &(ref lock, ref cvar) = &*pair;
-            let created = lock.lock();
+            let created = lock
+                .lock()
+                .map_err(|_| RtckError::Firecracker("waiting socket".to_string()))?;
+
             if !*created {
-                let result = cvar.wait_for(&mut lock.lock(), timeout);
-                if result.timed_out() {
-                    return Err(RtckError::new(
-                        RtckErrorClass::RemoteError,
-                        "Remote socket set up timeout".to_string(),
-                    ));
+                let result = cvar
+                    .wait_timeout(
+                        lock.lock()
+                            .map_err(|_| RtckError::Firecracker("waiting socket".to_string()))?,
+                        timeout,
+                    )
+                    .unwrap();
+                if result.1.timed_out() {
+                    // if result.timed_out() {
+                    return Err(RtckError::Firecracker("remote socket timeout".to_string()));
                 }
             }
 
@@ -79,16 +93,17 @@ pub mod firecracker {
         }
 
         /// Connect to the socket
-        pub fn connect(&self) -> RtckResult<bufstream::BufStream<std::os::unix::net::UnixStream>> {
-            Ok(bufstream::BufStream::new(
-                std::os::unix::net::UnixStream::connect(&self.socket)?,
-            ))
+        pub fn connect(&self) -> RtckResult<UnixStream> {
+            UnixStream::connect(&self.socket)
+                .map_err(|_| RtckError::Firecracker("connecting socket".to_string()))
         }
     }
 }
 
 pub mod firecracker_async {
-    use crate::{config::GlobalConfig, local::handle_entry, RtckError, RtckErrorClass, RtckResult};
+    use tokio::net::UnixStream;
+
+    use crate::{config::GlobalConfig, local::handle_entry, RtckError, RtckResult};
 
     pub struct FirecrackerAsync {
         // Path to local firecracker bin
@@ -124,31 +139,25 @@ pub mod firecracker_async {
                 Some(config_path) => c = c.arg("--config-file").arg(&config_path),
                 None => (),
             }
-            Ok(c.spawn()?)
+            c.spawn()
+                .map_err(|_| RtckError::Firecracker("spawn fail".to_string()))
         }
 
         /// Waiting for the socket set by firecracker
-        #[cfg(feature = "tokio")]
         pub async fn waiting_socket(&self, timeout: tokio::time::Duration) -> RtckResult<()> {
             // FIXME: better error handling. Give it a class.
             Ok(tokio::time::timeout(timeout, async {
                 while tokio::fs::try_exists(&self.socket).await.is_err() {}
             })
             .await
-            .map_err(|_| {
-                RtckError::new(
-                    RtckErrorClass::RemoteError,
-                    "Remote socket set up timeout".to_string(),
-                )
-            })?)
+            .map_err(|_| RtckError::Config("remote socket timeout".to_string()))?)
         }
 
         /// Connect to the socket
-        #[cfg(feature = "tokio")]
-        pub async fn connect(&self) -> RtckResult<tokio::io::BufStream<tokio::net::UnixStream>> {
-            Ok(tokio::io::BufStream::new(
-                tokio::net::UnixStream::connect(&self.socket).await?,
-            ))
+        pub async fn connect(&self) -> RtckResult<UnixStream> {
+            UnixStream::connect(&self.socket)
+                .await
+                .map_err(|_| RtckError::Firecracker("connecting socket".to_string()))
         }
     }
 }

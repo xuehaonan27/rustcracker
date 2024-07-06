@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{models::*, RtckError, RtckErrorClass, RtckResult};
+use crate::{models::*, RtckError, RtckResult};
 
 /// Firecracker configuration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -67,10 +67,7 @@ impl FirecrackerConfig {
             Some(logger) => {
                 let path = PathBuf::from(&logger.log_path);
                 if path.exists() {
-                    return Err(RtckError::new(
-                        RtckErrorClass::ConfigError,
-                        "Log path already occupied".to_string(),
-                    ));
+                    return Err(RtckError::Config("logger path occupied".to_string()));
                 }
             }
         }
@@ -80,10 +77,7 @@ impl FirecrackerConfig {
             Some(metrics) => {
                 let path = PathBuf::from(&metrics.metrics_path);
                 if path.exists() {
-                    return Err(RtckError::new(
-                        RtckErrorClass::ConfigError,
-                        "Metrics path already occupied".to_string(),
-                    ));
+                    return Err(RtckError::Config("metrics path occupied".to_string()));
                 }
             }
         }
@@ -93,10 +87,7 @@ impl FirecrackerConfig {
             Some(boot_source) => {
                 let path = PathBuf::from(&boot_source.kernel_image_path);
                 if !path.exists() || !path.is_file() {
-                    return Err(RtckError::new(
-                        RtckErrorClass::ConfigError,
-                        "Kernel image file missing".to_string(),
-                    ));
+                    return Err(RtckError::Config("kernel image file missing".to_string()));
                 }
             }
         }
@@ -105,7 +96,8 @@ impl FirecrackerConfig {
     }
 
     pub fn to_vec(&self) -> RtckResult<Vec<u8>> {
-        Ok(serde_json::to_vec(&self)?)
+        serde_json::to_vec(&self)
+            .map_err(|_| RtckError::Encode("firecracker config to vec".to_string()))
     }
 }
 
@@ -152,10 +144,7 @@ impl JailerConfig {
                     file!(),
                     line!()
                 );
-                return Err(RtckError::new(
-                    RtckErrorClass::ConfigError,
-                    "Executable file (firecracker) must be specified in configuration".to_string(),
-                ));
+                return Err(RtckError::Config("no executable file".to_string()));
             }
             Some(path) => {
                 let path = PathBuf::from(path);
@@ -165,9 +154,8 @@ impl JailerConfig {
                         file!(),
                         line!()
                     );
-                    return Err(RtckError::new(
-                        RtckErrorClass::ConfigError,
-                        "Missing executable file in jailer".to_string(),
+                    return Err(RtckError::Config(
+                        "no executable file with jailer".to_string(),
                     ));
                 }
             }
@@ -180,9 +168,8 @@ impl JailerConfig {
                     file!(),
                     line!()
                 );
-                return Err(RtckError::new(
-                    RtckErrorClass::ConfigError,
-                    "Jailer binary must be specified in configuration".to_string(),
+                return Err(RtckError::Config(
+                    "jailer binary must be specified in configuration".to_string(),
                 ));
             }
             Some(path) => {
@@ -193,10 +180,7 @@ impl JailerConfig {
                         file!(),
                         line!()
                     );
-                    return Err(RtckError::new(
-                        RtckErrorClass::ConfigError,
-                        "Missing jailer binary".to_string(),
-                    ));
+                    return Err(RtckError::Config("missing jailer binary".to_string()));
                 }
             }
         }
@@ -215,7 +199,7 @@ impl JailerConfig {
     }
 
     pub fn to_vec(&self) -> RtckResult<Vec<u8>> {
-        Ok(serde_json::to_vec(&self)?)
+        serde_json::to_vec(&self).map_err(|_| RtckError::Encode("jailer config to vec".to_string()))
     }
 
     pub fn get_exec_file(&self) -> Option<&String> {
@@ -282,75 +266,45 @@ impl GlobalConfig {
         if self.using_jailer.is_none() || *self.using_jailer.as_ref().unwrap() {
             match &self.jailer_bin {
                 Some(path) if !PathBuf::from(path).exists() => {
-                    return Err(RtckError::new(
-                        RtckErrorClass::ConfigError,
-                        "Jailer bin missing".to_string(),
-                    ));
+                    return Err(RtckError::Config("jailer bin missing".to_string()));
                 }
-                None => {
-                    return Err(RtckError::new(
-                        RtckErrorClass::ConfigError,
-                        "Jailer bin missing".to_string(),
-                    ))
-                }
+                None => return Err(RtckError::Config("jailer bin missing".to_string())),
                 _ => (),
             }
 
             match &self.jailer_config {
-                None => {
-                    return Err(RtckError::new(
-                        RtckErrorClass::ConfigError,
-                        "Using jailer but no jailer config specified".to_string(),
-                    ))
-                }
+                None => return Err(RtckError::Config("no jailer config".to_string())),
                 Some(config) => config.validate()?,
             }
         }
 
         match &self.frck_bin {
             None => {
-                return Err(RtckError::new(
-                    RtckErrorClass::ConfigError,
-                    "Missing firecracker bin entry".to_string(),
+                return Err(RtckError::Config(
+                    "missing firecracker bin entry".to_string(),
                 ))
             }
             Some(path) => {
                 let path = PathBuf::from(path);
                 if !path.exists() || !path.is_file() {
-                    return Err(RtckError::new(
-                        RtckErrorClass::ConfigError,
-                        "Firecracker bin missing".to_string(),
-                    ));
+                    return Err(RtckError::Config("firecracker bin not found".to_string()));
                 }
             }
         }
 
         if self.frck_export_path.is_some() {
             match &self.frck_config {
-                None => {
-                    return Err(RtckError::new(
-                        RtckErrorClass::ConfigError,
-                        "Set exporting config but no config".to_string(),
-                    ))
-                }
+                None => return Err(RtckError::Config("no config to export".to_string())),
                 Some(_) => (),
             }
         }
 
         match &self.socket_path {
-            None => {
-                return Err(RtckError::new(
-                    RtckErrorClass::ConfigError,
-                    "Missing socket path entry".to_string(),
-                ))
-            }
+            None => return Err(RtckError::Config("missing socket path entry".to_string())),
             Some(path) => {
                 let path = PathBuf::from(path);
                 if path.exists() {
-                    return Err(RtckError::new(
-                        RtckErrorClass::ConfigError,
-                        "Socket already exists".to_string(),
-                    ));
+                    return Err(RtckError::Config("socket path occupied".to_string()));
                 }
             }
         }
@@ -362,16 +316,14 @@ impl GlobalConfig {
     pub fn export_config(&self) -> RtckResult<()> {
         match &self.frck_export_path {
             None => Ok(()),
-            Some(path) => Ok(std::fs::write(
+            Some(path) => std::fs::write(
                 path,
                 self.frck_config
                     .as_ref()
-                    .ok_or(RtckError::new(
-                        RtckErrorClass::ConfigError,
-                        "No firecracker config".to_string(),
-                    ))?
+                    .ok_or(RtckError::Config("no firecracker config".to_string()))?
                     .to_vec()?,
-            )?),
+            )
+            .map_err(|e| RtckError::FilesysIO(format!("when exporting config, {}", e.to_string()))),
         }
     }
 

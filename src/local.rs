@@ -3,7 +3,7 @@ pub mod local {
 
     use crate::{
         config::GlobalConfig, firecracker::firecracker::Firecracker, jailer::jailer::Jailer,
-        RtckResult,
+        RtckError, RtckResult,
     };
 
     pub struct Local {
@@ -25,10 +25,7 @@ pub mod local {
                 socket_path
             } else {
                 log::error!("[LocalAsync::from_jailer fail to get socket_path]");
-                return Err(crate::RtckError::new(
-                    crate::RtckErrorClass::ConfigError,
-                    "Fail to get socket_path".to_string(),
-                ));
+                return Err(crate::RtckError::Config("no socket_path".to_string()));
             };
             let machine_log_path = jailer.get_log_path_exported().cloned();
             let metrics_path = jailer.get_metrics_path_exported().cloned();
@@ -90,7 +87,8 @@ pub mod local {
         /// Create machine log
         pub fn create_machine_log(&self) -> RtckResult<()> {
             if let Some(path) = &self.machine_log_path {
-                std::fs::File::create(path)?;
+                std::fs::File::create(path)
+                    .map_err(|_| RtckError::FilesysIO("creating machine log".to_string()))?;
             }
             Ok(())
         }
@@ -98,7 +96,8 @@ pub mod local {
         /// Create jailer directory
         pub fn create_jailer_dir(&self) -> RtckResult<()> {
             if let Some(path) = &self.jail_path {
-                std::fs::create_dir_all(path)?;
+                std::fs::create_dir_all(path)
+                    .map_err(|_| RtckError::FilesysIO("creating jailer directory".to_string()))?;
             }
             Ok(())
         }
@@ -139,14 +138,16 @@ pub mod local {
 
         /// Remove only the socket
         pub fn rm_socket(&self) -> RtckResult<()> {
-            Ok(std::fs::remove_file(&self.socket_path)?)
+            std::fs::remove_file(&self.socket_path)
+                .map_err(|_| RtckError::FilesysIO("removing socket".to_string()))
         }
 
         /// Remove the machine log
         pub fn rm_machine_log(&self) -> RtckResult<()> {
             if let Some(true) = self.machine_log_clear {
                 if let Some(path) = &self.machine_log_path {
-                    std::fs::remove_file(path)?
+                    std::fs::remove_file(path)
+                        .map_err(|_| RtckError::FilesysIO("removing machine log".to_string()))?;
                 }
             }
             Ok(())
@@ -156,7 +157,8 @@ pub mod local {
         pub fn rm_metrics(&self) -> RtckResult<()> {
             if let Some(true) = self.metrics_clear {
                 if let Some(path) = &self.metrics_path {
-                    std::fs::remove_file(path)?;
+                    std::fs::remove_file(path)
+                        .map_err(|_| RtckError::FilesysIO("removing metrics".to_string()))?;
                 }
             }
             Ok(())
@@ -173,20 +175,20 @@ pub mod local {
         /// Remove the jail directory
         pub fn rm_jail(&self) -> RtckResult<()> {
             if let Some(path) = &self.jail_path {
-                std::fs::remove_dir_all(path)?
+                std::fs::remove_dir_all(path)
+                    .map_err(|_| RtckError::FilesysIO("remove jailer directory".to_string()))?;
             }
             Ok(())
         }
     }
 }
 
-#[cfg(feature = "tokio")]
 pub mod local_async {
     use std::path::{Path, PathBuf};
 
     use crate::{
         config::GlobalConfig, firecracker::firecracker_async::FirecrackerAsync,
-        jailer::jailer_async::JailerAsync, RtckResult,
+        jailer::jailer_async::JailerAsync, RtckError, RtckResult,
     };
 
     pub struct LocalAsync {
@@ -208,10 +210,7 @@ pub mod local_async {
                 socket_path
             } else {
                 log::error!("[LocalAsync::from_jailer fail to get socket_path]");
-                return Err(crate::RtckError::new(
-                    crate::RtckErrorClass::ConfigError,
-                    "Fail to get socket_path".to_string(),
-                ));
+                return Err(crate::RtckError::Config("no socket_path".to_string()));
             };
             let machine_log_path = jailer.get_log_path_exported().cloned();
             let metrics_path = jailer.get_metrics_path_exported().cloned();
@@ -271,26 +270,27 @@ pub mod local_async {
         }
 
         /// Create machine log
-        #[cfg(feature = "tokio")]
         pub async fn create_machine_log(&self) -> RtckResult<()> {
             if let Some(path) = &self.machine_log_path {
-                tokio::fs::File::create(path).await?;
+                tokio::fs::File::create(path)
+                    .await
+                    .map_err(|_| RtckError::FilesysIO("creating machine log".to_string()))?;
             }
             Ok(())
         }
 
         /// Create jailer directory
-        #[cfg(feature = "tokio")]
         pub async fn create_jailer_dir(&self) -> RtckResult<()> {
             if let Some(path) = &self.jail_path {
-                tokio::fs::create_dir_all(path).await?;
+                tokio::fs::create_dir_all(path)
+                    .await
+                    .map_err(|_| RtckError::FilesysIO("creating jailer directory".to_string()))?;
             }
             Ok(())
         }
 
         /// Move the log to desired position
         /// Might need several switch from and to jail
-        #[cfg(feature = "tokio")]
         pub async fn cp_machine_log<P: AsRef<Path>>(&self, to: P) -> RtckResult<()> {
             match &self.machine_log_path {
                 None => log::error!("Fail to move machine log to {:?}", to.as_ref()),
@@ -323,36 +323,38 @@ pub mod local_async {
             }
         }
 
-        /// Remove the socket
-        #[cfg(feature = "tokio")]
+        /// Remove the socket   
         pub async fn rm_socket(&self) -> RtckResult<()> {
-            Ok(tokio::fs::remove_file(&self.socket_path).await?)
+            tokio::fs::remove_file(&self.socket_path)
+                .await
+                .map_err(|_| RtckError::FilesysIO("removing socket".to_string()))
         }
 
-        /// Remove the machine log
-        #[cfg(feature = "tokio")]
+        /// Remove the machine log   
         pub async fn rm_machine_log(&self) -> RtckResult<()> {
             if let Some(true) = self.machine_log_clear {
                 if let Some(path) = &self.machine_log_path {
-                    tokio::fs::remove_file(path).await?
+                    tokio::fs::remove_file(path)
+                        .await
+                        .map_err(|_| RtckError::FilesysIO("removing machine log".to_string()))?;
                 }
             }
             Ok(())
         }
 
         /// Remove the metrics
-        #[cfg(feature = "tokio")]
         pub async fn rm_metrics(&self) -> RtckResult<()> {
             if let Some(true) = self.metrics_clear {
                 if let Some(path) = &self.metrics_path {
-                    tokio::fs::remove_file(path).await?
+                    tokio::fs::remove_file(path)
+                        .await
+                        .map_err(|_| RtckError::FilesysIO("removing metrics".to_string()))?;
                 }
             }
             Ok(())
         }
 
         /// Remove the networks
-        #[cfg(feature = "tokio")]
         pub async fn rm_networks(&self) -> RtckResult<()> {
             if let Some(true) = self.network_clear {
                 todo!()
@@ -361,22 +363,22 @@ pub mod local_async {
         }
 
         /// Remove the jail directory
-        #[cfg(feature = "tokio")]
         pub async fn rm_jail(&self) -> RtckResult<()> {
             if let Some(path) = &self.jail_path {
-                tokio::fs::remove_dir_all(path).await?
+                tokio::fs::remove_dir_all(path)
+                    .await
+                    .map_err(|_| RtckError::FilesysIO("removing jailer directory".to_string()))?;
             }
             Ok(())
         }
     }
 }
 
-use crate::{RtckError, RtckErrorClass, RtckResult};
+use crate::{RtckError, RtckResult};
 
 #[doc(hidden)]
 pub(crate) fn handle_entry<T: Clone>(option: &Option<T>) -> RtckResult<T> {
-    option.clone().ok_or(RtckError::new(
-        RtckErrorClass::ConfigError,
-        "Missing config entry".to_string(),
-    ))
+    option
+        .clone()
+        .ok_or(RtckError::Config("missing config entry".to_string()))
 }
