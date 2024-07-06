@@ -1,9 +1,5 @@
-use crate::command::Command;
-use crate::micro_http::HttpResponse;
-use crate::RtckResult;
-
 pub trait Operation {
-    fn encode(&self) -> Command;
+    fn to_string(&self) -> String;
 }
 
 pub trait Response {
