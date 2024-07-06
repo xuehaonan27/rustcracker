@@ -1,7 +1,7 @@
 //! Firecracker Agent
 use crate::reqres::FirecrackerEvent;
 use fslock::LockFile;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, ErrorKind};
 use tokio::net::UnixStream;
 
 #[derive(Debug, thiserror::Error)]
@@ -88,6 +88,32 @@ impl Agent {
 
         let mut buf = [0u8; MAX_BUFFER_SIZE];
 
+        let mut vec: Vec<u8> = Vec::new();
+        loop {
+            self.stream
+                .readable()
+                .await
+                .map_err(|_| AgentError::BadResponse("waiting readable".into()))?;
+
+            match self.stream.try_read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    vec.extend_from_slice(&mut buf);
+                    if n < MAX_BUFFER_SIZE {
+                        // No need for checking again
+                        break;
+                    }
+                }
+                Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
+                    continue;
+                }
+                Err(e) => {
+                    return Err(AgentError::BadUnixSocket(e.to_string()));
+                }
+            }
+        }
+
+        /*
         // Wait for the stream available to read
         self.stream
             .readable()
@@ -117,6 +143,7 @@ impl Agent {
         } else {
             buf.to_vec()
         };
+        */
 
         let body_start = res.parse(&vec).unwrap();
         if body_start.is_partial() {
