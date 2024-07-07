@@ -213,7 +213,11 @@ pub struct GlobalConfig {
     pub jailer_bin: Option<String>,
     pub jailer_config: Option<JailerConfig>,
 
+    // Where to put socket, default to None, and Local will allocate one for you
     pub socket_path: Option<String>,
+    
+    // Where to put lock file, default to None, and Local will allocate one for you
+    pub lock_path: Option<String>,
 
     pub frck_bin: Option<String>,
     pub frck_config: Option<FirecrackerConfig>,
@@ -250,6 +254,7 @@ impl Default for GlobalConfig {
             jailer_bin: None,
             jailer_config: None,
             socket_path: None,
+            lock_path: None,
             frck_bin: None,
             frck_config: None,
             frck_export_path: None,
@@ -328,21 +333,18 @@ impl GlobalConfig {
     }
 
     /// Export the firecracker config
-    #[cfg(feature = "tokio")]
     pub async fn export_config_async(&self) -> RtckResult<()> {
         match &self.frck_export_path {
             None => Ok(()),
-            Some(path) => Ok(tokio::fs::write(
+            Some(path) => tokio::fs::write(
                 path,
                 self.frck_config
                     .as_ref()
-                    .ok_or(RtckError::new(
-                        RtckErrorClass::ConfigError,
-                        "No firecracker config".to_string(),
-                    ))?
+                    .ok_or(RtckError::Config("no firecracker config".to_string()))?
                     .to_vec()?,
             )
-            .await?),
+            .await
+            .map_err(|_| RtckError::FilesysIO("exporting config".to_string())),
         }
     }
 }
@@ -429,6 +431,7 @@ mod test {
             jailer_bin: None,
             jailer_config: None,
             socket_path: Some("/tmp/firecracker.sock".to_string()),
+            lock_path: None,
             frck_bin: Some("/usr/bin/firecracker".to_string()),
             frck_config: Some(frck_config),
             frck_export_path: Some(SAVE_PATH.to_string()),

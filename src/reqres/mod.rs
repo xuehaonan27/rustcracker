@@ -25,6 +25,7 @@ pub mod create_snapshot;
 // pub mod describe_instance;
 // pub mod get_export_vm_config;
 pub mod get_firecracker_version;
+pub use get_firecracker_version::GetFirecrackerVersion;
 // pub mod get_machine_configuration;
 // pub mod get_mmds;
 

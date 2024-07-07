@@ -263,6 +263,7 @@ pub mod jailer {
 pub mod jailer_async {
     use std::path::PathBuf;
 
+    use serde::{Deserialize, Serialize};
     use tokio::net::UnixStream;
 
     use crate::{
@@ -272,6 +273,7 @@ pub mod jailer_async {
 
     use super::handle_entry_ref;
 
+    #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct JailerAsync {
         // Path to local jailer bin
         // Usually something like `/usr/bin/jailer`
@@ -298,6 +300,9 @@ pub mod jailer_async {
         // Desired path of the socket
         socket: Option<String>,
 
+        // Desired path of the lock
+        lock_path: Option<String>,
+
         // Path to the config file
         config_path: Option<String>,
 
@@ -306,6 +311,9 @@ pub mod jailer_async {
 
         // Socket path seen by Rtck
         socket_path_export: Option<PathBuf>,
+
+        // Lock path seen by Rtck
+        lock_path_export: Option<PathBuf>,
 
         // Config file path seen by firecracker
         config_path_jailed: Option<PathBuf>,
@@ -326,6 +334,10 @@ pub mod jailer_async {
     impl JailerAsync {
         pub fn get_socket_path_exported(&self) -> Option<&PathBuf> {
             self.socket_path_export.as_ref()
+        }
+
+        pub fn get_lock_path_exported(&self) -> Option<&PathBuf> {
+            self.lock_path_export.as_ref()
         }
 
         pub fn get_log_path_exported(&self) -> Option<&PathBuf> {
@@ -363,10 +375,12 @@ pub mod jailer_async {
                 ),
                 daemonize: jailer_config.daemonize.unwrap_or(false),
                 socket: config.socket_path.clone(),
+                lock_path: config.lock_path.clone(),
                 config_path: config.frck_export_path.clone(),
 
                 jailer_workspace_dir: None,
                 socket_path_export: None,
+                lock_path_export: None,
                 config_path_jailed: None,
                 machine_log_path_jailed: match &config.frck_config {
                     None => None,
@@ -407,6 +421,10 @@ pub mod jailer_async {
             let socket_path =
                 handle_entry_default(&self.socket, DEFAULT_SOCKET_PATH_UNDER_JAILER.to_string());
             self.socket_path_export = Some(jailer_workspace_dir.join(socket_path));
+
+            const DEFAULT_LOCK_PATH_UNDER_JAILER: &'static str = "run/firecracker.lock";
+            let lock_path = handle_entry_default(&self.socket, DEFAULT_LOCK_PATH_UNDER_JAILER.to_string());
+            self.lock_path_export = Some(jailer_workspace_dir.join(lock_path));
 
             match &self.config_path {
                 None => (),

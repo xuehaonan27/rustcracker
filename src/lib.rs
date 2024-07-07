@@ -1,3 +1,5 @@
+use agent::agent::AgentError;
+
 pub mod config;
 // pub mod events;
 pub mod firecracker;
@@ -27,6 +29,8 @@ pub enum RtckError {
     Firecracker(String),
     #[error("Jailer: {0}")]
     Jailer(String),
+    #[error("Agent: {0}")]
+    Agent(#[from] AgentError),
 }
 
 pub type RtckResult<T> = std::result::Result<T, RtckError>;

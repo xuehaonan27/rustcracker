@@ -101,10 +101,13 @@ pub mod firecracker {
 }
 
 pub mod firecracker_async {
+    use serde::{Deserialize, Serialize};
     use tokio::net::UnixStream;
 
     use crate::{config::GlobalConfig, local::handle_entry, RtckError, RtckResult};
 
+    /// Unlike using jailer, when using bare firecracker, socket path and lock path must be specified
+    #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct FirecrackerAsync {
         // Path to local firecracker bin
         // Usually something like `/usr/bin/firecracker` if not using jailer
@@ -112,6 +115,9 @@ pub mod firecracker_async {
 
         // Desired path of the socket
         socket: String,
+
+        // Desired path of the lock
+        lock_path: String,
 
         // Path to the config file
         config_path: Option<String>,
@@ -121,6 +127,10 @@ pub mod firecracker_async {
         pub fn get_socket(&self) -> &String {
             &self.socket
         }
+
+        pub fn get_lock_path(&self) -> &String {
+            &self.lock_path
+        }
     }
 
     impl FirecrackerAsync {
@@ -128,6 +138,7 @@ pub mod firecracker_async {
             Ok(Self {
                 bin: handle_entry(&config.frck_bin)?,
                 socket: handle_entry(&config.socket_path)?,
+                lock_path: handle_entry(&config.lock_path)?,
                 config_path: config.frck_export_path.clone(),
             })
         }

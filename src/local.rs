@@ -186,13 +186,17 @@ pub mod local {
 pub mod local_async {
     use std::path::{Path, PathBuf};
 
+    use serde::{Deserialize, Serialize};
+
     use crate::{
         config::GlobalConfig, firecracker::firecracker_async::FirecrackerAsync,
         jailer::jailer_async::JailerAsync, RtckError, RtckResult,
     };
 
+    #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct LocalAsync {
         socket_path: PathBuf,
+        lock_path: PathBuf,
         machine_log_path: Option<PathBuf>,
         metrics_path: Option<PathBuf>,
         jail_path: Option<PathBuf>,
@@ -209,9 +213,18 @@ pub mod local_async {
             let socket_path = if let Some(socket_path) = socket_path {
                 socket_path
             } else {
-                log::error!("[LocalAsync::from_jailer fail to get socket_path]");
+                log::error!("[LocalAsync::from_jailer] fail to get socket_path");
                 return Err(crate::RtckError::Config("no socket_path".to_string()));
             };
+
+            let lock_path = jailer.get_lock_path_exported().cloned();
+            let lock_path = if let Some(lock_path) = lock_path {
+                lock_path
+            } else {
+                log::error!("[LocalAsync::from_jailer] fail to get lock_path");
+                return Err(crate::RtckError::Config("no lock path".to_string()));
+            };
+
             let machine_log_path = jailer.get_log_path_exported().cloned();
             let metrics_path = jailer.get_metrics_path_exported().cloned();
 
@@ -220,6 +233,7 @@ pub mod local_async {
 
             Ok(Self {
                 socket_path,
+                lock_path,
                 machine_log_path,
                 metrics_path,
                 jail_path: Some(jail_path),
@@ -232,6 +246,7 @@ pub mod local_async {
         /// Construct a LocalAsync with information from FirecrackerAsync and GlobalConfig
         pub fn from_frck(frck: &FirecrackerAsync, config: &GlobalConfig) -> RtckResult<Self> {
             let socket_path = PathBuf::from(frck.get_socket().clone());
+            let lock_path = PathBuf::from(frck.get_lock_path().clone());
             let machine_log_path = match &config.frck_config {
                 None => None,
                 Some(frck_config) => match &frck_config.logger {
@@ -252,6 +267,7 @@ pub mod local_async {
 
             Ok(Self {
                 socket_path,
+                lock_path,
                 machine_log_path,
                 metrics_path,
                 jail_path,
@@ -287,6 +303,12 @@ pub mod local_async {
                     .map_err(|_| RtckError::FilesysIO("creating jailer directory".to_string()))?;
             }
             Ok(())
+        }
+
+        /// Create file lock
+        pub fn create_lock(&self) -> RtckResult<fslock::LockFile> {
+            fslock::LockFile::open(&self.lock_path)
+                .map_err(|_| RtckError::FilesysIO("creating lock file".to_string()))
         }
 
         /// Move the log to desired position

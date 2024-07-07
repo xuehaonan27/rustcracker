@@ -20,10 +20,9 @@ pub type AgentResult<T> = std::result::Result<T, AgentError>;
 
 // 1024 bytes are enough for firecracker response headers
 const MAX_BUFFER_SIZE: usize = 1024;
+#[derive(Debug)]
 pub struct Agent {
-    stream_path: String,
     stream: UnixStream,
-    lock_path: String,
     lock: LockFile,
 }
 
@@ -35,12 +34,11 @@ impl Agent {
         // You should make sure that `lock_path` contains no nul-terminators
         let lock =
             LockFile::open(&lock_path).map_err(|e| AgentError::BadLockFile(e.to_string()))?;
-        Ok(Self {
-            stream_path,
-            stream,
-            lock_path,
-            lock,
-        })
+        Ok(Self { stream, lock })
+    }
+
+    pub fn from_stream_lock(stream: UnixStream, lock: LockFile) -> Self {
+        Self { stream, lock }
     }
 
     pub fn is_locked(&self) -> bool {
