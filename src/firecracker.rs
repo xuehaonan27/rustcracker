@@ -172,3 +172,6 @@ pub mod firecracker_async {
         }
     }
 }
+
+pub use firecracker::Firecracker;
+pub use firecracker_async::FirecrackerAsync;

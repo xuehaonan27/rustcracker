@@ -31,6 +31,8 @@ pub enum RtckError {
     Jailer(String),
     #[error("Agent: {0}")]
     Agent(#[from] AgentError),
+    #[error("Process: {0}")]
+    Machine(String),
 }
 
 pub type RtckResult<T> = std::result::Result<T, RtckError>;

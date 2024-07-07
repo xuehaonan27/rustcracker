@@ -423,7 +423,8 @@ pub mod jailer_async {
             self.socket_path_export = Some(jailer_workspace_dir.join(socket_path));
 
             const DEFAULT_LOCK_PATH_UNDER_JAILER: &'static str = "run/firecracker.lock";
-            let lock_path = handle_entry_default(&self.socket, DEFAULT_LOCK_PATH_UNDER_JAILER.to_string());
+            let lock_path =
+                handle_entry_default(&self.socket, DEFAULT_LOCK_PATH_UNDER_JAILER.to_string());
             self.lock_path_export = Some(jailer_workspace_dir.join(lock_path));
 
             match &self.config_path {
@@ -520,3 +521,6 @@ fn handle_entry_ref<T>(entry: &Option<T>) -> RtckResult<&T> {
         .as_ref()
         .ok_or(RtckError::Jailer("missing entry".to_string()))
 }
+
+pub use jailer::Jailer;
+pub use jailer_async::JailerAsync;

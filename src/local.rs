@@ -404,3 +404,6 @@ pub(crate) fn handle_entry<T: Clone>(option: &Option<T>) -> RtckResult<T> {
         .clone()
         .ok_or(RtckError::Config("missing config entry".to_string()))
 }
+
+pub use local::Local;
+pub use local_async::LocalAsync;

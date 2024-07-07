@@ -11,6 +11,8 @@ pub trait FirecrackerResponse {
     // type Payload = Either<Self::Succ, Self::Fail>;
     fn is_succ(&self) -> bool;
     fn is_err(&self) -> bool;
+    fn succ<'de>(&self) -> &Self::Succ<'de>;
+    fn err<'de>(&self) -> &Self::Fail<'de>;
     fn create_succ<'de>(content: Self::Succ<'de>) -> Self
     where
         Self: Sized;
@@ -215,6 +217,16 @@ macro_rules! impl_firecracker_response {
             #[inline]
             fn is_err(&self) -> bool {
                 self.0.is_right()
+            }
+
+            #[inline]
+            fn succ<'de>(&self) -> &Self::Succ<'de> {
+                self.0.as_ref().left().expect("Use is_succ to check your response")
+            }
+
+            #[inline]
+            fn err<'de>(&self) -> &Self::Fail<'de> {
+                self.0.as_ref().right().expect("Use is_err to check your response")
             }
 
             #[inline]
