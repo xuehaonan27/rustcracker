@@ -1,13 +1,17 @@
-use crate::models::snapshot_create_params::SnapshotCreateParams;
+#[repr(transparent)]
+pub struct CreateSnapshotRequest(SnapshotCreateParams);
 
-use super::FirecrackerRequest;
+#[repr(transparent)]
+pub struct CreateSnapshotResponse(pub Either<Empty, InternalError>);
 
-pub struct CreateSnapshot {
-    payload: SnapshotCreateParams,
-}
+#[repr(transparent)]
+pub struct CreateSnapshot(pub CreateSnapshotRequest);
 
-impl CreateSnapshot {
-    pub fn new(payload: SnapshotCreateParams) -> Self {
-        Self { payload }
-    }
-}
+impl_all_firecracker_traits!(
+    CreateSnapshot,
+    "PUT",
+    "/snapshot/create",
+    SnapshotCreateParams,
+    Empty,
+    InternalError
+);

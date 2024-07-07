@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// by `GET /balloon/statistics`, which describes detailed
 /// information of the balloon device.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BalloonStatistics {
+pub struct BalloonStats {
     /// Target number of pages the device aims to hold.
     /// Required: true
     #[serde(rename = "target_pages")]

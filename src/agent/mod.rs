@@ -13,8 +13,8 @@ pub struct HttpRequest {
 
 impl HttpRequest {
     pub fn new(
-        method: &'static str,
-        path: &'static str,
+        method: &str,
+        path: &str,
         content_length: Option<usize>,
         body: Option<String>,
     ) -> Self {

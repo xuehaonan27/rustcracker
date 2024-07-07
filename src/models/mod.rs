@@ -28,7 +28,7 @@ pub mod vm;
 pub mod vsock;
 
 pub use balloon::Balloon;
-pub use balloon_stats::BalloonStatistics;
+pub use balloon_stats::BalloonStats;
 pub use balloon_stats_update::BalloonStatsUpdate;
 pub use balloon_update::BalloonUpdate;
 pub use boot_source::BootSource;
@@ -55,3 +55,7 @@ pub use snapshot_load_params::SnapshotLoadParams;
 pub use token_bucket::TokenBucket;
 pub use vm::{State as VmState, Vm, VM_STATE_PAUSED, VM_STATE_RESUMED};
 pub use vsock::Vsock;
+
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Empty;
