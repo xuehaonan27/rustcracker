@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use crate::{
@@ -6,6 +7,7 @@ use crate::{
 };
 
 pub struct Machine {
+    rebuilt: bool,
     agent: Agent,
     config: GlobalConfig,
     local: LocalAsync,
@@ -14,10 +16,67 @@ pub struct Machine {
     child: Mutex<tokio::process::Child>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MachineExportedConfig {
+    config: GlobalConfig,
+    local: LocalAsync,
+    frck: FirecrackerAsync,
+    jailer: Option<JailerAsync>,
+}
+
 impl Machine {
+    /// Get pid of the child
+    pub async fn get_machine_pid(&self) -> Option<u32> {
+        self.child.lock().await.id()
+    }
+
     /// Dump the global configuration
     pub fn get_config(&self) -> GlobalConfig {
         self.config.clone()
+    }
+
+    /// Export the configuration of machine
+    pub fn export_config(&self) -> MachineExportedConfig {
+        MachineExportedConfig {
+            config: self.config.clone(),
+            local: self.local.clone(),
+            frck: self.frck.clone(),
+            jailer: self.jailer.clone(),
+        }
+    }
+
+    /// Rebuild the machine from exported config
+    pub async fn rebuild(config: MachineExportedConfig) -> RtckResult<Self> {
+        let frck = config.frck;
+        let jailer = config.jailer;
+        let local = config.local;
+        let config = config.config;
+        let child = Mutex::new(tokio::process::Command::new("echo").spawn().unwrap());
+        let lock = local.create_lock()?;
+
+        let stream = if config.using_jailer.unwrap() {
+            jailer
+                .as_ref()
+                .ok_or(RtckError::Config("Bad exported config".to_string()))?
+                .connect()
+                .await?
+        } else {
+            frck.connect().await?
+        };
+
+        let agent = Agent::from_stream_lock(stream, lock);
+
+        let machine = Machine {
+            rebuilt: true,
+            frck,
+            agent,
+            child,
+            local,
+            jailer,
+            config,
+        };
+
+        Ok(machine)
     }
 
     pub async fn create(config: GlobalConfig) -> RtckResult<Self> {
@@ -65,6 +124,7 @@ impl Machine {
         let agent = Agent::from_stream_lock(stream, lock);
 
         Ok(Self {
+            rebuilt: false,
             agent,
             local,
             jailer,
@@ -283,6 +343,11 @@ impl Machine {
 
     /// Stop the machine forcefully by killing the firecracker process
     pub async fn stop_force(&mut self) -> RtckResult<()> {
+        if self.rebuilt {
+            log::warn!("Cannot kill a machine that's rebuilt from config");
+            return Ok(());
+        }
+
         self.child.lock().await.kill().await.map_err(|e| {
             log::error!("Machine::stop_force killing failed, error = {}", e);
             RtckError::Machine("fail to kill the machine".to_string())

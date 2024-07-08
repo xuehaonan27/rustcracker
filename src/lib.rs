@@ -6,10 +6,11 @@ pub mod jailer;
 pub mod local;
 // pub mod machine;
 pub mod agent;
-// pub mod database;
+pub mod database;
 pub mod machine_dev;
 pub mod models;
 pub mod reqres;
+pub mod pool;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RtckError {
