@@ -1,3 +1,4 @@
+use procfs::process::Process;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
@@ -13,11 +14,12 @@ pub struct Machine {
     local: LocalAsync,
     frck: FirecrackerAsync,
     jailer: Option<JailerAsync>,
-    child: Mutex<tokio::process::Child>,
+    pid: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MachineExportedConfig {
+    pid: Option<u32>,
     config: GlobalConfig,
     local: LocalAsync,
     frck: FirecrackerAsync,
@@ -25,9 +27,35 @@ pub struct MachineExportedConfig {
 }
 
 impl Machine {
+    /// Check whether the process is still valid, i.e. process exists and is firecracker.
+    pub fn get_process(&self) -> RtckResult<Process> {
+        let pid = self.pid.ok_or(RtckError::Machine("no pid".to_string()))?;
+        Process::new(pid as i32).map_err(|_| RtckError::Machine("fail to get process".to_string()))
+    }
+
+    /// Check whether the machine is valid and is firecracker
+    pub fn is_valid(&self) -> bool {
+        let process = if let Ok(process) = self.get_process() {
+            process
+        } else {
+            return false;
+        };
+
+        let cmdline = if let Ok(cmdline) = process.cmdline() {
+            cmdline
+        } else {
+            // Zombie process, so invalid now
+            return false;
+        };
+
+        process.is_alive() && cmdline.iter().any(|s| s.contains("firecracker"))
+    }
+}
+
+impl Machine {
     /// Get pid of the child
     pub async fn get_machine_pid(&self) -> Option<u32> {
-        self.child.lock().await.id()
+        self.pid
     }
 
     /// Dump the global configuration
@@ -38,6 +66,7 @@ impl Machine {
     /// Export the configuration of machine
     pub fn export_config(&self) -> MachineExportedConfig {
         MachineExportedConfig {
+            pid: self.pid,
             config: self.config.clone(),
             local: self.local.clone(),
             frck: self.frck.clone(),
@@ -50,8 +79,8 @@ impl Machine {
         let frck = config.frck;
         let jailer = config.jailer;
         let local = config.local;
+        let pid = config.pid;
         let config = config.config;
-        let child = Mutex::new(tokio::process::Command::new("echo").spawn().unwrap());
         let lock = local.create_lock()?;
 
         let stream = if config.using_jailer.unwrap() {
@@ -70,15 +99,17 @@ impl Machine {
             rebuilt: true,
             frck,
             agent,
-            child,
             local,
             jailer,
             config,
+            pid,
         };
 
         Ok(machine)
     }
 
+    /// Fast path to create a machine.
+    /// For those who just want a machine by filling a configuration.
     pub async fn create(config: GlobalConfig) -> RtckResult<Self> {
         config.validate()?;
 
@@ -123,6 +154,8 @@ impl Machine {
 
         let agent = Agent::from_stream_lock(stream, lock);
 
+        let pid = child.id();
+
         Ok(Self {
             rebuilt: false,
             agent,
@@ -130,7 +163,7 @@ impl Machine {
             jailer,
             frck,
             config: config.clone(),
-            child: Mutex::new(child),
+            pid,
         })
     }
 
@@ -327,7 +360,8 @@ impl Machine {
         Ok(())
     }
 
-    /// Stop the machine by notifying the hypervisor
+    /// Stop the machine by notifying the hypervisor.
+    /// Hypervisor should still be valid.
     pub async fn stop(&mut self) -> RtckResult<()> {
         let stop_machine = CreateSyncAction::new(InstanceActionInfo {
             action_type: ActionType::SendCtrlAtlDel,
@@ -341,17 +375,22 @@ impl Machine {
         Ok(())
     }
 
-    /// Stop the machine forcefully by killing the firecracker process
+    /// Stop the machine forcefully by killing the firecracker process.
+    /// Note: this command will kill firecracker itself.
+    #[cfg(any(target_os = "linux", target_os = "unix"))]
     pub async fn stop_force(&mut self) -> RtckResult<()> {
-        if self.rebuilt {
-            log::warn!("Cannot kill a machine that's rebuilt from config");
-            return Ok(());
+        if self.is_valid() {
+            // kill -9 <pid>
+            use nix::sys::signal::{kill, Signal};
+            kill(
+                nix::unistd::Pid::from_raw(self.pid.unwrap() as i32), // self.is_valid ensures that `unwrap` won't panic
+                Signal::SIGKILL,
+            )
+            .map_err(|_| RtckError::Machine("fail to kill".to_string()))
+        } else {
+            // already invalid
+            Err(RtckError::Machine("already invalid".to_string()))
         }
-
-        self.child.lock().await.kill().await.map_err(|e| {
-            log::error!("Machine::stop_force killing failed, error = {}", e);
-            RtckError::Machine("fail to kill the machine".to_string())
-        })
     }
 
     /// Delete the machine by notifying firecracker

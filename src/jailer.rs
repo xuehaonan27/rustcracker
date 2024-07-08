@@ -332,6 +332,10 @@ pub mod jailer_async {
     }
 
     impl JailerAsync {
+        pub fn get_uid(&self) -> u32 {
+            self.uid
+        }
+
         pub fn get_socket_path_exported(&self) -> Option<&PathBuf> {
             self.socket_path_export.as_ref()
         }

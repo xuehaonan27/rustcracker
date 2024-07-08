@@ -147,6 +147,12 @@ impl JailerConfig {
                 return Err(RtckError::Config("no executable file".to_string()));
             }
             Some(path) => {
+                // forced by firecracker specification
+                if !path.contains("firecracker") {
+                    return Err(RtckError::Config(
+                        "executable path must contain `firecracker`".to_string(),
+                    ));
+                }
                 let path = PathBuf::from(path);
                 if !path.exists() || !path.is_file() {
                     log::error!(
@@ -215,7 +221,7 @@ pub struct GlobalConfig {
 
     // Where to put socket, default to None, and Local will allocate one for you
     pub socket_path: Option<String>,
-    
+
     // Where to put lock file, default to None, and Local will allocate one for you
     pub lock_path: Option<String>,
 

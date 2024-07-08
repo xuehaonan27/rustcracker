@@ -85,22 +85,22 @@ impl MachinePool {
                 .arg(pid.to_string())
                 .output()
             {
-                if process.stdout.contains(b"your_process_name") {
-                    // Recreate the machine with the existing process
-                    let child = Command::new("your_command")
-                        .spawn()
-                        .expect("Failed to spawn process");
-                    let machine = Machine {
-                        agent: Agent::new(),
-                        config,
-                        local: LocalAsync::new(),
-                        frck: FirecrackerAsync::new(),
-                        jailer: None,
-                        child: Mutex::new(child),
-                    };
-                    self.active_machines.insert(*uuid, machine);
-                    return self.active_machines.get_mut(uuid);
-                }
+                // if process.stdout.contains(b"your_process_name") {
+                //     // Recreate the machine with the existing process
+                //     let child = Command::new("your_command")
+                //         .spawn()
+                //         .expect("Failed to spawn process");
+                //     // let machine = Machine {
+                //     //     agent: Agent::new(),
+                //     //     config,
+                //     //     local: LocalAsync::new(),
+                //     //     frck: FirecrackerAsync::new(),
+                //     //     jailer: None,
+                //     //     child: Mutex::new(child),
+                //     // };
+                //     self.active_machines.insert(*uuid, machine);
+                //     return self.active_machines.get_mut(uuid);
+                // }
             }
         }
         None
@@ -109,12 +109,14 @@ impl MachinePool {
 
 async fn main() {
     let mut machine_pool = MachinePool::new();
-    let machine = Machine {
-        // Initialize your machine here
-    };
-    let uuid = machine_pool.add_machine(machine).await;
-    machine_pool.remove_machine(&uuid).await;
-    if let Some(machine) = machine_pool.get_machine(&uuid).await {
-        // Use the machine
-    }
+    // let machine = Machine {
+    //     // Initialize your machine here
+    //
+    // };
+    let machine: Machine;
+    // let uuid = machine_pool.add_machine(machine).await;
+    // machine_pool.remove_machine(&uuid).await;
+    // if let Some(machine) = machine_pool.get_machine(&uuid).await {
+    // Use the machine
+    // }
 }
