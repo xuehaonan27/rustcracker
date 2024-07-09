@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{models::*, RtckError, RtckResult};
 
-/// Firecracker configuration
+/// Configuration for a microVM instance
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FirecrackerConfig {
+pub struct MicroVMConfig {
     // logger defines the logger for microVM.
     pub logger: Option<logger::Logger>,
 
@@ -60,7 +60,7 @@ pub struct FirecrackerConfig {
     pub init_metadata: Option<String>,
 }
 
-impl FirecrackerConfig {
+impl MicroVMConfig {
     pub fn validate(&self) -> RtckResult<()> {
         match &self.logger {
             None => (),
@@ -101,6 +101,8 @@ impl FirecrackerConfig {
     }
 }
 
+/// Configuration for `jailer`.
+/// Needed when using jailer.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct JailerConfig {
     // `gid` the jailer switches to as it execs the target binary.
@@ -213,58 +215,77 @@ impl JailerConfig {
     }
 }
 
+/// Configuration relative to a hypervisor instance.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct GlobalConfig {
+pub struct HypervisorConfig {
+    /// launch timeout
+    pub launch_timeout: u64,
+
+    /// using jailer?
     pub using_jailer: Option<bool>,
+
+    /// path to firecracker binary
+    pub frck_bin: Option<String>,
+
+    /// path to jailer binary (if using jailer)
     pub jailer_bin: Option<String>,
+
+    /// jailer configuration (if using jailer)
     pub jailer_config: Option<JailerConfig>,
 
-    // Where to put socket, default to None, and Local will allocate one for you
-    pub socket_path: Option<String>,
-
-    // Where to put lock file, default to None, and Local will allocate one for you
-    pub lock_path: Option<String>,
-
-    pub frck_bin: Option<String>,
-    pub frck_config: Option<FirecrackerConfig>,
-
-    // Where to put firecracker exported config
+    /// where to put firecracker exported config for `--config`
     pub frck_export_path: Option<String>,
 
-    // log_clear defines whether rustcracker should remove log files after microVM
-    // was removed. Default to false.
+    /// where to put socket, default to None, and Local will allocate one for you
+    pub socket_path: Option<String>,
+
+    /// where to put lock file, default to None, and Local will allocate one for you
+    pub lock_path: Option<String>,
+
+    /// hypervisor log path
+    /// path inside jailer seen by firecracker (when using jailer)
+    pub log_path: Option<String>,
+
+    /// log_clear defines whether rustcracker should remove log files after microVM
+    /// instance is removed from hypervisor. Default to false.
     pub log_clear: Option<bool>,
 
-    // metrics_clear defines whether rustcracker should remove log files after microVM
-    // was removed. Default to false.
+    /// hypervisor metrics path
+    /// path inside jailer seen by firecracker (when using jailer)
+    pub metrics_path: Option<String>,
+
+    /// metrics_clear defines whether rustcracker should remove log files after microVM
+    /// instance is removed from hypervisor. Default to false.
     pub metrics_clear: Option<bool>,
 
-    // network_clear defines whether rustcracker should clear networking
-    // after the microVM is removed. Default to false.
+    /// network_clear defines whether rustcracker should clear networking after microVM
+    /// instance is removed from hypervisor. Default to false.
     pub network_clear: Option<bool>,
 
-    // seccomp_level specifies whether seccomp filters should be installed and how
-    // restrictive they should be. Possible values are:
-    //
-    //	0 : (default): disabled.
-    //	1 : basic filtering. This prohibits syscalls not whitelisted by Firecracker.
-    //	2 : advanced filtering. This adds further checks on some of the
-    //			parameters of the allowed syscalls.
+    /// seccomp_level specifies whether seccomp filters should be installed and how
+    /// restrictive they should be. Possible values are:
+    ///
+    ///	0 : (default): disabled.
+    ///	1 : basic filtering. This prohibits syscalls not whitelisted by Firecracker.
+    ///	2 : advanced filtering. This adds further checks on some of the
+    ///			parameters of the allowed syscalls.
     pub seccomp_level: Option<usize>,
 }
 
-impl Default for GlobalConfig {
+impl Default for HypervisorConfig {
     fn default() -> Self {
         Self {
+            launch_timeout: 3,
             using_jailer: None,
             jailer_bin: None,
             jailer_config: None,
+            frck_export_path: None,
             socket_path: None,
             lock_path: None,
             frck_bin: None,
-            frck_config: None,
-            frck_export_path: None,
+            log_path: None,
             log_clear: None,
+            metrics_path: None,
             metrics_clear: None,
             network_clear: None,
             seccomp_level: None,
@@ -272,7 +293,7 @@ impl Default for GlobalConfig {
     }
 }
 
-impl GlobalConfig {
+impl HypervisorConfig {
     pub fn validate(&self) -> RtckResult<()> {
         if self.using_jailer.is_none() || *self.using_jailer.as_ref().unwrap() {
             match &self.jailer_bin {
@@ -303,12 +324,12 @@ impl GlobalConfig {
             }
         }
 
-        if self.frck_export_path.is_some() {
-            match &self.frck_config {
-                None => return Err(RtckError::Config("no config to export".to_string())),
-                Some(_) => (),
-            }
-        }
+        // if self.frck_export_path.is_some() {
+        //     match &self.frck_config {
+        //         None => return Err(RtckError::Config("no config to export".to_string())),
+        //         Some(_) => (),
+        //     }
+        // }
 
         match &self.socket_path {
             None => return Err(RtckError::Config("missing socket path entry".to_string())),
@@ -323,137 +344,144 @@ impl GlobalConfig {
         Ok(())
     }
 
-    /// Export the firecracker config
-    pub fn export_config(&self) -> RtckResult<()> {
-        match &self.frck_export_path {
-            None => Ok(()),
-            Some(path) => std::fs::write(
-                path,
-                self.frck_config
-                    .as_ref()
-                    .ok_or(RtckError::Config("no firecracker config".to_string()))?
-                    .to_vec()?,
-            )
-            .map_err(|e| RtckError::FilesysIO(format!("when exporting config, {}", e.to_string()))),
-        }
-    }
+    // /// Export the firecracker config
+    // pub fn export_config(&self) -> RtckResult<()> {
+    //     match &self.frck_export_path {
+    //         None => Ok(()),
+    //         Some(path) => std::fs::write(
+    //             path,
+    //             self.frck_config
+    //                 .as_ref()
+    //                 .ok_or(RtckError::Config("no firecracker config".to_string()))?
+    //                 .to_vec()?,
+    //         )
+    //         .map_err(|e| RtckError::FilesysIO(format!("when exporting config, {}", e.to_string()))),
+    //     }
+    // }
 
-    /// Export the firecracker config
-    pub async fn export_config_async(&self) -> RtckResult<()> {
-        match &self.frck_export_path {
-            None => Ok(()),
-            Some(path) => tokio::fs::write(
-                path,
-                self.frck_config
-                    .as_ref()
-                    .ok_or(RtckError::Config("no firecracker config".to_string()))?
-                    .to_vec()?,
-            )
-            .await
-            .map_err(|_| RtckError::FilesysIO("exporting config".to_string())),
-        }
-    }
+    // /// Export the firecracker config
+    // pub async fn export_config_async(&self) -> RtckResult<()> {
+    //     match &self.frck_export_path {
+    //         None => Ok(()),
+    //         Some(path) => tokio::fs::write(
+    //             path,
+    //             self.frck_config
+    //                 .as_ref()
+    //                 .ok_or(RtckError::Config("no firecracker config".to_string()))?
+    //                 .to_vec()?,
+    //         )
+    //         .await
+    //         .map_err(|_| RtckError::FilesysIO("exporting config".to_string())),
+    //     }
+    // }
 }
 
-// Global Config for Firecracker
+/// Configuration combined for fast path microVM creation
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct GlobalConfig {
+    pub frck_config: Option<MicroVMConfig>,
+    pub hv_config: Option<HypervisorConfig>,
+}
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        config::boot_source,
-        models::{
-            balloon::Balloon,
-            drive::Drive,
-            logger::{self, LogLevel},
-            machine_configuration::MachineConfiguration,
-            metrics,
-            network_interface::NetworkInterface,
-        },
-    };
+    // use crate::{
+    //     config::{boot_source, HypervisorConfig},
+    //     models::{
+    //         balloon::Balloon,
+    //         drive::Drive,
+    //         logger::{self, LogLevel},
+    //         machine_configuration::MachineConfiguration,
+    //         metrics,
+    //         network_interface::NetworkInterface,
+    //     },
+    // };
 
-    use super::{FirecrackerConfig, GlobalConfig};
+    // use super::{GlobalConfig, MicroVMConfig};
 
-    #[test]
-    fn test_write_config_consistent() {
-        const SAVE_PATH: &'static str = "/tmp/test_firecracker_export_config.json";
+    // #[test]
+    // fn test_write_config_consistent() {
+    //     const SAVE_PATH: &'static str = "/tmp/test_firecracker_export_config.json";
 
-        let frck_config = FirecrackerConfig {
-            logger: Some(logger::Logger {
-                log_path: "/var/log/firecracker/vm.log".to_string(),
-                level: Some(LogLevel::Error),
-                show_level: None,
-                show_log_origin: Some(true),
-                module: None,
-            }),
-            metrics: Some(metrics::Metrics {
-                metrics_path: "/var/metrics/firecracker/metrics".to_string(),
-            }),
-            boot_source: Some(boot_source::BootSource {
-                boot_args: Some("console=ttyS0 reboot=k panic=1 pci=off".to_string()),
-                initrd_path: None,
-                kernel_image_path: "/images/ubuntu_22_04.img".to_string(),
-            }),
-            drives: Some(vec![Drive {
-                drive_id: "rootfs".to_string(),
-                path_on_host: "./ubuntu-22.04.ext4".to_string(),
-                is_read_only: false,
-                is_root_device: true,
-                partuuid: None,
-                cache_type: None,
-                rate_limiter: None,
-                io_engine: None,
-                socket: None,
-            }]),
-            network_interfaces: Some(vec![NetworkInterface {
-                guest_mac: Some("06:00:AC:10:00:02".to_string()),
-                host_dev_name: "tap0".to_string(),
-                iface_id: "net1".to_string(),
-                rx_rate_limiter: None,
-                tx_rate_limiter: None,
-            }]),
-            vsock_devices: None,
-            cpu_config: None,
-            machine_config: Some(MachineConfiguration {
-                cpu_template: None,
-                ht_enabled: None,
-                mem_size_mib: 256,
-                track_dirty_pages: None,
-                vcpu_count: 8,
-            }),
-            vmid: Some("test_machine".to_string()),
-            net_ns: Some("mynetns".to_string()),
-            mmds_address: None,
-            balloon: Some(Balloon {
-                amount_mib: 64,
-                deflate_on_oom: true,
-                stats_polling_interval_s: None,
-            }),
-            entropy_device: None,
-            init_metadata: Some("This is initial metadata".to_string()),
-        };
+    //     let frck_config = MicroVMConfig {
+    //         logger: Some(logger::Logger {
+    //             log_path: "/var/log/firecracker/vm.log".to_string(),
+    //             level: Some(LogLevel::Error),
+    //             show_level: None,
+    //             show_log_origin: Some(true),
+    //             module: None,
+    //         }),
+    //         metrics: Some(metrics::Metrics {
+    //             metrics_path: "/var/metrics/firecracker/metrics".to_string(),
+    //         }),
+    //         boot_source: Some(boot_source::BootSource {
+    //             boot_args: Some("console=ttyS0 reboot=k panic=1 pci=off".to_string()),
+    //             initrd_path: None,
+    //             kernel_image_path: "/images/ubuntu_22_04.img".to_string(),
+    //         }),
+    //         drives: Some(vec![Drive {
+    //             drive_id: "rootfs".to_string(),
+    //             path_on_host: "./ubuntu-22.04.ext4".to_string(),
+    //             is_read_only: false,
+    //             is_root_device: true,
+    //             partuuid: None,
+    //             cache_type: None,
+    //             rate_limiter: None,
+    //             io_engine: None,
+    //             socket: None,
+    //         }]),
+    //         network_interfaces: Some(vec![NetworkInterface {
+    //             guest_mac: Some("06:00:AC:10:00:02".to_string()),
+    //             host_dev_name: "tap0".to_string(),
+    //             iface_id: "net1".to_string(),
+    //             rx_rate_limiter: None,
+    //             tx_rate_limiter: None,
+    //         }]),
+    //         vsock_devices: None,
+    //         cpu_config: None,
+    //         machine_config: Some(MachineConfiguration {
+    //             cpu_template: None,
+    //             ht_enabled: None,
+    //             mem_size_mib: 256,
+    //             track_dirty_pages: None,
+    //             vcpu_count: 8,
+    //         }),
+    //         vmid: Some("test_machine".to_string()),
+    //         net_ns: Some("mynetns".to_string()),
+    //         mmds_address: None,
+    //         balloon: Some(Balloon {
+    //             amount_mib: 64,
+    //             deflate_on_oom: true,
+    //             stats_polling_interval_s: None,
+    //         }),
+    //         entropy_device: None,
+    //         init_metadata: Some("This is initial metadata".to_string()),
+    //     };
 
-        let config = GlobalConfig {
-            using_jailer: Some(false),
-            jailer_bin: None,
-            jailer_config: None,
-            socket_path: Some("/tmp/firecracker.sock".to_string()),
-            lock_path: None,
-            frck_bin: Some("/usr/bin/firecracker".to_string()),
-            frck_config: Some(frck_config),
-            frck_export_path: Some(SAVE_PATH.to_string()),
-            log_clear: Some(false),
-            metrics_clear: Some(false),
-            network_clear: Some(false),
-            seccomp_level: None,
-        };
+    //     let config = HypervisorConfig {
+    //         using_jailer: Some(false),
+    //         jailer_bin: None,
+    //         jailer_config: None,
+    //         socket_path: Some("/tmp/firecracker.sock".to_string()),
+    //         lock_path: None,
+    //         frck_bin: Some("/usr/bin/firecracker".to_string()),
+    //         // frck_config: Some(frck_config),
+    //         frck_export_path: Some(SAVE_PATH.to_string()),
+    //         log_path: None,
+    //         metrics_path: None,
+    //         log_clear: Some(false),
+    //         metrics_clear: Some(false),
+    //         network_clear: Some(false),
+    //         seccomp_level: None,
+    //     };
 
-        config.export_config().expect("Fail to export config");
+    //     config.export_config().expect("Fail to export config");
 
-        let vec = std::fs::read(SAVE_PATH).expect("Fail to read config from file");
+    //     let vec = std::fs::read(SAVE_PATH).expect("Fail to read config from file");
 
-        let config_: FirecrackerConfig =
-            serde_json::from_slice(&vec).expect("Fail to deserialize the config");
+    //     let config_: MicroVMConfig =
+    //         serde_json::from_slice(&vec).expect("Fail to deserialize the config");
 
-        assert_eq!(config.frck_config, Some(config_));
-    }
+    //     assert_eq!(config.frck_config, Some(config_));
+    // }
 }

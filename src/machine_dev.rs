@@ -125,7 +125,7 @@ impl Machine {
             // Set up for jailing
             assert!(jailer.is_some());
             let jailer = jailer.as_mut().unwrap();
-            jailer.jail()?;
+            jailer.jail().await?;
             let child = jailer.launch().await?;
             jailer
                 .waiting_socket(tokio::time::Duration::from_secs(3))

@@ -10,8 +10,7 @@ pub mod jailer {
     use serde::{Deserialize, Serialize};
 
     use crate::{
-        config::GlobalConfig, jailer::handle_entry_default, local::handle_entry, RtckError,
-        RtckResult,
+        config::HypervisorConfig, handle_entry, jailer::handle_entry_default, RtckError, RtckResult,
     };
 
     use super::handle_entry_ref;
@@ -40,29 +39,35 @@ pub mod jailer {
         // Daemonize or not
         daemonize: bool,
 
-        // Desired path of the socket
-        socket: Option<String>,
-
-        // Path to the config file
-        config_path: Option<String>,
-
         // Jailer workspace directory
         jailer_workspace_dir: Option<PathBuf>,
+
+        // Desired path of the socket
+        socket: Option<String>,
 
         // Socket path seen by Rtck
         socket_path_export: Option<PathBuf>,
 
+        // Desired path of the lock
+        lock_path: Option<String>,
+
+        // Lock path seen by Rtck
+        lock_path_export: Option<PathBuf>,
+
+        // Path to the config file
+        config_path: Option<String>,
+
         // Config file path seen by firecracker
         config_path_jailed: Option<PathBuf>,
 
-        // Machine log path seen by firecracker
-        machine_log_path_jailed: Option<String>,
+        // Log path seen by firecracker
+        log_path: Option<String>,
 
-        // Machine log path seen by Rtck
-        machine_log_path_export: Option<PathBuf>,
+        // Log path seen by Rtck
+        log_path_export: Option<PathBuf>,
 
         // Metrics path seen by firecracker
-        metrics_path_jailed: Option<String>,
+        metrics_path: Option<String>,
 
         // Metrics path seen by Rtck
         metrics_path_export: Option<PathBuf>,
@@ -73,21 +78,25 @@ pub mod jailer {
             self.socket_path_export.as_ref()
         }
 
+        pub fn get_lock_path_exported(&self) -> Option<&PathBuf> {
+            self.lock_path_export.as_ref()
+        }
+
         pub fn get_log_path_exported(&self) -> Option<&PathBuf> {
-            self.machine_log_path_export.as_ref()
+            self.log_path_export.as_ref()
         }
 
         pub fn get_metrics_path_exported(&self) -> Option<&PathBuf> {
             self.metrics_path_export.as_ref()
         }
 
-        pub fn get_jailer_workspace_dir(&self) -> RtckResult<&PathBuf> {
-            handle_entry_ref(&self.jailer_workspace_dir)
+        pub fn get_jailer_workspace_dir(&self) -> Option<&PathBuf> {
+            self.jailer_workspace_dir.as_ref()
         }
     }
 
     impl Jailer {
-        pub fn from_config(config: &GlobalConfig) -> RtckResult<Self> {
+        pub fn from_config(config: &HypervisorConfig) -> RtckResult<Self> {
             let jailer_config = config
                 .jailer_config
                 .as_ref()
@@ -105,27 +114,16 @@ pub mod jailer {
                     DEFAULT_CHROOT_BASE_DIR.into(),
                 ),
                 daemonize: jailer_config.daemonize.unwrap_or(false),
-                socket: config.socket_path.clone(),
-                config_path: config.frck_export_path.clone(),
-
                 jailer_workspace_dir: None,
+                socket: config.socket_path.clone(),
                 socket_path_export: None,
+                lock_path: config.lock_path.clone(),
+                lock_path_export: None,
+                config_path: config.frck_export_path.clone(),
                 config_path_jailed: None,
-                machine_log_path_jailed: match &config.frck_config {
-                    None => None,
-                    Some(frck_config) => match &frck_config.logger {
-                        None => None,
-                        Some(logger) => Some(logger.log_path.clone()),
-                    },
-                },
-                machine_log_path_export: None,
-                metrics_path_jailed: match &config.frck_config {
-                    None => None,
-                    Some(frck_config) => match &frck_config.metrics {
-                        None => None,
-                        Some(metrics) => Some(metrics.metrics_path.clone()),
-                    },
-                },
+                log_path: config.log_path.clone(),
+                log_path_export: None,
+                metrics_path: config.metrics_path.clone(),
                 metrics_path_export: None,
             })
         }
@@ -151,30 +149,34 @@ pub mod jailer {
                 handle_entry_default(&self.socket, DEFAULT_SOCKET_PATH_UNDER_JAILER.to_string());
             self.socket_path_export = Some(jailer_workspace_dir.join(socket_path));
 
+            const DEFAULT_LOCK_PATH_UNDER_JAILER: &'static str = "run/firecracker.lock";
+            let lock_path =
+                handle_entry_default(&self.lock_path, DEFAULT_LOCK_PATH_UNDER_JAILER.to_string());
+            self.lock_path_export = Some(jailer_workspace_dir.join(lock_path));
+
+            const DEFAULT_LOG_PATH_UNDER_JAILER: &'static str = "run/firecracker.log";
+            let log_path =
+                handle_entry_default(&self.log_path, DEFAULT_LOG_PATH_UNDER_JAILER.to_string());
+            self.log_path_export = Some(jailer_workspace_dir.join(log_path));
+
+            const DEFAULT_METRICS_PATH_UNDER_JAILER: &'static str = "run/firecracker.metrics";
+            let metrics_path = handle_entry_default(
+                &self.metrics_path,
+                DEFAULT_METRICS_PATH_UNDER_JAILER.to_string(),
+            );
+            self.metrics_path_export = Some(jailer_workspace_dir.join(metrics_path));
+
             match &self.config_path {
+                // not using config exported config, skipping
                 None => (),
                 Some(config_path) => {
-                    // Copy the config file into the jailer
-                    const DEFAULT_CONFIG_PATH_JAILED: &'static str = "config/config.json";
+                    // copy the config file into the jailer
+                    const DEFAULT_CONFIG_PATH_JAILED: &'static str = "run/firecracker-config.json";
                     self.config_path_jailed = Some(DEFAULT_CONFIG_PATH_JAILED.into());
 
                     let config_path_export = jailer_workspace_dir.join(DEFAULT_CONFIG_PATH_JAILED);
                     std::fs::copy(config_path, config_path_export)
-                        .map_err(|_| RtckError::FilesysIO("jailer copy config".to_string()))?;
-                }
-            }
-
-            match &self.machine_log_path_jailed {
-                None => (),
-                Some(log_path) => {
-                    self.machine_log_path_export = Some(jailer_workspace_dir.join(&log_path));
-                }
-            }
-
-            match &self.metrics_path_jailed {
-                None => (),
-                Some(metrics_path) => {
-                    self.metrics_path_export = Some(jailer_workspace_dir.join(&metrics_path));
+                        .map_err(|_| RtckError::FilesysIO("jailer copying config".to_string()))?;
                 }
             }
 
@@ -267,8 +269,7 @@ pub mod jailer_async {
     use tokio::net::UnixStream;
 
     use crate::{
-        config::GlobalConfig, jailer::handle_entry_default, local::handle_entry, RtckError,
-        RtckResult,
+        config::HypervisorConfig, handle_entry, jailer::handle_entry_default, RtckError, RtckResult,
     };
 
     use super::handle_entry_ref;
@@ -297,35 +298,35 @@ pub mod jailer_async {
         // Daemonize or not
         daemonize: bool,
 
-        // Desired path of the socket
-        socket: Option<String>,
-
-        // Desired path of the lock
-        lock_path: Option<String>,
-
-        // Path to the config file
-        config_path: Option<String>,
-
         // Jailer workspace directory
         jailer_workspace_dir: Option<PathBuf>,
+
+        // Desired path of the socket
+        socket: Option<String>,
 
         // Socket path seen by Rtck
         socket_path_export: Option<PathBuf>,
 
+        // Desired path of the lock
+        lock_path: Option<String>,
+
         // Lock path seen by Rtck
         lock_path_export: Option<PathBuf>,
+
+        // Path to the config file
+        config_path: Option<String>,
 
         // Config file path seen by firecracker
         config_path_jailed: Option<PathBuf>,
 
-        // Machine log path seen by firecracker
-        machine_log_path_jailed: Option<String>,
+        // Log path seen by firecracker
+        log_path: Option<String>,
 
-        // Machine log path seen by Rtck
-        machine_log_path_export: Option<PathBuf>,
+        // Log path seen by Rtck
+        log_path_export: Option<PathBuf>,
 
         // Metrics path seen by firecracker
-        metrics_path_jailed: Option<String>,
+        metrics_path: Option<String>,
 
         // Metrics path seen by Rtck
         metrics_path_export: Option<PathBuf>,
@@ -334,6 +335,10 @@ pub mod jailer_async {
     impl JailerAsync {
         pub fn get_uid(&self) -> u32 {
             self.uid
+        }
+
+        pub fn get_firecracker_exec_file(&self) -> &String {
+            &self.exec_file
         }
 
         pub fn get_socket_path_exported(&self) -> Option<&PathBuf> {
@@ -345,20 +350,24 @@ pub mod jailer_async {
         }
 
         pub fn get_log_path_exported(&self) -> Option<&PathBuf> {
-            self.machine_log_path_export.as_ref()
+            self.log_path_export.as_ref()
         }
 
         pub fn get_metrics_path_exported(&self) -> Option<&PathBuf> {
             self.metrics_path_export.as_ref()
         }
 
-        pub fn get_jailer_workspace_dir(&self) -> RtckResult<&PathBuf> {
-            handle_entry_ref(&self.jailer_workspace_dir)
+        pub fn get_config_path_exported(&self) -> Option<&String> {
+            self.config_path.as_ref()
+        }
+
+        pub fn get_jailer_workspace_dir(&self) -> Option<&PathBuf> {
+            self.jailer_workspace_dir.as_ref()
         }
     }
 
     impl JailerAsync {
-        pub fn from_config(config: &GlobalConfig) -> RtckResult<Self> {
+        pub fn from_config(config: &HypervisorConfig) -> RtckResult<Self> {
             config.validate()?;
 
             let jailer_config = config
@@ -378,34 +387,21 @@ pub mod jailer_async {
                     DEFAULT_CHROOT_BASE_DIR.into(),
                 ),
                 daemonize: jailer_config.daemonize.unwrap_or(false),
-                socket: config.socket_path.clone(),
-                lock_path: config.lock_path.clone(),
-                config_path: config.frck_export_path.clone(),
-
                 jailer_workspace_dir: None,
+                socket: config.socket_path.clone(),
                 socket_path_export: None,
+                lock_path: config.lock_path.clone(),
                 lock_path_export: None,
+                config_path: config.frck_export_path.clone(),
                 config_path_jailed: None,
-                machine_log_path_jailed: match &config.frck_config {
-                    None => None,
-                    Some(frck_config) => match &frck_config.logger {
-                        None => None,
-                        Some(logger) => Some(logger.log_path.clone()),
-                    },
-                },
-                machine_log_path_export: None,
-                metrics_path_jailed: match &config.frck_config {
-                    None => None,
-                    Some(frck_config) => match &frck_config.metrics {
-                        None => None,
-                        Some(metrics) => Some(metrics.metrics_path.clone()),
-                    },
-                },
+                log_path: config.log_path.clone(),
+                log_path_export: None,
+                metrics_path: config.metrics_path.clone(),
                 metrics_path_export: None,
             })
         }
 
-        pub fn jail(&mut self) -> RtckResult<()> {
+        pub async fn jail(&mut self) -> RtckResult<()> {
             let id = &self.id;
 
             let temp_binding = PathBuf::from(&self.exec_file);
@@ -428,33 +424,33 @@ pub mod jailer_async {
 
             const DEFAULT_LOCK_PATH_UNDER_JAILER: &'static str = "run/firecracker.lock";
             let lock_path =
-                handle_entry_default(&self.socket, DEFAULT_LOCK_PATH_UNDER_JAILER.to_string());
+                handle_entry_default(&self.lock_path, DEFAULT_LOCK_PATH_UNDER_JAILER.to_string());
             self.lock_path_export = Some(jailer_workspace_dir.join(lock_path));
 
+            const DEFAULT_LOG_PATH_UNDER_JAILER: &'static str = "run/firecracker.log";
+            let log_path =
+                handle_entry_default(&self.log_path, DEFAULT_LOG_PATH_UNDER_JAILER.to_string());
+            self.log_path_export = Some(jailer_workspace_dir.join(log_path));
+
+            const DEFAULT_METRICS_PATH_UNDER_JAILER: &'static str = "run/firecracker.metrics";
+            let metrics_path = handle_entry_default(
+                &self.metrics_path,
+                DEFAULT_METRICS_PATH_UNDER_JAILER.to_string(),
+            );
+            self.metrics_path_export = Some(jailer_workspace_dir.join(metrics_path));
+
             match &self.config_path {
+                // not using config exported config, skipping
                 None => (),
                 Some(config_path) => {
-                    // Copy the config file into the jailer
-                    const DEFAULT_CONFIG_PATH_JAILED: &'static str = "config/config.json";
+                    // copy the config file into the jailer
+                    const DEFAULT_CONFIG_PATH_JAILED: &'static str = "run/firecracker-config.json";
                     self.config_path_jailed = Some(DEFAULT_CONFIG_PATH_JAILED.into());
 
                     let config_path_export = jailer_workspace_dir.join(DEFAULT_CONFIG_PATH_JAILED);
-                    std::fs::copy(config_path, config_path_export)
+                    tokio::fs::copy(config_path, config_path_export)
+                        .await
                         .map_err(|_| RtckError::FilesysIO("jailer copying config".to_string()))?;
-                }
-            }
-
-            match &self.machine_log_path_jailed {
-                None => (),
-                Some(log_path) => {
-                    self.machine_log_path_export = Some(jailer_workspace_dir.join(&log_path));
-                }
-            }
-
-            match &self.metrics_path_jailed {
-                None => (),
-                Some(metrics_path) => {
-                    self.metrics_path_export = Some(jailer_workspace_dir.join(&metrics_path));
                 }
             }
 

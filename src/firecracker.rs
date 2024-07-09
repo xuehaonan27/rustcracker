@@ -7,7 +7,7 @@ pub mod firecracker {
         sync::{Arc, Condvar, Mutex},
     };
 
-    use crate::{config::GlobalConfig, local::handle_entry, RtckError, RtckResult};
+    use crate::{config::HypervisorConfig, handle_entry, RtckError, RtckResult};
 
     pub struct Firecracker {
         // Path to local firecracker bin
@@ -28,7 +28,7 @@ pub mod firecracker {
     }
 
     impl Firecracker {
-        pub fn from_config(config: &GlobalConfig) -> RtckResult<Self> {
+        pub fn from_config(config: &HypervisorConfig) -> RtckResult<Self> {
             config.validate()?;
 
             Ok(Self {
@@ -101,45 +101,88 @@ pub mod firecracker {
 }
 
 pub mod firecracker_async {
+    use std::path::PathBuf;
+
     use serde::{Deserialize, Serialize};
     use tokio::net::UnixStream;
 
-    use crate::{config::GlobalConfig, local::handle_entry, RtckError, RtckResult};
+    use crate::{
+        config::HypervisorConfig, handle_entry, jailer::JailerAsync, RtckError, RtckResult,
+    };
 
     /// Unlike using jailer, when using bare firecracker, socket path and lock path must be specified
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct FirecrackerAsync {
         // Path to local firecracker bin
         // Usually something like `/usr/bin/firecracker` if not using jailer
-        bin: String,
+        pub(crate) bin: String,
 
-        // Desired path of the socket
-        socket: String,
+        pub(crate) socket: PathBuf,
 
-        // Desired path of the lock
-        lock_path: String,
+        pub(crate) lock_path: PathBuf,
+
+        pub(crate) log_path: PathBuf,
+
+        pub(crate) metrics_path: PathBuf,
 
         // Path to the config file
-        config_path: Option<String>,
+        pub(crate) config_path: Option<String>,
     }
 
     impl FirecrackerAsync {
-        pub fn get_socket(&self) -> &String {
-            &self.socket
-        }
-
-        pub fn get_lock_path(&self) -> &String {
-            &self.lock_path
-        }
-    }
-
-    impl FirecrackerAsync {
-        pub fn from_config(config: &GlobalConfig) -> RtckResult<Self> {
+        /// Using bare firecracker
+        pub fn from_config(config: &HypervisorConfig) -> RtckResult<Self> {
             Ok(Self {
                 bin: handle_entry(&config.frck_bin)?,
-                socket: handle_entry(&config.socket_path)?,
-                lock_path: handle_entry(&config.lock_path)?,
-                config_path: config.frck_export_path.clone(),
+                socket: handle_entry(&config.socket_path)?.into(),
+                lock_path: handle_entry(&config.lock_path)?.into(),
+                log_path: handle_entry(&config.log_path)?.into(),
+                metrics_path: handle_entry(&config.metrics_path)?.into(),
+                config_path: config.frck_export_path.clone().and_then(|s| Some(s.into())),
+            })
+        }
+
+        /// Using firecracker with jailer
+        pub fn from_jailer(jailer: JailerAsync) -> RtckResult<Self> {
+            let bin = jailer.get_firecracker_exec_file().clone();
+
+            let socket = jailer
+                .get_socket_path_exported()
+                .ok_or(RtckError::Config(
+                    "jailer without socket path exported".to_string(),
+                ))?
+                .clone();
+
+            let lock_path = jailer
+                .get_lock_path_exported()
+                .ok_or(RtckError::Config(
+                    "jailer without lock path exported".to_string(),
+                ))?
+                .clone();
+
+            let log_path = jailer
+                .get_log_path_exported()
+                .ok_or(RtckError::Config(
+                    "jailer without log path exported".to_string(),
+                ))?
+                .clone();
+
+            let metrics_path = jailer
+                .get_metrics_path_exported()
+                .ok_or(RtckError::Config(
+                    "jailer without metrics path exported".to_string(),
+                ))?
+                .clone();
+
+            let config_path = jailer.get_config_path_exported().cloned();
+
+            Ok(Self {
+                bin,
+                socket,
+                lock_path,
+                log_path,
+                metrics_path,
+                config_path,
             })
         }
 

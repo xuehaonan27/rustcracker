@@ -1,7 +1,7 @@
 //! Firecracker Agent
 use crate::reqres::FirecrackerEvent;
 use fslock::LockFile;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, ErrorKind};
+use tokio::io::{AsyncWriteExt, ErrorKind};
 use tokio::net::UnixStream;
 
 #[derive(Debug, thiserror::Error)]

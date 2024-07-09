@@ -197,11 +197,10 @@ pub mod local_async {
     pub struct LocalAsync {
         socket_path: PathBuf,
         lock_path: PathBuf,
-        machine_log_path: Option<PathBuf>,
+        log_path: Option<PathBuf>,
         metrics_path: Option<PathBuf>,
         jail_path: Option<PathBuf>,
-
-        machine_log_clear: Option<bool>,
+        log_clear: Option<bool>,
         metrics_clear: Option<bool>,
         network_clear: Option<bool>,
     }
@@ -209,23 +208,17 @@ pub mod local_async {
     impl LocalAsync {
         /// Construct a LocalAsync with information from JailerAsync and GlobalConfig
         pub fn from_jailer(jailer: &JailerAsync, config: &GlobalConfig) -> RtckResult<Self> {
-            let socket_path = jailer.get_socket_path_exported().cloned();
-            let socket_path = if let Some(socket_path) = socket_path {
-                socket_path
-            } else {
-                log::error!("[LocalAsync::from_jailer] fail to get socket_path");
-                return Err(crate::RtckError::Config("no socket_path".to_string()));
-            };
+            let socket_path = jailer
+                .get_socket_path_exported()
+                .ok_or(RtckError::Config("no socket_path".to_string()))?
+                .clone();
 
-            let lock_path = jailer.get_lock_path_exported().cloned();
-            let lock_path = if let Some(lock_path) = lock_path {
-                lock_path
-            } else {
-                log::error!("[LocalAsync::from_jailer] fail to get lock_path");
-                return Err(crate::RtckError::Config("no lock path".to_string()));
-            };
+            let lock_path = jailer
+                .get_lock_path_exported()
+                .ok_or(RtckError::Config("no lock_path".to_string()))?
+                .clone();
 
-            let machine_log_path = jailer.get_log_path_exported().cloned();
+            let log_path = jailer.get_log_path_exported().cloned();
             let metrics_path = jailer.get_metrics_path_exported().cloned();
 
             // If construct from jailer, then the jailer path must be known
@@ -234,10 +227,10 @@ pub mod local_async {
             Ok(Self {
                 socket_path,
                 lock_path,
-                machine_log_path,
+                log_path,
                 metrics_path,
                 jail_path: Some(jail_path),
-                machine_log_clear: config.log_clear,
+                log_clear: config.log_clear,
                 metrics_clear: config.metrics_clear,
                 network_clear: config.network_clear,
             })
@@ -394,15 +387,6 @@ pub mod local_async {
             Ok(())
         }
     }
-}
-
-use crate::{RtckError, RtckResult};
-
-#[doc(hidden)]
-pub(crate) fn handle_entry<T: Clone>(option: &Option<T>) -> RtckResult<T> {
-    option
-        .clone()
-        .ok_or(RtckError::Config("missing config entry".to_string()))
 }
 
 pub use local::Local;

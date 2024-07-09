@@ -1,122 +1,128 @@
-//! Machine pool, which manages a pool of active machines.
-//! When a machine is no longer active, then the machine will be dump to database.
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use uuid::Uuid;
+use std::future::Future;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
-use crate::config::GlobalConfig;
-use crate::database::Database;
-use crate::machine_dev::{Machine, MachineExportedConfig};
+use crossbeam::queue::ArrayQueue;
 
-/*
-pub struct MachinePool {
-    machines: Mutex<HashMap<Uuid, Machine>>,
-    db: Arc<Database>,
+use crate::hypervisor::Hypervisor;
+
+pub struct AsyncSemaphore {
+    inner: tokio::sync::Semaphore,
 }
 
-impl MachinePool {
-    pub fn new(db: Arc<Database>) -> Self {
-        MachinePool {
-            machines: Mutex::new(HashMap::new()),
-            db,
+impl AsyncSemaphore {
+    pub fn new(fair: bool, permits: usize) -> Self {
+        AsyncSemaphore {
+            inner: {
+                debug_assert!(fair, "Tokio only has fair permits");
+                tokio::sync::Semaphore::new(permits)
+            },
         }
     }
 
-    pub async fn add_machine(&self, machine: Machine) -> Uuid {
-        let uuid = Uuid::new_v4();
-        self.machines.lock().unwrap().insert(uuid, machine);
-        uuid
+    pub fn permits(&self) -> usize {
+        self.inner.available_permits()
     }
 
-    pub async fn get_machine(&self, uuid: Uuid) -> Option<Machine> {
-        let mut machines = self.machines.lock().unwrap();
-        if let Some(machine) = machines.remove(&uuid) {
-            Some(machine)
-        } else if let Some(config) = self.db.retrieve_config(uuid).await {
-            Machine::rebuild(config).await.ok()
-        } else {
-            None
+    pub async fn acquire(&self, permits: u32) -> AsyncSemaphoreReleaser<'_> {
+        AsyncSemaphoreReleaser {
+            inner: self
+                .inner
+                // Weird quirk: `tokio::sync::Semaphore` mostly uses `usize` for permit counts,
+                // but `u32` for this and `try_acquire_many()`.
+                .acquire_many(permits)
+                .await
+                .expect("BUG: we do not expose the `.close()` method"),
         }
     }
 
-    pub async fn remove_machine(&self, uuid: Uuid) {
-        if let Some(machine) = self.machines.lock().unwrap().remove(&uuid) {
-            let config = machine.export_config();
-            self.db.store_config(uuid, config).await;
-        }
+    pub fn try_acquire(&self, permits: u32) -> Option<AsyncSemaphoreReleaser<'_>> {
+        Some(AsyncSemaphoreReleaser {
+            inner: self.inner.try_acquire_many(permits).ok()?,
+        })
+    }
+
+    pub fn release(&self, permits: usize) {
+        self.inner.add_permits(permits)
     }
 }
-*/
-struct MachinePool {
-    active_machines: HashMap<Uuid, Machine>,
-    inactive_machines: HashMap<Uuid, (MachineExportedConfig, Option<u32>)>, // (Config, PID)
+
+pub struct AsyncSemaphoreReleaser<'a> {
+    inner: tokio::sync::SemaphorePermit<'a>,
 }
 
-impl MachinePool {
-    pub fn new() -> Self {
-        MachinePool {
-            active_machines: HashMap::new(),
-            inactive_machines: HashMap::new(),
-        }
+impl AsyncSemaphoreReleaser<'_> {
+    pub fn disarm(self) {
+        self.inner.forget();
+    }
+}
+
+pub struct PoolOptions {
+    pub(crate) max_connections: u32,
+    pub(crate) max_lifetime: Option<Duration>,
+    pub(crate) launch_timeout: Option<Duration>,
+}
+
+pub struct PoolInner {
+    pub(crate) hypervisors: ArrayQueue<Hypervisor>,
+    pub(crate) semaphore: AsyncSemaphore,
+    pub(crate) size: AtomicU32,
+    pub(crate) num_empty: AtomicUsize,
+    is_closed: AtomicBool,
+    pub(crate) on_closed: event_listener::Event,
+    pub(crate) options: PoolOptions,
+}
+
+impl PoolInner {
+    pub fn new_arc(options: PoolOptions) -> Arc<Self> {
+        let capacity = options.max_connections;
+        todo!()
     }
 
-    pub async fn add_machine(&mut self, machine: Machine) -> Uuid {
-        let uuid = Uuid::new_v4();
-        self.active_machines.insert(uuid, machine);
-        uuid
+    pub fn size(&self) -> u32 {
+        self.size.load(Ordering::Acquire)
     }
 
-    pub async fn remove_machine(&mut self, uuid: &Uuid) {
-        if let Some(machine) = self.active_machines.remove(uuid) {
-            let config = machine.export_config();
-            let pid = machine.get_machine_pid().await;
-            self.inactive_machines.insert(*uuid, (config, pid));
-        }
+    pub fn num_empty(&self) -> usize {
+        self.num_empty.load(Ordering::Acquire)
     }
 
-    pub async fn get_machine(&mut self, uuid: &Uuid) -> Option<&mut Machine> {
-        if let Some(machine) = self.active_machines.get_mut(uuid) {
-            return Some(machine);
-        }
-        if let Some((config, Some(pid))) = self.inactive_machines.remove(uuid) {
-            // Check if the process still exists and belongs to the machine
-            if let Ok(process) = std::process::Command::new("ps")
-                .arg("-p")
-                .arg(pid.to_string())
-                .output()
-            {
-                // if process.stdout.contains(b"your_process_name") {
-                //     // Recreate the machine with the existing process
-                //     let child = Command::new("your_command")
-                //         .spawn()
-                //         .expect("Failed to spawn process");
-                //     // let machine = Machine {
-                //     //     agent: Agent::new(),
-                //     //     config,
-                //     //     local: LocalAsync::new(),
-                //     //     frck: FirecrackerAsync::new(),
-                //     //     jailer: None,
-                //     //     child: Mutex::new(child),
-                //     // };
-                //     self.active_machines.insert(*uuid, machine);
-                //     return self.active_machines.get_mut(uuid);
-                // }
+    pub fn is_closed(&self) -> bool {
+        self.is_closed.load(Ordering::Acquire)
+    }
+
+    fn mark_closed(&self) {
+        self.is_closed.store(true, Ordering::Release);
+        self.on_closed.notify(usize::MAX);
+    }
+
+    pub(super) fn close<'a>(self: &'a Arc<Self>) -> impl Future<Output = ()> + 'a {
+        self.mark_closed();
+
+        async move {
+            for permits in 1..=self.options.max_connections {
+                // Close any currently idle connections in the pool.
+                while let Some(mut hypervisor) = self.hypervisors.pop() {
+                    let _ = hypervisor.stop().await;
+                    let _ = hypervisor.delete().await;
+                }
+
+                if self.size() == 0 {
+                    break;
+                }
+
+                // Wait for all permits to be released.
+                let _permits = self.semaphore.acquire(permits).await;
             }
         }
-        None
     }
 }
 
-async fn main() {
-    let mut machine_pool = MachinePool::new();
-    // let machine = Machine {
-    //     // Initialize your machine here
-    //
-    // };
-    let machine: Machine;
-    // let uuid = machine_pool.add_machine(machine).await;
-    // machine_pool.remove_machine(&uuid).await;
-    // if let Some(machine) = machine_pool.get_machine(&uuid).await {
-    // Use the machine
-    // }
+pub struct Pool(pub(crate) Arc<PoolInner>);
+
+impl Clone for Pool {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
 }
