@@ -164,7 +164,7 @@ impl Agent {
             });
 
         return match content_length {
-            None | Some(0) => Ok(None),
+            None | Some(0) => Ok(Some(vec![])),
             Some(content_length) => {
                 let body = buf[body_start..(body_start + content_length)].to_vec();
                 Ok(Some(body))
