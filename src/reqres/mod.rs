@@ -20,20 +20,17 @@ pub trait FirecrackerResponse {
     where
         Self: Sized;
     // fn decode(payload: &Option<Vec<u8>>) -> RtckResult<Self> where Self: Sized;
-    fn decode<'de>(payload: &'de Option<Vec<u8>>) -> crate::RtckResult<Self>
+    fn decode<'de>(payload: &'de Vec<u8>) -> crate::RtckResult<Self>
     where
         Self: Sized,
+        Self::Succ<'de>: 'static,
     {
-        if let Some(payload) = payload {
-            match serde_json::from_slice::<Self::Succ<'de>>(&payload) {
-                Ok(content) => Ok(Self::create_succ(content)),
-                Err(_) => match serde_json::from_slice::<Self::Fail<'de>>(&payload) {
-                    Ok(content) => Ok(Self::create_fail(content)),
-                    Err(e) => Err(crate::RtckError::Decode(e.to_string())),
-                },
-            }
-        } else {
-            Err(crate::RtckError::Decode("error type".into()))
+        match serde_json::from_slice::<Self::Succ<'de>>(&payload) {
+            Ok(content) => Ok(Self::create_succ(content)),
+            Err(_) => match serde_json::from_slice::<Self::Fail<'de>>(&payload) {
+                Ok(content) => Ok(Self::create_fail(content)),
+                Err(e) => Err(crate::RtckError::Decode(e.to_string())),
+            },
         }
     }
 }
@@ -179,7 +176,8 @@ macro_rules! impl_firecracker_request {
             fn encode(&self) -> String {
                 let path = format!("{}/{}", $endpoint, &self.0.$id);
                 let body = serde_json::to_string(&self.0).expect("Fatal error");
-                let request = HttpRequest::new($method, path.as_str(), Some(body.len()), Some(body));
+                let request =
+                    HttpRequest::new($method, path.as_str(), Some(body.len()), Some(body));
                 serialize_request(&request)
             }
         }
@@ -196,7 +194,7 @@ macro_rules! impl_firecracker_event {
                 self.0.encode()
             }
 
-            fn decode(payload: &Option<Vec<u8>>) -> crate::RtckResult<Self::Res> {
+            fn decode(payload: &Vec<u8>) -> crate::RtckResult<Self::Res> {
                 Self::Res::decode(payload)
             }
         }
@@ -221,12 +219,18 @@ macro_rules! impl_firecracker_response {
 
             #[inline]
             fn succ<'de>(&self) -> &Self::Succ<'de> {
-                self.0.as_ref().left().expect("Use is_succ to check your response")
+                self.0
+                    .as_ref()
+                    .left()
+                    .expect("Use is_succ to check your response")
             }
 
             #[inline]
             fn err<'de>(&self) -> &Self::Fail<'de> {
-                self.0.as_ref().right().expect("Use is_err to check your response")
+                self.0
+                    .as_ref()
+                    .right()
+                    .expect("Use is_err to check your response")
             }
 
             #[inline]
@@ -252,7 +256,7 @@ pub trait FirecrackerEvent {
     type Req: FirecrackerRequest;
     type Res: FirecrackerResponse;
     fn req(&self) -> String;
-    fn decode(payload: &Option<Vec<u8>>) -> RtckResult<Self::Res>;
+    fn decode(payload: &Vec<u8>) -> RtckResult<Self::Res>;
 }
 
 pub mod create_snapshot;

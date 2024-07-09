@@ -57,4 +57,6 @@ pub use vm::{State as VmState, Vm, VM_STATE_PAUSED, VM_STATE_RESUMED};
 pub use vsock::Vsock;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Empty;
+pub struct Empty {
+    empty: u8,
+}

@@ -79,7 +79,7 @@ impl Agent {
     }
 
     /// One should make sure that this Agent is locked up before receiving any data from the stream
-    pub async fn recv_response(&mut self) -> AgentResult<Option<Vec<u8>>> {
+    pub async fn recv_response(&mut self) -> AgentResult<Vec<u8>> {
         assert!(self.is_locked());
         let mut headers = [httparse::EMPTY_HEADER; 64];
         let mut res = httparse::Response::new(&mut headers);
@@ -164,10 +164,10 @@ impl Agent {
             });
 
         return match content_length {
-            None | Some(0) => Ok(Some(vec![])),
+            None | Some(0) => Ok(b"empty: 0".to_vec()),
             Some(content_length) => {
                 let body = buf[body_start..(body_start + content_length)].to_vec();
-                Ok(Some(body))
+                Ok(body)
             }
         };
     }
@@ -309,8 +309,7 @@ mod test {
         let body = "I've received correct request!".to_string();
         server_task.abort();
 
-        assert!(res.is_some());
-        assert_eq!(res.unwrap(), body.as_bytes().to_vec());
+        assert_eq!(res, body.as_bytes().to_vec());
     }
 
     async fn event_server(unique_test_id: usize) {
