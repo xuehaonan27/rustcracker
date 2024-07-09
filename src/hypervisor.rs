@@ -239,7 +239,10 @@ impl Hypervisor {
         {
             if let Some(logger) = &config.logger {
                 let put_logger = PutLogger::new(logger.clone());
-                let res = self.agent.event(put_logger).await?;
+                let res = self.agent.event(put_logger).await.map_err(|e| {
+                    log::error!("PutLogger event failed");
+                    e
+                })?;
                 if res.is_err() {
                     log::error!("PutLogger failed");
                 }
@@ -250,7 +253,10 @@ impl Hypervisor {
         {
             if let Some(metrics) = &config.metrics {
                 let put_metrics = PutMetrics::new(metrics.clone());
-                let res = self.agent.event(put_metrics).await?;
+                let res = self.agent.event(put_metrics).await.map_err(|e| {
+                    log::error!("PutMetrics event failed");
+                    e
+                })?;
                 if res.is_err() {
                     log::error!("PutMetrics failed");
                 }
@@ -261,7 +267,10 @@ impl Hypervisor {
         {
             if let Some(boot_source) = &config.boot_source {
                 let put_guest_boot_source = PutGuestBootSource::new(boot_source.clone());
-                let res = self.agent.event(put_guest_boot_source).await?;
+                let res = self.agent.event(put_guest_boot_source).await.map_err(|e| {
+                    log::error!("PutGuestBootSource event failed");
+                    e
+                })?;
                 if res.is_err() {
                     log::error!("PutGuestBootSource failed");
                 }
@@ -273,7 +282,10 @@ impl Hypervisor {
             if let Some(drives) = &config.drives {
                 for drive in drives {
                     let put_guest_drive_by_id = PutGuestDriveByID::new(drive.clone());
-                    let res = self.agent.event(put_guest_drive_by_id).await?;
+                    let res = self.agent.event(put_guest_drive_by_id).await.map_err(|e| {
+                        log::error!("PutGuestDriveByIDResponse event failed");
+                        e
+                    })?;
                     if res.is_err() {
                         log::error!("PutGuestDriveById failed");
                     }
@@ -287,7 +299,14 @@ impl Hypervisor {
                 for iface in ifaces {
                     let put_guest_network_interface_by_id =
                         PutGuestNetworkInterfaceByID::new(iface.clone());
-                    let res = self.agent.event(put_guest_network_interface_by_id).await?;
+                    let res = self
+                        .agent
+                        .event(put_guest_network_interface_by_id)
+                        .await
+                        .map_err(|e| {
+                            log::error!("PutGuestNetworkInterfaceByID event failed");
+                            e
+                        })?;
                     if res.is_err() {
                         log::error!("PutGuestNetworkInterfaceById failed");
                     }
@@ -300,7 +319,10 @@ impl Hypervisor {
             if let Some(vsocks) = &config.vsock_devices {
                 for vsock in vsocks {
                     let put_guest_vsock = PutGuestVsock::new(vsock.clone());
-                    let res = self.agent.event(put_guest_vsock).await?;
+                    let res = self.agent.event(put_guest_vsock).await.map_err(|e| {
+                        log::error!("PutGuestVsock event failed");
+                        e
+                    })?;
                     if res.is_err() {
                         log::error!("PutGuestVsock failed");
                     }
@@ -312,7 +334,10 @@ impl Hypervisor {
         {
             if let Some(cpu_config) = &config.cpu_config {
                 let put_cpu_configuration = PutCpuConfiguration::new(cpu_config.clone());
-                let res = self.agent.event(put_cpu_configuration).await?;
+                let res = self.agent.event(put_cpu_configuration).await.map_err(|e| {
+                    log::error!("PutCpuConfiguration event failed");
+                    e
+                })?;
                 if res.is_err() {
                     log::error!("PutCpuConfiguration failed");
                 }
@@ -324,7 +349,14 @@ impl Hypervisor {
             if let Some(machine_config) = &config.machine_config {
                 let put_machine_configuration =
                     PutMachineConfiguration::new(machine_config.clone());
-                let res = self.agent.event(put_machine_configuration).await?;
+                let res = self
+                    .agent
+                    .event(put_machine_configuration)
+                    .await
+                    .map_err(|e| {
+                        log::error!("PutMachineConfiguration event failed");
+                        e
+                    })?;
                 if res.is_err() {
                     log::error!("PutMachineConfiguration failed");
                 }
@@ -335,7 +367,10 @@ impl Hypervisor {
         {
             if let Some(balloon) = &config.balloon {
                 let put_balloon = PutBalloon::new(balloon.clone());
-                let res = self.agent.event(put_balloon).await?;
+                let res = self.agent.event(put_balloon).await.map_err(|e| {
+                    log::error!("PutBalloon event failed");
+                    e
+                })?;
                 if res.is_err() {
                     log::error!("PutBalloon failed");
                 }
@@ -346,7 +381,10 @@ impl Hypervisor {
         {
             if let Some(entropy_device) = &config.entropy_device {
                 let put_entropy = PutEntropy::new(entropy_device.clone());
-                let res = self.agent.event(put_entropy).await?;
+                let res = self.agent.event(put_entropy).await.map_err(|e| {
+                    log::error!("PutEntropy event failed");
+                    e
+                })?;
                 if res.is_err() {
                     log::error!("PutEntropy failed");
                 }
@@ -357,7 +395,10 @@ impl Hypervisor {
         {
             if let Some(content) = &config.init_metadata {
                 let put_mmds = PutMmds::new(content.clone());
-                let res = self.agent.event(put_mmds).await?;
+                let res = self.agent.event(put_mmds).await.map_err(|e| {
+                    log::error!("PutMmds event failed");
+                    e
+                })?;
                 if res.is_err() {
                     log::error!("PutMmds failed");
                 }
@@ -373,7 +414,7 @@ impl Hypervisor {
         self.status = MicroVMStatus::Start;
 
         self.configure(config).await.map_err(|_| {
-            log::error!("start fail");
+            log::error!("start fail, {} {}", file!(), line!());
             // change microVM status in hypervisor
             self.status = MicroVMStatus::Failure;
             RtckError::Hypervisor("fail to start".to_string())
@@ -385,7 +426,7 @@ impl Hypervisor {
 
         let res = self.agent.event(start_machine).await.map_err(|_| {
             {
-                log::error!("start fail");
+                log::error!("start fail, {} {}", file!(), line!());
                 // change microVM status in hypervisor
                 self.status = MicroVMStatus::Failure;
                 RtckError::Hypervisor("fail to start".to_string())
@@ -393,7 +434,7 @@ impl Hypervisor {
         })?;
 
         if res.is_err() {
-            log::error!("start fail");
+            log::error!("start fail, {} {}", file!(), line!());
             // change microVM status in hypervisor
             self.status = MicroVMStatus::Failure;
             Err(RtckError::Hypervisor("fail to start".to_string()))
