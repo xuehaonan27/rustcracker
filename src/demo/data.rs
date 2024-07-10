@@ -9,7 +9,9 @@ lazy_static! {
     pub static ref JAILER_CONFIG: JailerConfig = JailerConfig {
         gid: env::var("JAILER_GID").ok().and_then(|s| s.parse().ok()),
         uid: env::var("JAILER_UID").ok().and_then(|s| s.parse().ok()),
-        id: env::var("ID").ok(),
+        id: env::var("ID")
+            .ok()
+            .and_then(|s| Some(s + &uuid::Uuid::new_v4().to_string())),
         numa_node: None,
         exec_file: env::var("FRCK_BIN").ok(),
         jailer_bin: env::var("JAILER_BIN").ok(),
@@ -35,6 +37,11 @@ lazy_static! {
         metrics_clear: Some(false),
         network_clear: None,
         seccomp_level: None,
+        stdout_to: env::var("STDOUT_TO").ok(),
+        stderr_to: env::var("STDERR_TO").ok(),
+        clear_jailer: env::var("CLEAR_JAILER")
+            .ok()
+            .and_then(|s| s.to_lowercase().parse().ok()),
     };
     pub static ref HYPERVISOR_WITHJAILER_CONFIG: HypervisorConfig = HypervisorConfig {
         launch_timeout: 5,
@@ -55,6 +62,11 @@ lazy_static! {
         metrics_clear: Some(false),
         network_clear: None,
         seccomp_level: None,
+        stdout_to: env::var("STDOUT_TO").ok(),
+        stderr_to: env::var("STDERR_TO").ok(),
+        clear_jailer: env::var("CLEAR_JAILER")
+            .ok()
+            .and_then(|s| s.to_lowercase().parse().ok()),
     };
     pub static ref BOOT_SOURCE: BootSource = BootSource {
         boot_args: Some("console=ttyS0 reboot=k panic=1 pci=off".to_string()),

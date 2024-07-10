@@ -273,6 +273,15 @@ pub struct HypervisorConfig {
     ///	2 : advanced filtering. This adds further checks on some of the
     ///			parameters of the allowed syscalls.
     pub seccomp_level: Option<usize>,
+
+    /// redirect stdout here
+    pub stdout_to: Option<String>,
+
+    /// redirect stderr here
+    pub stderr_to: Option<String>,
+
+    /// clear jailer directory, default to false
+    pub clear_jailer: Option<bool>,
 }
 
 impl Default for HypervisorConfig {
@@ -293,6 +302,9 @@ impl Default for HypervisorConfig {
             metrics_clear: None,
             network_clear: None,
             seccomp_level: None,
+            stdout_to: None,
+            stderr_to: None,
+            clear_jailer: None,
         }
     }
 }

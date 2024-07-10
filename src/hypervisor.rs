@@ -61,6 +61,12 @@ pub struct Hypervisor {
     // instance status
     status: MicroVMStatus,
     // Some field to implement, e.g. network I/O settings...
+
+    // clear up ?
+    clear_jailer: bool,
+
+    // jailer working directory
+    jailer_working_dir: Option<PathBuf>,
 }
 
 impl Hypervisor {
@@ -72,53 +78,71 @@ impl Hypervisor {
         //     config.export_config_async().await?;
         // }
 
-        let (pid, stream, firecracker, child, process) = if let Some(true) = config.using_jailer {
-            let mut jailer = JailerAsync::from_config(&config)?;
+        let (pid, stream, firecracker, child, process, clear_jailer, jailer_working_dir) =
+            if let Some(true) = config.using_jailer {
+                let mut jailer = JailerAsync::from_config(&config)?;
 
-            // jail the firecracker
-            jailer.jail().await?;
+                // jail the firecracker
+                jailer.jail().await?;
 
-            // spawn the firecracker process
-            let child = jailer.launch().await?;
+                // spawn the firecracker process
+                let child = jailer.launch().await?;
 
-            // wait socket
-            jailer
-                .waiting_socket(tokio::time::Duration::from_secs(config.launch_timeout))
-                .await?;
-            let pid = child
-                .id()
-                .ok_or(RtckError::Hypervisor("child fail to get pid".to_string()))?;
+                // wait socket
+                jailer
+                    .waiting_socket(tokio::time::Duration::from_secs(config.launch_timeout))
+                    .await?;
+                let pid = child
+                    .id()
+                    .ok_or(RtckError::Hypervisor("child fail to get pid".to_string()))?;
 
-            let process = Process::new(pid as i32)
-                .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
+                let process = Process::new(pid as i32)
+                    .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
 
-            let stream = jailer.connect(config.socket_retry).await?;
+                let stream = jailer.connect(config.socket_retry).await?;
 
-            let firecracker = FirecrackerAsync::from_jailer(jailer)?;
+                let jailer_working_dir = jailer.get_jailer_workspace_dir().cloned();
 
-            (pid, stream, firecracker, child, process)
-        } else {
-            let firecracker = FirecrackerAsync::from_config(&config)?;
+                let firecracker = FirecrackerAsync::from_jailer(jailer)?;
 
-            // spawn the firecracker process
-            let child = firecracker.launch().await?;
+                let clear_jailer = if config.clear_jailer.is_none() || !config.clear_jailer.unwrap()
+                {
+                    false
+                } else {
+                    true
+                };
 
-            // wait socket
-            firecracker
-                .waiting_socket(tokio::time::Duration::from_secs(config.launch_timeout))
-                .await?;
+                (
+                    pid,
+                    stream,
+                    firecracker,
+                    child,
+                    process,
+                    clear_jailer,
+                    jailer_working_dir,
+                )
+            } else {
+                let firecracker = FirecrackerAsync::from_config(&config)?;
 
-            let pid = child
-                .id()
-                .ok_or(RtckError::Hypervisor("child fail to get pid".to_string()))?;
+                // spawn the firecracker process
+                let child = firecracker.launch().await?;
 
-            let process = Process::new(pid as i32)
-                .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
+                // wait socket
+                firecracker
+                    .waiting_socket(tokio::time::Duration::from_secs(config.launch_timeout))
+                    .await?;
 
-            let stream = firecracker.connect(config.socket_retry).await?;
+                let pid = child
+                    .id()
+                    .ok_or(RtckError::Hypervisor("child fail to get pid".to_string()))?;
 
-            (pid, stream, firecracker, child, process)
-        };
+                let process = Process::new(pid as i32)
+                    .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
+
+                let stream = firecracker.connect(config.socket_retry).await?;
+
+                (pid, stream, firecracker, child, process, false, None)
+            };
 
         let lock = fslock::LockFile::open(&firecracker.lock_path)
             .map_err(|_| RtckError::Hypervisor("creating file lock".to_string()))?;
@@ -137,6 +161,8 @@ impl Hypervisor {
             config_path: firecracker.config_path,
             agent,
             status: MicroVMStatus::None,
+            clear_jailer,
+            jailer_working_dir: jailer_working_dir,
         })
     }
 
@@ -517,16 +543,27 @@ impl Hypervisor {
         }
     }
 
-    /// Stop the machine forcefully by killing the hypervisor.
+    /// Terminate the hypervisor by sending SIGTERM
+    /// Note: this command will terminate firecracker itself.
+    #[cfg(any(target_os = "linux", target_os = "unix"))]
+    pub async fn terminate(&mut self) -> RtckResult<()> {
+        // the hypervisor occupies the pid by opening fd to it (procfs).
+        // so kill -9 to this pid is safe.
+        use nix::sys::signal::{kill, Signal};
+        kill(nix::unistd::Pid::from_raw(self.pid as i32), Signal::SIGTERM)
+            .map_err(|_| RtckError::Machine("fail to terminate".to_string()))
+    }
+
+    /// Terminate the hypervisor by sending SIGKILL
     /// Note: this command will kill firecracker itself.
     #[cfg(any(target_os = "linux", target_os = "unix"))]
-    pub async fn stop_force(&mut self) -> RtckResult<()> {
+    pub async fn kill(&mut self) -> RtckResult<()> {
         // the hypervisor occupies the pid by opening fd to it (procfs).
         // so kill -9 to this pid is safe.
         use nix::sys::signal::{kill, Signal};
         kill(nix::unistd::Pid::from_raw(self.pid as i32), Signal::SIGKILL)
             // kill -9 should not trigger this error since SIGKILL is not blockable
-            .map_err(|_| RtckError::Machine("fail to kill".to_string()))
+            .map_err(|_| RtckError::Machine("fail to terminate".to_string()))
     }
 
     /// Create a snapshot
@@ -558,9 +595,21 @@ impl Hypervisor {
         }
 
         // do cleaning
-        // delete resource files, including exported config, kernel image, root fs image, microVM log.
-
         // clear firecracker process
+        let exit_status = self
+            .child
+            .wait()
+            .await
+            .map_err(|_| RtckError::Hypervisor("fail to wait".to_string()))?;
+
+        log::info!("firecracker exit: {}", exit_status);
+
+        // delete resource directory
+        if let Some(jailer_working_dir) = &self.jailer_working_dir {
+            if self.clear_jailer {
+                let _ = tokio::fs::remove_dir_all(jailer_working_dir).await;
+            }
+        }
 
         // delete network TUN/TAP interface
 
