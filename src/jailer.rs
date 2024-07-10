@@ -420,16 +420,40 @@ pub mod jailer_async {
             const DEFAULT_SOCKET_PATH_UNDER_JAILER: &'static str = "run/firecracker.socket";
             let socket_path =
                 handle_entry_default(&self.socket, DEFAULT_SOCKET_PATH_UNDER_JAILER.to_string());
+            let socket_path = PathBuf::from(socket_path);
+            let socket_path = if socket_path.is_absolute() {
+                socket_path
+                    .strip_prefix("/")
+                    .map_err(|_| RtckError::Jailer("fail to strip absolute prefix".to_string()))?
+            } else {
+                socket_path.as_path()
+            };
             self.socket_path_export = Some(jailer_workspace_dir.join(socket_path));
 
             const DEFAULT_LOCK_PATH_UNDER_JAILER: &'static str = "run/firecracker.lock";
             let lock_path =
                 handle_entry_default(&self.lock_path, DEFAULT_LOCK_PATH_UNDER_JAILER.to_string());
+            let lock_path = PathBuf::from(lock_path);
+            let lock_path = if lock_path.is_absolute() {
+                lock_path
+                    .strip_prefix("/")
+                    .map_err(|_| RtckError::Jailer("fail to strip absolute prefix".to_string()))?
+            } else {
+                lock_path.as_path()
+            };
             self.lock_path_export = Some(jailer_workspace_dir.join(lock_path));
 
             const DEFAULT_LOG_PATH_UNDER_JAILER: &'static str = "run/firecracker.log";
             let log_path =
                 handle_entry_default(&self.log_path, DEFAULT_LOG_PATH_UNDER_JAILER.to_string());
+            let log_path = PathBuf::from(log_path);
+            let log_path = if log_path.is_absolute() {
+                log_path
+                    .strip_prefix("/")
+                    .map_err(|_| RtckError::Jailer("fail to strip absolute prefix".to_string()))?
+            } else {
+                log_path.as_path()
+            };
             self.log_path_export = Some(jailer_workspace_dir.join(log_path));
 
             const DEFAULT_METRICS_PATH_UNDER_JAILER: &'static str = "run/firecracker.metrics";
@@ -437,6 +461,14 @@ pub mod jailer_async {
                 &self.metrics_path,
                 DEFAULT_METRICS_PATH_UNDER_JAILER.to_string(),
             );
+            let metrics_path = PathBuf::from(metrics_path);
+            let metrics_path = if metrics_path.is_absolute() {
+                metrics_path
+                    .strip_prefix("/")
+                    .map_err(|_| RtckError::Jailer("fail to strip absolute prefix".to_string()))?
+            } else {
+                metrics_path.as_path()
+            };
             self.metrics_path_export = Some(jailer_workspace_dir.join(metrics_path));
 
             match &self.config_path {
