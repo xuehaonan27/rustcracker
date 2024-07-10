@@ -68,3 +68,66 @@ pub async fn with_jailer() {
 
     hypervisor.stop().await.expect("fail to stop");
 }
+
+pub async fn reusing_hypervisor() {
+    dotenvy::dotenv().ok();
+
+    let mut hypervisor = Hypervisor::new(&HYPERVISOR_WITHJAILER_CONFIG)
+        .await
+        .expect("fail to create hypervisor");
+
+    sleep(3).await;
+
+    hypervisor.ping_remote().await.expect("fail to ping remote");
+
+    sleep(3).await;
+
+    hypervisor
+        .start(&MICROVM_CONFIG)
+        .await
+        .expect("fail to configure microVM");
+
+    sleep(3).await;
+
+    hypervisor.pause().await.expect("fail to pause");
+
+    sleep(3).await;
+
+    hypervisor.resume().await.expect("fail to resume");
+
+    sleep(3).await;
+
+    hypervisor
+        .start(&MICROVM_CONFIG)
+        .await
+        .expect("fail to configure microVM");
+
+    sleep(3).await;
+
+    hypervisor.pause().await.expect("fail to pause");
+
+    sleep(3).await;
+
+    hypervisor.resume().await.expect("fail to resume");
+
+    sleep(3).await;
+
+    hypervisor
+        .start(&MICROVM_CONFIG)
+        .await
+        .expect("fail to configure microVM");
+
+    sleep(3).await;
+
+    hypervisor.pause().await.expect("fail to pause");
+
+    sleep(3).await;
+
+    hypervisor.resume().await.expect("fail to resume");
+
+    sleep(3).await;
+
+    hypervisor.stop().await.expect("fail to stop");
+
+    hypervisor.delete().await.expect("fail to delete");
+}
