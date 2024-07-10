@@ -263,7 +263,10 @@ pub mod jailer {
 }
 
 pub mod jailer_async {
-    use std::{path::PathBuf, process::Stdio};
+    use std::{
+        path::{Path, PathBuf},
+        process::Stdio,
+    };
 
     use serde::{Deserialize, Serialize};
     use tokio::net::UnixStream;
@@ -576,8 +579,13 @@ pub mod jailer_async {
                 }
             }
 
-            match &self.stdout_to {
+            match &self.stdout_to_exported {
                 Some(stdout_to) => {
+                    if !PathBuf::from(stdout_to).exists() {
+                        std::fs::File::create(stdout_to).map_err(|_| {
+                            RtckError::FilesysIO("fail to create stdout file".to_string())
+                        })?;
+                    }
                     let stdout = std::fs::File::open(stdout_to).map_err(|_| {
                         RtckError::FilesysIO("fail to open stdout redirection file".to_string())
                     })?;
@@ -586,12 +594,17 @@ pub mod jailer_async {
                 None => (),
             }
 
-            match &self.stderr_to {
+            match &self.stderr_to_exported {
                 Some(stderr_to) => {
+                    if !PathBuf::from(stderr_to).exists() {
+                        std::fs::File::create(stderr_to).map_err(|_| {
+                            RtckError::FilesysIO("fail to create stderr file".to_string())
+                        })?;
+                    }
                     let stderr = std::fs::File::open(stderr_to).map_err(|_| {
                         RtckError::FilesysIO("fail to open stderr redirection file".to_string())
                     })?;
-                    cmd.stdout(Stdio::from(stderr));
+                    cmd.stderr(Stdio::from(stderr));
                 }
                 None => (),
             }
