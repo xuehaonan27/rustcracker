@@ -61,11 +61,22 @@ lazy_static! {
         initrd_path: None,
         kernel_image_path: env::var("KERNEL_IMAGE_PATH").expect("kernel image path not found"),
     };
+    pub static ref ROOTFS: Drive = Drive {
+        drive_id: "rootfs".to_string(),
+        partuuid: None,
+        is_root_device: true,
+        cache_type: None,
+        is_read_only: false,
+        path_on_host: env::var("ROOTFS_PATH").expect("must set rootfs"),
+        rate_limiter: None,
+        io_engine: None,
+        socket: None
+    };
     pub static ref MICROVM_CONFIG: MicroVMConfig = MicroVMConfig {
         logger: None,
         metrics: None,
         boot_source: Some(BOOT_SOURCE.clone()),
-        drives: None,
+        drives: Some(vec![ROOTFS.clone()]),
         network_interfaces: None,
         vsock_devices: None,
         cpu_config: None,
