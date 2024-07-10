@@ -439,6 +439,12 @@ pub mod jailer_async {
                 .join(id)
                 .join(ROOT_FOLDER_NAME);
 
+            if jailer_workspace_dir.exists() {
+                return Err(RtckError::Jailer(
+                    "please choose another instance name".to_string(),
+                ));
+            }
+
             self.jailer_workspace_dir = Some(jailer_workspace_dir.clone());
 
             const DEFAULT_SOCKET_PATH_UNDER_JAILER: &'static str = "run/firecracker.socket";

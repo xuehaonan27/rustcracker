@@ -311,7 +311,7 @@ impl Default for HypervisorConfig {
 
 impl HypervisorConfig {
     pub fn validate(&self) -> RtckResult<()> {
-        if self.using_jailer.is_none() || *self.using_jailer.as_ref().unwrap() {
+        if let Some(true) = self.using_jailer {
             match &self.jailer_bin {
                 Some(path) if !PathBuf::from(path).exists() => {
                     return Err(RtckError::Config("jailer bin missing".to_string()));
@@ -323,6 +323,16 @@ impl HypervisorConfig {
             match &self.jailer_config {
                 None => return Err(RtckError::Config("no jailer config".to_string())),
                 Some(config) => config.validate()?,
+            }
+        } else {
+            match &self.socket_path {
+                None => return Err(RtckError::Config("missing socket path entry".to_string())),
+                Some(path) => {
+                    let path = PathBuf::from(path);
+                    if path.exists() {
+                        return Err(RtckError::Config("socket path occupied".to_string()));
+                    }
+                }
             }
         }
 
@@ -346,16 +356,6 @@ impl HypervisorConfig {
         //         Some(_) => (),
         //     }
         // }
-
-        match &self.socket_path {
-            None => return Err(RtckError::Config("missing socket path entry".to_string())),
-            Some(path) => {
-                let path = PathBuf::from(path);
-                if path.exists() {
-                    return Err(RtckError::Config("socket path occupied".to_string()));
-                }
-            }
-        }
 
         Ok(())
     }
