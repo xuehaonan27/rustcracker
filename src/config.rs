@@ -239,6 +239,9 @@ pub struct HypervisorConfig {
     /// where to put socket, default to None, and Local will allocate one for you
     pub socket_path: Option<String>,
 
+    /// socket retrying times, default to 3 times
+    pub socket_retry: usize,
+
     /// where to put lock file, default to None, and Local will allocate one for you
     pub lock_path: Option<String>,
 
@@ -281,6 +284,7 @@ impl Default for HypervisorConfig {
             jailer_config: None,
             frck_export_path: None,
             socket_path: None,
+            socket_retry: 3,
             lock_path: None,
             frck_bin: None,
             log_path: None,

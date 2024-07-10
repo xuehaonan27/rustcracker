@@ -24,6 +24,10 @@ lazy_static! {
         jailer_config: None,
         frck_export_path: env::var("FRCK_EXPORT_PATH").ok(),
         socket_path: env::var("SOCKET_PATH").ok(),
+        socket_retry: env::var("SOCKET_RETRY")
+            .unwrap_or("3".to_string())
+            .parse()
+            .unwrap(),
         lock_path: env::var("LOCK_PATH").ok(),
         log_path: env::var("LOG_PATH").ok(),
         log_clear: Some(false),
@@ -40,6 +44,10 @@ lazy_static! {
         jailer_config: Some(JAILER_CONFIG.clone()),
         frck_export_path: env::var("FRCK_EXPORT_PATH").ok(),
         socket_path: env::var("SOCKET_PATH").ok(),
+        socket_retry: env::var("SOCKET_RETRY")
+            .unwrap_or("3".to_string())
+            .parse()
+            .unwrap(),
         lock_path: env::var("LOCK_PATH").ok(),
         log_path: env::var("LOG_PATH").ok(),
         log_clear: Some(false),

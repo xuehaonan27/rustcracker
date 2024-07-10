@@ -40,6 +40,9 @@ pub struct Hypervisor {
     // socket path of this hypervisor
     socket_path: PathBuf,
 
+    // retrying times
+    socket_retry: usize,
+
     // lock path of this hypervisor
     lock_path: PathBuf,
 
@@ -89,7 +92,7 @@ impl Hypervisor {
             let process = Process::new(pid as i32)
                 .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
 
-            let stream = jailer.connect().await?;
+            let stream = jailer.connect(config.socket_retry).await?;
 
             let firecracker = FirecrackerAsync::from_jailer(jailer)?;
 
@@ -112,7 +115,7 @@ impl Hypervisor {
             let process = Process::new(pid as i32)
                 .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
 
-            let stream = firecracker.connect().await?;
+            let stream = firecracker.connect(config.socket_retry).await?;
 
             (pid, stream, firecracker, child, process)
         };
@@ -127,6 +130,7 @@ impl Hypervisor {
             child,
             process,
             socket_path: firecracker.socket,
+            socket_retry: config.socket_retry,
             lock_path: firecracker.lock_path,
             log_path: firecracker.log_path,
             metrics_path: firecracker.metrics_path,

@@ -500,10 +500,24 @@ pub mod jailer_async {
         }
 
         /// Connect to the socket
-        pub async fn connect(&self) -> RtckResult<UnixStream> {
-            UnixStream::connect(handle_entry_ref(&self.socket_path_export)?)
-                .await
-                .map_err(|_| RtckError::Jailer("connecting socket".to_string()))
+        pub async fn connect(&self, retry: usize) -> RtckResult<UnixStream> {
+            let mut trying = retry;
+            let stream = loop {
+                if trying == 0 {
+                    return Err(RtckError::Firecracker(format!(
+                        "fail to connect unix socket after {retry} tries"
+                    )));
+                }
+                match UnixStream::connect(handle_entry_ref(&self.socket_path_export)?).await {
+                    Ok(stream) => break stream,
+                    Err(_) => {
+                        trying -= 1;
+                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                        continue;
+                    }
+                }
+            };
+            Ok(stream)
         }
     }
 }

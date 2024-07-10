@@ -208,10 +208,24 @@ pub mod firecracker_async {
         }
 
         /// Connect to the socket
-        pub async fn connect(&self) -> RtckResult<UnixStream> {
-            UnixStream::connect(&self.socket)
-                .await
-                .map_err(|_| RtckError::Firecracker("connecting socket".to_string()))
+        pub async fn connect(&self, retry: usize) -> RtckResult<UnixStream> {
+            let mut trying = retry;
+            let stream = loop {
+                if trying == 0 {
+                    return Err(RtckError::Firecracker(format!(
+                        "fail to connect unix socket after {retry} tries"
+                    )));
+                }
+                match UnixStream::connect(&self.socket).await {
+                    Ok(stream) => break stream,
+                    Err(_) => {
+                        trying -= 1;
+                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                        continue;
+                    }
+                }
+            };
+            Ok(stream)
         }
     }
 }
