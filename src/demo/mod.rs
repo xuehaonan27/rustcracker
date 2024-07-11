@@ -98,6 +98,36 @@ pub async fn with_jailer() {
     log::info!("microVM deleted");
 }
 
+pub async fn using() {
+    dotenvy::dotenv().ok();
+
+    let mut hypervisor = Hypervisor::new(&HYPERVISOR_WITHJAILER_CONFIG)
+        .await
+        .expect("fail to create hypervisor");
+    log::info!("Hypervisor created");
+    sleep(3).await;
+
+    hypervisor.ping_remote().await.expect("fail to ping remote");
+    log::info!("Hypervisor running!");
+    sleep(3).await;
+
+    hypervisor
+        .start(&MICROVM_CONFIG)
+        .await
+        .expect("fail to configure microVM");
+    log::info!("microVM configured");
+    sleep(3).await;
+
+    let _ = hypervisor.wait().await;
+
+    hypervisor.stop().await.expect("fail to stop");
+    log::info!("microVM stopped");
+    sleep(3).await;
+
+    hypervisor.delete().await.expect("fail to delete");
+    log::info!("microVM deleted");
+}
+
 pub async fn reusing_hypervisor() {
     dotenvy::dotenv().ok();
 

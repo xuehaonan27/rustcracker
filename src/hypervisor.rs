@@ -833,6 +833,34 @@ impl Hypervisor {
             .map_err(|_| RtckError::Machine("fail to terminate".to_string()))
     }
 
+    /// Wait for microVM to exit microVM voluntarily
+    pub async fn wait(&mut self) -> RtckResult<()> {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            let describe_metrics = DescribeInstance::new();
+            let res = self.agent.event(describe_metrics).await;
+            match res {
+                Ok(res) => {
+                    if res.is_err() {
+                        continue;
+                    } else {
+                        // Safe: res is bound to be succ
+                        let info = res.succ();
+                        let status = info.state;
+                        match status {
+                            InstanceState::NotStarted => break,
+                            InstanceState::Paused => continue,
+                            InstanceState::Running => continue,
+                        }
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+
+        Ok(())
+    }
+
     /// Create a snapshot
     pub async fn snapshot<P: AsRef<str>, Q: AsRef<str>>(
         &mut self,

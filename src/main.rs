@@ -13,6 +13,7 @@ async fn main() {
     let _: () = match set.as_str() {
         "--no-jailer" => demo::no_jailer().await,
         "--with-jailer" => demo::with_jailer().await,
+        "--using" => demo::using().await,
         "--reusing" => demo::reusing_hypervisor().await,
         _ => panic!("unknown option"),
     };
