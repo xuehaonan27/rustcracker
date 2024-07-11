@@ -323,7 +323,6 @@ impl Hypervisor {
                     .map_err(|_| {
                         RtckError::Hypervisor("fail to create logging file".to_string())
                     })?;
-                todo!()
             }
 
             let put_logger = PutLogger::new(logger.clone());
