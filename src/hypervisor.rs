@@ -16,7 +16,7 @@ use crate::{
 
 type Pid = u32;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MicroVMStatus {
     None,    // no microVM running now
     Start,   // in stage of staring
@@ -311,70 +311,141 @@ impl Hypervisor {
         Ok(())
     }
 
-    /// Automatically configure the machine.
-    /// User must guarantee that `config` passed to the machine contains
-    /// valid firecracker configuration (`frck_config`).
-    async fn configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
-        // // If configuration has been exported, then the machine should have been configured.
-        // if config.frck_export_path.is_some() {
-        //     return Ok(());
-        // }
-
-        // // User must guarantee that proper
-        // let frck_config = self
-        //     .config
-        //     .frck_config
-        //     .as_ref()
-        //     .ok_or(RtckError::Config("no firecracker config".to_string()))?;
-
-        // Logger
-        {
-            if let Some(logger) = &config.logger {
-                let put_logger = PutLogger::new(logger.clone());
-                let res = self.agent.event(put_logger).await.map_err(|e| {
-                    log::error!("PutLogger event failed");
-                    e
-                })?;
-                if res.is_err() {
-                    log::error!("PutLogger failed");
-                }
+    /// Logger configuration. Nothing to rollback in this step.
+    async fn logger_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+        if let Some(logger) = &config.logger {
+            let put_logger = PutLogger::new(logger.clone());
+            let res = self.agent.event(put_logger).await.map_err(|e| {
+                log::error!("PutLogger event failed");
+                e
+            })?;
+            if res.is_err() {
+                log::error!("PutLogger failed");
+                return Err(RtckError::Hypervisor(
+                    "fail to configure logger, rollback".to_string(),
+                ));
             }
         }
+        Ok(())
+    }
 
-        // Metrics
-        {
-            if let Some(metrics) = &config.metrics {
-                let put_metrics = PutMetrics::new(metrics.clone());
-                let res = self.agent.event(put_metrics).await.map_err(|e| {
-                    log::error!("PutMetrics event failed");
-                    e
-                })?;
-                if res.is_err() {
-                    log::error!("PutMetrics failed");
-                }
+    /// Metrics configuration. Nothing to rollback in this step.
+    async fn metrics_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+        if let Some(metrics) = &config.metrics {
+            let put_metrics = PutMetrics::new(metrics.clone());
+            let res = self.agent.event(put_metrics).await.map_err(|e| {
+                log::error!("PutMetrics event failed");
+                e
+            })?;
+            if res.is_err() {
+                log::error!("PutMetrics failed");
+                return Err(RtckError::Hypervisor(
+                    "fail to configure metrics, rollback".to_string(),
+                ));
             }
         }
+        Ok(())
+    }
 
-        // Guest boot source
-        {
-            let boot_source = if let Some(jailer_working_dir) = &self.jailer_working_dir {
-                // using jailer
-                // jailer_working_dir = <chroot_base>/<exec_file_name>/<id>/root
-                if let Some(boot_source) = &config.boot_source {
-                    // mount the kernel directory
-                    let target_dir = jailer_working_dir.join("kernel");
-                    tokio::fs::create_dir_all(&target_dir).await.map_err(|_| {
-                        RtckError::Hypervisor("fail to create kernel dir".to_string())
+    /// Guest boot source configuration.
+    /// Roll back mounting kernel image directory if err.
+    async fn boot_source_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+        let boot_source = if let Some(jailer_working_dir) = &self.jailer_working_dir {
+            // using jailer
+            // jailer_working_dir = <chroot_base>/<exec_file_name>/<id>/root
+            if let Some(boot_source) = &config.boot_source {
+                // mount the kernel directory
+                let target_dir = jailer_working_dir.join("kernel");
+                tokio::fs::create_dir_all(&target_dir)
+                    .await
+                    .map_err(|_| RtckError::Hypervisor("fail to create kernel dir".to_string()))?;
+                let source = PathBuf::from(&boot_source.kernel_image_path)
+                    .canonicalize()
+                    .map_err(|_| RtckError::Config("invalid path".to_string()))?;
+                let source_dir = source
+                    .parent()
+                    .ok_or(RtckError::Config("invalid path".to_string()))?;
+                let kernel_file = source.file_name().ok_or(RtckError::Config(
+                    "invalid kernel image file path".to_string(),
+                ))?;
+
+                use nix::mount::{mount, MsFlags};
+                match mount(
+                    Some(source_dir),
+                    &target_dir,
+                    None::<&PathBuf>,
+                    MsFlags::MS_BIND,
+                    None::<&PathBuf>,
+                ) {
+                    Ok(_) => {
+                        self.rollbacks.insert_1(Rollback::Umount {
+                            mount_point: target_dir,
+                        });
+                        // self.mounts.push(target_dir);
+                    }
+                    Err(e) => {
+                        return Err(RtckError::Hypervisor(format!(
+                            "fail to mount kernel image dir into jailer, errno = {}",
+                            e
+                        )))
+                    }
+                }
+                let mut boot_source = config.boot_source.clone().unwrap();
+                let mut jailed_kernel_image_path = PathBuf::from("/kernel");
+                jailed_kernel_image_path.push(kernel_file);
+                boot_source.kernel_image_path =
+                    jailed_kernel_image_path.to_string_lossy().to_string();
+                Some(boot_source)
+            } else {
+                None
+            }
+        } else {
+            config.boot_source.clone()
+        };
+
+        if let Some(boot_source) = &boot_source {
+            // if let Some(boot_source) = &config.boot_source {
+            let put_guest_boot_source = PutGuestBootSource::new(boot_source.clone());
+            let res = self.agent.event(put_guest_boot_source).await.map_err(|e| {
+                log::error!("PutGuestBootSource event failed");
+                e
+            })?;
+            if res.is_err() {
+                log::error!("PutGuestBootSource failed");
+                return Err(RtckError::Hypervisor(
+                    "fail to configure boot source, rollback".to_string(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Guest drives configuration.
+    /// Roll back mounting drives directory and changing owner if err.
+    async fn drives_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+        if let Some(drives) = &config.drives {
+            for drive in drives {
+                let drive = if let Some(jailer_working_dir) = &self.jailer_working_dir {
+                    // using jailer
+                    // jailer_working_dir = <chroot_base>/<exec_file_name>/<id>/root
+                    // mount the drives directory
+                    // TODO: mount the drive socket?
+                    let target_dir = jailer_working_dir.join(format!("drives{}", drive.drive_id));
+                    tokio::fs::create_dir(&target_dir).await.map_err(|_| {
+                        RtckError::Hypervisor(format!(
+                            "fail to create dir for drives {}",
+                            drive.drive_id
+                        ))
                     })?;
-                    let source = PathBuf::from(&boot_source.kernel_image_path)
+                    let source = PathBuf::from(&drive.path_on_host)
                         .canonicalize()
                         .map_err(|_| RtckError::Config("invalid path".to_string()))?;
                     let source_dir = source
                         .parent()
                         .ok_or(RtckError::Config("invalid path".to_string()))?;
-                    let kernel_file = source.file_name().ok_or(RtckError::Config(
-                        "invalid kernel image file path".to_string(),
-                    ))?;
+                    let drive_file = source
+                        .file_name()
+                        .ok_or(RtckError::Config("invalid drive file path".to_string()))?;
 
                     use nix::mount::{mount, MsFlags};
                     match mount(
@@ -392,247 +463,241 @@ impl Hypervisor {
                         }
                         Err(e) => {
                             return Err(RtckError::Hypervisor(format!(
-                                "fail to mount kernel image dir into jailer, errno = {}",
-                                e
+                                "fail to mount drive {} dir into jailer, errno = {}",
+                                drive.drive_id, e
                             )))
                         }
                     }
-                    let mut boot_source = config.boot_source.clone().unwrap();
-                    let mut jailed_kernel_image_path = PathBuf::from("/kernel");
-                    jailed_kernel_image_path.push(kernel_file);
-                    boot_source.kernel_image_path =
-                        jailed_kernel_image_path.to_string_lossy().to_string();
-                    Some(boot_source)
-                } else {
-                    None
-                }
-            } else {
-                config.boot_source.clone()
-            };
 
-            if let Some(boot_source) = &boot_source {
-                // if let Some(boot_source) = &config.boot_source {
-                let put_guest_boot_source = PutGuestBootSource::new(boot_source.clone());
-                let res = self.agent.event(put_guest_boot_source).await.map_err(|e| {
-                    log::error!("PutGuestBootSource event failed");
-                    e
-                })?;
-                if res.is_err() {
-                    log::error!("PutGuestBootSource failed");
-                }
-            }
-        }
-
-        // Guest drives
-        {
-            if let Some(drives) = &config.drives {
-                for drive in drives {
-                    let drive = if let Some(jailer_working_dir) = &self.jailer_working_dir {
-                        // using jailer
-                        // jailer_working_dir = <chroot_base>/<exec_file_name>/<id>/root
-                        // mount the drives directory
-                        // TODO: mount the drive socket?
-                        let target_dir =
-                            jailer_working_dir.join(format!("drives{}", drive.drive_id));
-                        tokio::fs::create_dir(&target_dir).await.map_err(|_| {
-                            RtckError::Hypervisor(format!(
-                                "fail to create dir for drives {}",
-                                drive.drive_id
-                            ))
-                        })?;
-                        let source = PathBuf::from(&drive.path_on_host)
-                            .canonicalize()
-                            .map_err(|_| RtckError::Config("invalid path".to_string()))?;
-                        let source_dir = source
-                            .parent()
-                            .ok_or(RtckError::Config("invalid path".to_string()))?;
-                        let drive_file = source
-                            .file_name()
-                            .ok_or(RtckError::Config("invalid drive file path".to_string()))?;
-
-                        use nix::mount::{mount, MsFlags};
-                        match mount(
-                            Some(source_dir),
-                            &target_dir,
-                            None::<&PathBuf>,
-                            MsFlags::MS_BIND,
-                            None::<&PathBuf>,
-                        ) {
-                            Ok(_) => {
-                                self.rollbacks.insert_1(Rollback::Umount {
-                                    mount_point: target_dir,
-                                });
-                                // self.mounts.push(target_dir);
-                            }
-                            Err(e) => {
-                                return Err(RtckError::Hypervisor(format!(
-                                    "fail to mount drive {} dir into jailer, errno = {}",
-                                    drive.drive_id, e
-                                )))
-                            }
-                        }
-
-                        use nix::unistd::{Gid, Uid};
-                        // change the owner of the drive
-                        let (uid, gid) = self.uid_gid.ok_or(RtckError::Hypervisor(
-                            "no uid and gid found in jailer".to_string(),
-                        ))?;
-                        let metadata = std::fs::metadata(&source).map_err(|_| {
-                            RtckError::Hypervisor(format!(
-                                "fail to get metadata of source path {:?}",
-                                &source
-                            ))
-                        })?;
-                        use std::os::unix::fs::MetadataExt;
-                        let original_uid = metadata.uid();
-                        let original_gid = metadata.gid();
-                        nix::unistd::chown(
-                            &source,
-                            Some(Uid::from_raw(uid)),
-                            Some(Gid::from_raw(gid)),
-                        )
+                    use nix::unistd::{Gid, Uid};
+                    // change the owner of the drive
+                    let (uid, gid) = self.uid_gid.ok_or(RtckError::Hypervisor(
+                        "no uid and gid found in jailer".to_string(),
+                    ))?;
+                    let metadata = std::fs::metadata(&source).map_err(|_| {
+                        RtckError::Hypervisor(format!(
+                            "fail to get metadata of source path {:?}",
+                            &source
+                        ))
+                    })?;
+                    use std::os::unix::fs::MetadataExt;
+                    let original_uid = metadata.uid();
+                    let original_gid = metadata.gid();
+                    nix::unistd::chown(&source, Some(Uid::from_raw(uid)), Some(Gid::from_raw(gid)))
                         .map_err(|_| {
                             RtckError::Hypervisor("fail to change the owner of jailer".to_string())
                         })?;
-                        self.rollbacks.insert_1(Rollback::Chown {
-                            path: source.clone(),
-                            original_uid,
-                            original_gid,
-                        });
+                    self.rollbacks.insert_1(Rollback::Chown {
+                        path: source.clone(),
+                        original_uid,
+                        original_gid,
+                    });
 
-                        let mut drive = drive.clone();
-                        let mut jailed_drive_file_path =
-                            PathBuf::from(format!("/drives{}", drive.drive_id));
-                        jailed_drive_file_path.push(drive_file);
-                        drive.path_on_host = jailed_drive_file_path.to_string_lossy().to_string();
-                        drive
-                    } else {
-                        drive.clone()
-                    };
+                    let mut drive = drive.clone();
+                    let mut jailed_drive_file_path =
+                        PathBuf::from(format!("/drives{}", drive.drive_id));
+                    jailed_drive_file_path.push(drive_file);
+                    drive.path_on_host = jailed_drive_file_path.to_string_lossy().to_string();
+                    drive
+                } else {
+                    drive.clone()
+                };
 
-                    let put_guest_drive_by_id = PutGuestDriveByID::new(drive.clone());
-                    let res = self.agent.event(put_guest_drive_by_id).await.map_err(|e| {
-                        log::error!("PutGuestDriveByIDResponse event failed");
-                        e
-                    })?;
-                    if res.is_err() {
-                        log::error!("PutGuestDriveById failed");
-                    }
-                }
-            }
-        }
-
-        // Guest network interfaces
-        {
-            if let Some(ifaces) = &config.network_interfaces {
-                for iface in ifaces {
-                    let put_guest_network_interface_by_id =
-                        PutGuestNetworkInterfaceByID::new(iface.clone());
-                    let res = self
-                        .agent
-                        .event(put_guest_network_interface_by_id)
-                        .await
-                        .map_err(|e| {
-                            log::error!("PutGuestNetworkInterfaceByID event failed");
-                            e
-                        })?;
-                    if res.is_err() {
-                        log::error!("PutGuestNetworkInterfaceById failed");
-                    }
-                }
-            }
-        }
-
-        // Vsocks
-        {
-            if let Some(vsocks) = &config.vsock_devices {
-                for vsock in vsocks {
-                    let put_guest_vsock = PutGuestVsock::new(vsock.clone());
-                    let res = self.agent.event(put_guest_vsock).await.map_err(|e| {
-                        log::error!("PutGuestVsock event failed");
-                        e
-                    })?;
-                    if res.is_err() {
-                        log::error!("PutGuestVsock failed");
-                    }
-                }
-            }
-        }
-
-        // CPU configuration
-        {
-            if let Some(cpu_config) = &config.cpu_config {
-                let put_cpu_configuration = PutCpuConfiguration::new(cpu_config.clone());
-                let res = self.agent.event(put_cpu_configuration).await.map_err(|e| {
-                    log::error!("PutCpuConfiguration event failed");
+                let put_guest_drive_by_id = PutGuestDriveByID::new(drive.clone());
+                let res = self.agent.event(put_guest_drive_by_id).await.map_err(|e| {
+                    log::error!("PutGuestDriveByIDResponse event failed");
                     e
                 })?;
                 if res.is_err() {
-                    log::error!("PutCpuConfiguration failed");
+                    log::error!("PutGuestDriveById failed");
+                    return Err(RtckError::Hypervisor(format!(
+                        "fail to configure drive {}, rollback",
+                        drive.drive_id
+                    )));
                 }
             }
         }
+        Ok(())
+    }
 
-        // Machine configuration
-        {
-            if let Some(machine_config) = &config.machine_config {
-                let put_machine_configuration =
-                    PutMachineConfiguration::new(machine_config.clone());
+    /// Guest network interfaces.
+    async fn network_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+        if let Some(ifaces) = &config.network_interfaces {
+            for iface in ifaces {
+                let put_guest_network_interface_by_id =
+                    PutGuestNetworkInterfaceByID::new(iface.clone());
                 let res = self
                     .agent
-                    .event(put_machine_configuration)
+                    .event(put_guest_network_interface_by_id)
                     .await
                     .map_err(|e| {
-                        log::error!("PutMachineConfiguration event failed");
+                        log::error!("PutGuestNetworkInterfaceByID event failed");
                         e
                     })?;
                 if res.is_err() {
-                    log::error!("PutMachineConfiguration failed");
+                    log::error!("PutGuestNetworkInterfaceById failed");
+                    return Err(RtckError::Hypervisor(format!(
+                        "fail to configure network {}, rollback",
+                        iface.iface_id
+                    )));
                 }
             }
         }
+        Ok(())
+    }
 
-        // Balloon
-        {
-            if let Some(balloon) = &config.balloon {
-                let put_balloon = PutBalloon::new(balloon.clone());
-                let res = self.agent.event(put_balloon).await.map_err(|e| {
-                    log::error!("PutBalloon event failed");
+    /// Vsocks configuration.
+    async fn vsock_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+        if let Some(vsocks) = &config.vsock_devices {
+            for vsock in vsocks {
+                let put_guest_vsock = PutGuestVsock::new(vsock.clone());
+                let res = self.agent.event(put_guest_vsock).await.map_err(|e| {
+                    log::error!("PutGuestVsock event failed");
                     e
                 })?;
                 if res.is_err() {
-                    log::error!("PutBalloon failed");
+                    log::error!("PutGuestVsock failed");
+                    return Err(RtckError::Hypervisor(format!(
+                        "fail to configure vsock {:?}, rollback",
+                        vsock.vsock_id
+                    )));
                 }
             }
         }
+        Ok(())
+    }
 
-        // Entropy device
-        {
-            if let Some(entropy_device) = &config.entropy_device {
-                let put_entropy = PutEntropy::new(entropy_device.clone());
-                let res = self.agent.event(put_entropy).await.map_err(|e| {
-                    log::error!("PutEntropy event failed");
+    /// CPU configuration.
+    async fn cpu_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+        if let Some(cpu_config) = &config.cpu_config {
+            let put_cpu_configuration = PutCpuConfiguration::new(cpu_config.clone());
+            let res = self.agent.event(put_cpu_configuration).await.map_err(|e| {
+                log::error!("PutCpuConfiguration event failed");
+                e
+            })?;
+            if res.is_err() {
+                log::error!("PutCpuConfiguration failed");
+                return Err(RtckError::Hypervisor(
+                    "fail to configure CPU, rollback".to_string(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Machine configuration.
+    async fn machine_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+        if let Some(machine_config) = &config.machine_config {
+            let put_machine_configuration = PutMachineConfiguration::new(machine_config.clone());
+            let res = self
+                .agent
+                .event(put_machine_configuration)
+                .await
+                .map_err(|e| {
+                    log::error!("PutMachineConfiguration event failed");
                     e
                 })?;
-                if res.is_err() {
-                    log::error!("PutEntropy failed");
-                }
+            if res.is_err() {
+                log::error!("PutMachineConfiguration failed");
+                return Err(RtckError::Hypervisor(
+                    "fail to configure machine, rollback".to_string(),
+                ));
             }
         }
+        Ok(())
+    }
 
-        // Initial mmds content
-        {
-            if let Some(content) = &config.init_metadata {
-                let put_mmds = PutMmds::new(content.clone());
-                let res = self.agent.event(put_mmds).await.map_err(|e| {
-                    log::error!("PutMmds event failed");
-                    e
-                })?;
-                if res.is_err() {
-                    log::error!("PutMmds failed");
-                }
+    /// Balloon configure.
+    async fn balloon_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+        if let Some(balloon) = &config.balloon {
+            let put_balloon = PutBalloon::new(balloon.clone());
+            let res = self.agent.event(put_balloon).await.map_err(|e| {
+                log::error!("PutBalloon event failed");
+                e
+            })?;
+            if res.is_err() {
+                log::error!("PutBalloon failed");
+                return Err(RtckError::Hypervisor(
+                    "fail to configure balloon, rollback".to_string(),
+                ));
             }
         }
+        Ok(())
+    }
+
+    /// Entropy device configure.
+    async fn entropy_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+        if let Some(entropy_device) = &config.entropy_device {
+            let put_entropy = PutEntropy::new(entropy_device.clone());
+            let res = self.agent.event(put_entropy).await.map_err(|e| {
+                log::error!("PutEntropy event failed");
+                e
+            })?;
+            if res.is_err() {
+                log::error!("PutEntropy failed");
+                return Err(RtckError::Hypervisor(
+                    "fail to configure entropy device, rollback".to_string(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Initial mmds content configure.
+    async fn init_metadata_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+        if let Some(content) = &config.init_metadata {
+            let put_mmds = PutMmds::new(content.clone());
+            let res = self.agent.event(put_mmds).await.map_err(|e| {
+                log::error!("PutMmds event failed");
+                e
+            })?;
+            if res.is_err() {
+                log::error!("PutMmds failed");
+                return Err(RtckError::Hypervisor(
+                    "fail to configure initial metadata, rollback".to_string(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Automatically configure the machine.
+    /// User must guarantee that `config` passed to the machine contains
+    /// valid firecracker configuration (`frck_config`).
+    async fn configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+        // // If configuration has been exported, then the machine should have been configured.
+        // if config.frck_export_path.is_some() {
+        //     return Ok(());
+        // }
+
+        // // User must guarantee that proper
+        // let frck_config = self
+        //     .config
+        //     .frck_config
+        //     .as_ref()
+        //     .ok_or(RtckError::Config("no firecracker config".to_string()))?;
+
+        self.logger_configure(config).await?;
+
+        self.metrics_configure(config).await?;
+
+        self.boot_source_configure(config).await?;
+
+        self.drives_configure(config).await?;
+
+        self.network_configure(config).await?;
+
+        self.vsock_configure(config).await?;
+
+        self.cpu_configure(config).await?;
+
+        self.machine_configure(config).await?;
+
+        self.balloon_configure(config).await?;
+
+        self.entropy_configure(config).await?;
+
+        self.init_metadata_configure(config).await?;
 
         Ok(())
     }
@@ -802,8 +867,31 @@ impl Hypervisor {
         Ok(())
     }
 
-    /// Check microVM status
-    pub async fn poll_status(&self) -> MicroVMStatus {
-        todo!()
+    /// Check microVM status and sync with remote.
+    pub async fn sync_status(&mut self) -> MicroVMStatus {
+        let describe_metrics = DescribeInstance::new();
+        let res = self.agent.event(describe_metrics).await;
+        match res {
+            Ok(res) => {
+                if res.is_err() {
+                    self.status = MicroVMStatus::Failure;
+                    MicroVMStatus::Failure
+                } else {
+                    // Safe: res is bound to be succ
+                    let info = res.succ();
+                    let status = info.state;
+                    match status {
+                        InstanceState::NotStarted => MicroVMStatus::Stop,
+                        InstanceState::Paused => MicroVMStatus::Paused,
+                        InstanceState::Running => MicroVMStatus::Running,
+                    }
+                }
+            }
+            Err(_) => MicroVMStatus::Failure,
+        }
+    }
+
+    pub async fn check_status(&self) -> MicroVMStatus {
+        self.status
     }
 }
