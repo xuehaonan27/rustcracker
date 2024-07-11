@@ -89,7 +89,13 @@ lazy_static! {
         metrics: None,
         boot_source: Some(BOOT_SOURCE.clone()),
         drives: Some(vec![ROOTFS.clone()]),
-        network_interfaces: None,
+        network_interfaces: Some(vec![NetworkInterface {
+            iface_id: "eth0".to_string(),
+            guest_mac: None,
+            host_dev_name: "tap0".to_string(),
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+        }]),
         vsock_devices: None,
         cpu_config: None,
         machine_config: Some(MachineConfiguration {
