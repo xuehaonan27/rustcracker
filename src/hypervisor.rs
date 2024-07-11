@@ -104,7 +104,9 @@ impl Hypervisor {
 
             // jail the firecracker
             let instance_dir = jailer.jail().await?;
-            rollbacks.push(Rollback::Jailing { instance_dir });
+            if let Some(true) = config.using_jailer {
+                rollbacks.push(Rollback::Jailing { instance_dir });
+            }
 
             // spawn the firecracker process
             // error: fail to launch the process
