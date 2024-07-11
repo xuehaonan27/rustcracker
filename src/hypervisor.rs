@@ -70,6 +70,9 @@ pub struct Hypervisor {
 
     // jailer uid and gid
     uid_gid: Option<(u32, u32)>, // (uid, gid)
+
+    // mounting points
+    mounts: Vec<PathBuf>,
 }
 
 impl Hypervisor {
@@ -172,6 +175,7 @@ impl Hypervisor {
             clear_jailer,
             jailer_working_dir: jailer_working_dir,
             uid_gid,
+            mounts: Vec::new(),
         })
     }
 
@@ -331,7 +335,9 @@ impl Hypervisor {
                         MsFlags::MS_BIND,
                         None::<&PathBuf>,
                     ) {
-                        Ok(_) => {}
+                        Ok(_) => {
+                            self.mounts.push(target_dir);
+                        }
                         Err(e) => {
                             return Err(RtckError::Hypervisor(format!(
                                 "fail to mount kernel image dir into jailer, errno = {}",
@@ -400,7 +406,9 @@ impl Hypervisor {
                             MsFlags::MS_BIND,
                             None::<&PathBuf>,
                         ) {
-                            Ok(_) => {}
+                            Ok(_) => {
+                                self.mounts.push(target_dir);
+                            }
                             Err(e) => {
                                 return Err(RtckError::Hypervisor(format!(
                                     "fail to mount drive {} dir into jailer, errno = {}",
@@ -669,10 +677,13 @@ impl Hypervisor {
     /// Note: this command will terminate firecracker itself.
     #[cfg(any(target_os = "linux", target_os = "unix"))]
     pub async fn terminate(&mut self) -> RtckResult<()> {
+        use nix::{
+            sys::signal::{kill, Signal},
+            unistd::Pid,
+        };
         // the hypervisor occupies the pid by opening fd to it (procfs).
         // so kill -9 to this pid is safe.
-        use nix::sys::signal::{kill, Signal};
-        kill(nix::unistd::Pid::from_raw(self.pid as i32), Signal::SIGTERM)
+        kill(Pid::from_raw(self.pid as i32), Signal::SIGTERM)
             .map_err(|_| RtckError::Machine("fail to terminate".to_string()))
     }
 
@@ -717,14 +728,70 @@ impl Hypervisor {
         }
 
         // do cleaning
-        // clear firecracker process
-        let exit_status = self
-            .child
-            .wait()
-            .await
-            .map_err(|_| RtckError::Hypervisor("fail to wait".to_string()))?;
+        // terminate firecracker process
 
-        log::info!("firecracker exit: {}", exit_status);
+        if self.terminate().await.is_err() {
+            let _ = self.kill();
+        }
+
+        use nix::{
+            sys::wait::{waitpid, WaitStatus},
+            unistd::Pid,
+        };
+        // let wait_res = waitpid(Pid::from_raw(self.pid as i32), Some(WaitPidFlag::WEXITED))
+        //     .map_err(|_| RtckError::Hypervisor(format!("fail to wait pid {}", self.pid)))?;
+
+        // wait for the process to exit
+        let pid = Pid::from_raw(self.pid as i32);
+        loop {
+            match waitpid(pid, None) {
+                Ok(WaitStatus::Exited(_, status)) => {
+                    log::info!("Process {} exited with status {}", pid, status);
+                    break;
+                }
+                Ok(WaitStatus::Signaled(_, signal, _)) => {
+                    log::warn!("Process {} was killed by signal {}", pid, signal);
+                    break;
+                }
+                Ok(_) => {
+                    // other WaitStatus，e.g. Stopped、Continued
+                    if self.terminate().await.is_err() {
+                        let _ = self.kill();
+                    }
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                }
+                Err(nix::errno::Errno::ECHILD) => {
+                    log::error!("No such process {}", pid);
+                    break;
+                }
+                Err(err) => {
+                    log::error!("Error occurred: {}", err);
+                    break;
+                }
+            }
+        }
+
+        // wait and clear firecracker process
+        // let exit_status = self
+        //     .child
+        //     .wait()
+        //     .await
+        //     .map_err(|_| RtckError::Hypervisor("fail to wait".to_string()))?;
+
+        // log::info!("firecracker exit: {}", exit_status);
+
+        // umount all mount points, if using jailer
+        if let Some(_) = &self.jailer_working_dir {
+            use nix::mount::{umount2, MntFlags};
+            while let Some(target_dir) = self.mounts.pop() {
+                // umount force
+                // make sure that kernel file and drives on host do not crash due to following
+                // removal of jailer
+                umount2(&target_dir, MntFlags::MNT_FORCE).map_err(|e| {
+                    RtckError::Hypervisor(format!("fail to umount the kernel dir, errno = {}", e))
+                })?;
+            }
+        }
 
         // delete resource directory
         if let Some(jailer_working_dir) = &self.jailer_working_dir {
