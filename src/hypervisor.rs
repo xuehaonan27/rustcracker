@@ -295,7 +295,56 @@ impl Hypervisor {
 
         // Guest boot source
         {
-            if let Some(boot_source) = &config.boot_source {
+            let boot_source = if let Some(jailer_working_dir) = &self.jailer_working_dir {
+                // using jailer
+                // jailer_working_dir = <chroot_base>/<exec_file_name>/<id>/root
+                if let Some(boot_source) = &config.boot_source {
+                    // mount the kernel directory
+                    let target_dir = jailer_working_dir.join("kernel");
+                    tokio::fs::create_dir_all(&target_dir).await.map_err(|_| {
+                        RtckError::Hypervisor("fail to create kernel dir".to_string())
+                    })?;
+                    let source = PathBuf::from(&boot_source.kernel_image_path)
+                        .canonicalize()
+                        .map_err(|_| RtckError::Config("invalid path".to_string()))?;
+                    let source_dir = source
+                        .parent()
+                        .ok_or(RtckError::Config("invalid path".to_string()))?;
+                    let kernel_file = source_dir.file_name().ok_or(RtckError::Config(
+                        "invalid kernel image file path".to_string(),
+                    ))?;
+
+                    use nix::mount::{mount, MsFlags};
+                    match mount(
+                        Some(source_dir),
+                        &target_dir,
+                        None::<&PathBuf>,
+                        MsFlags::MS_BIND,
+                        None::<&PathBuf>,
+                    ) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            return Err(RtckError::Hypervisor(format!(
+                                "fail to mount kernel image dir into jailer, errno = {}",
+                                e
+                            )))
+                        }
+                    }
+                    let mut boot_source = config.boot_source.clone().unwrap();
+                    let mut jailed_kernel_image_path = PathBuf::from("/kernel");
+                    jailed_kernel_image_path.push(kernel_file);
+                    boot_source.kernel_image_path =
+                        jailed_kernel_image_path.to_string_lossy().to_string();
+                    Some(boot_source)
+                } else {
+                    None
+                }
+            } else {
+                config.boot_source.clone()
+            };
+
+            if let Some(boot_source) = &boot_source {
+                // if let Some(boot_source) = &config.boot_source {
                 let put_guest_boot_source = PutGuestBootSource::new(boot_source.clone());
                 let res = self.agent.event(put_guest_boot_source).await.map_err(|e| {
                     log::error!("PutGuestBootSource event failed");
@@ -311,6 +360,55 @@ impl Hypervisor {
         {
             if let Some(drives) = &config.drives {
                 for drive in drives {
+                    let drive = if let Some(jailer_working_dir) = &self.jailer_working_dir {
+                        // using jailer
+                        // jailer_working_dir = <chroot_base>/<exec_file_name>/<id>/root
+                        // mount the drives directory
+                        // TODO: mount the drive socket?
+                        let target_dir =
+                            jailer_working_dir.join(format!("drives{}", drive.drive_id));
+                        tokio::fs::create_dir(&target_dir).await.map_err(|_| {
+                            RtckError::Hypervisor(format!(
+                                "fail to create dir for drives {}",
+                                drive.drive_id
+                            ))
+                        })?;
+                        let source = PathBuf::from(&drive.path_on_host)
+                            .canonicalize()
+                            .map_err(|_| RtckError::Config("invalid path".to_string()))?;
+                        let source_dir = source
+                            .parent()
+                            .ok_or(RtckError::Config("invalid path".to_string()))?;
+                        let drive_file = source_dir
+                            .file_name()
+                            .ok_or(RtckError::Config("invalid drive file path".to_string()))?;
+
+                        use nix::mount::{mount, MsFlags};
+                        match mount(
+                            Some(source_dir),
+                            &target_dir,
+                            None::<&PathBuf>,
+                            MsFlags::MS_BIND,
+                            None::<&PathBuf>,
+                        ) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                return Err(RtckError::Hypervisor(format!(
+                                    "fail to mount drive {} dir into jailer, errno = {}",
+                                    drive.drive_id, e
+                                )))
+                            }
+                        }
+                        let mut drive = drive.clone();
+                        let mut jailed_drive_file_path =
+                            PathBuf::from(format!("/drives{}", drive.drive_id));
+                        jailed_drive_file_path.push(drive_file);
+                        drive.path_on_host = jailed_drive_file_path.to_string_lossy().to_string();
+                        drive
+                    } else {
+                        drive.clone()
+                    };
+
                     let put_guest_drive_by_id = PutGuestDriveByID::new(drive.clone());
                     let res = self.agent.event(put_guest_drive_by_id).await.map_err(|e| {
                         log::error!("PutGuestDriveByIDResponse event failed");
