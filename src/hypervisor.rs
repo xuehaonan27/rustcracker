@@ -9,6 +9,7 @@ use crate::{
     firecracker::FirecrackerAsync,
     jailer::JailerAsync,
     models::*,
+    raii::{Rollback, RollbackStack},
     reqres::*,
     RtckError, RtckResult,
 };
@@ -26,7 +27,7 @@ pub enum MicroVMStatus {
     Failure, // microVM encountered failure
 }
 
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct Hypervisor {
     // pid of the hypervisor process
     pid: Pid,
@@ -72,7 +73,10 @@ pub struct Hypervisor {
     uid_gid: Option<(u32, u32)>, // (uid, gid)
 
     // mounting points
-    mounts: Vec<PathBuf>,
+    // mounts: Vec<PathBuf>,
+
+    // rollback stack
+    rollbacks: RollbackStack,
 }
 
 impl Hypervisor {
@@ -84,79 +88,121 @@ impl Hypervisor {
         //     config.export_config_async().await?;
         // }
 
-        let (pid, stream, firecracker, child, process, clear_jailer, jailer_working_dir, uid_gid) =
-            if let Some(true) = config.using_jailer {
-                let mut jailer = JailerAsync::from_config(&config)?;
+        let (
+            pid,
+            stream,
+            firecracker,
+            child,
+            process,
+            clear_jailer,
+            jailer_working_dir,
+            uid_gid,
+            mut rollbacks,
+        ) = if let Some(true) = config.using_jailer {
+            let mut rollbacks = RollbackStack::new();
+            let mut jailer = JailerAsync::from_config(&config)?;
 
-                // jail the firecracker
-                jailer.jail().await?;
+            // jail the firecracker
+            let instance_dir = jailer.jail().await?;
+            rollbacks.push(Rollback::Jailing { instance_dir });
 
-                // spawn the firecracker process
-                let child = jailer.launch().await?;
+            // spawn the firecracker process
+            // error: fail to launch the process
+            let child = jailer.launch().await?;
+            let pid = child
+                .id()
+                .ok_or(RtckError::Hypervisor("child fail to get pid".to_string()))?;
+            rollbacks.push(Rollback::StopProcess { pid });
 
-                // wait socket
-                jailer
-                    .waiting_socket(tokio::time::Duration::from_secs(config.launch_timeout))
-                    .await?;
-                let pid = child
-                    .id()
-                    .ok_or(RtckError::Hypervisor("child fail to get pid".to_string()))?;
+            // wait socket
+            // error: socket do not exists after <timeout> secs
+            jailer
+                .waiting_socket(tokio::time::Duration::from_secs(config.launch_timeout))
+                .await?;
+            rollbacks.insert_1(Rollback::RemoveSocket {
+                // unwrap safe because correct arguments provided
+                // otherwise rollback would occur right after `jail`
+                path: jailer.get_socket_path_exported().cloned().unwrap(),
+            });
 
-                let process = Process::new(pid as i32)
-                    .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
+            // error: the process doesn't exist, or if you don't have permission to access it.
+            // it's recommended that rustcracker run as root.
+            let process = Process::new(pid as i32)
+                .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
 
-                let stream = jailer.connect(config.socket_retry).await?;
+            let stream = jailer.connect(config.socket_retry).await?;
 
-                let jailer_working_dir = jailer.get_jailer_workspace_dir().cloned();
+            let jailer_working_dir = jailer.get_jailer_workspace_dir().cloned();
 
-                let uid = jailer.get_uid();
+            let uid = jailer.get_uid();
 
-                let gid = jailer.get_gid();
+            let gid = jailer.get_gid();
 
-                let firecracker = FirecrackerAsync::from_jailer(jailer)?;
+            let firecracker = FirecrackerAsync::from_jailer(jailer)?;
 
-                let clear_jailer = if config.clear_jailer.is_none() || !config.clear_jailer.unwrap()
-                {
-                    false
-                } else {
-                    true
-                };
-
-                (
-                    pid,
-                    stream,
-                    firecracker,
-                    child,
-                    process,
-                    clear_jailer,
-                    jailer_working_dir,
-                    Some((uid, gid)),
-                )
+            let clear_jailer = if config.clear_jailer.is_none() || !config.clear_jailer.unwrap() {
+                false
             } else {
-                let firecracker = FirecrackerAsync::from_config(&config)?;
-
-                // spawn the firecracker process
-                let child = firecracker.launch().await?;
-
-                // wait socket
-                firecracker
-                    .waiting_socket(tokio::time::Duration::from_secs(config.launch_timeout))
-                    .await?;
-
-                let pid = child
-                    .id()
-                    .ok_or(RtckError::Hypervisor("child fail to get pid".to_string()))?;
-
-                let process = Process::new(pid as i32)
-                    .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
-
-                let stream = firecracker.connect(config.socket_retry).await?;
-
-                (pid, stream, firecracker, child, process, false, None, None)
+                true
             };
+
+            (
+                pid,
+                stream,
+                firecracker,
+                child,
+                process,
+                clear_jailer,
+                jailer_working_dir,
+                Some((uid, gid)),
+                rollbacks,
+            )
+        } else {
+            let mut rollbacks = RollbackStack::new();
+            let firecracker = FirecrackerAsync::from_config(&config)?;
+
+            // spawn the firecracker process
+            // error: fail to launch the process
+            let child = firecracker.launch().await?;
+            let pid = child
+                .id()
+                .ok_or(RtckError::Hypervisor("child fail to get pid".to_string()))?;
+            rollbacks.push(Rollback::StopProcess { pid });
+
+            // wait socket
+            // error: socket do not exists after <timeout> secs
+            firecracker
+                .waiting_socket(tokio::time::Duration::from_secs(config.launch_timeout))
+                .await?;
+            rollbacks.insert_1(Rollback::RemoveSocket {
+                path: firecracker.get_socket_path(),
+            });
+
+            // error: the process doesn't exist, or if you don't have permission to access it.
+            // it's recommended that rustcracker run as root.
+            let process = Process::new(pid as i32)
+                .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
+
+            let stream = firecracker.connect(config.socket_retry).await?;
+
+            (
+                pid,
+                stream,
+                firecracker,
+                child,
+                process,
+                false,
+                None,
+                None,
+                rollbacks,
+            )
+        };
 
         let lock = fslock::LockFile::open(&firecracker.lock_path)
             .map_err(|_| RtckError::Hypervisor("creating file lock".to_string()))?;
+        rollbacks.insert_1(Rollback::RemoveFsLock {
+            path: firecracker.lock_path.clone(),
+        });
 
         let agent = Agent::from_stream_lock(stream, lock);
 
@@ -173,9 +219,10 @@ impl Hypervisor {
             agent,
             status: MicroVMStatus::None,
             clear_jailer,
-            jailer_working_dir: jailer_working_dir,
+            jailer_working_dir,
             uid_gid,
-            mounts: Vec::new(),
+            // mounts: Vec::new(),
+            rollbacks,
         })
     }
 
@@ -336,7 +383,10 @@ impl Hypervisor {
                         None::<&PathBuf>,
                     ) {
                         Ok(_) => {
-                            self.mounts.push(target_dir);
+                            self.rollbacks.insert_1(Rollback::Umount {
+                                mount_point: target_dir,
+                            });
+                            // self.mounts.push(target_dir);
                         }
                         Err(e) => {
                             return Err(RtckError::Hypervisor(format!(
@@ -407,7 +457,10 @@ impl Hypervisor {
                             None::<&PathBuf>,
                         ) {
                             Ok(_) => {
-                                self.mounts.push(target_dir);
+                                self.rollbacks.insert_1(Rollback::Umount {
+                                    mount_point: target_dir,
+                                });
+                                // self.mounts.push(target_dir);
                             }
                             Err(e) => {
                                 return Err(RtckError::Hypervisor(format!(
@@ -422,6 +475,15 @@ impl Hypervisor {
                         let (uid, gid) = self.uid_gid.ok_or(RtckError::Hypervisor(
                             "no uid and gid found in jailer".to_string(),
                         ))?;
+                        let metadata = std::fs::metadata(&source).map_err(|_| {
+                            RtckError::Hypervisor(format!(
+                                "fail to get metadata of source path {:?}",
+                                &source
+                            ))
+                        })?;
+                        use std::os::unix::fs::MetadataExt;
+                        let original_uid = metadata.uid();
+                        let original_gid = metadata.gid();
                         nix::unistd::chown(
                             &source,
                             Some(Uid::from_raw(uid)),
@@ -430,6 +492,11 @@ impl Hypervisor {
                         .map_err(|_| {
                             RtckError::Hypervisor("fail to change the owner of jailer".to_string())
                         })?;
+                        self.rollbacks.insert_1(Rollback::Chown {
+                            path: source.clone(),
+                            original_uid,
+                            original_gid,
+                        });
 
                         let mut drive = drive.clone();
                         let mut jailed_drive_file_path =
@@ -676,7 +743,7 @@ impl Hypervisor {
     /// Terminate the hypervisor by sending SIGTERM
     /// Note: this command will terminate firecracker itself.
     #[cfg(any(target_os = "linux", target_os = "unix"))]
-    pub async fn terminate(&mut self) -> RtckResult<()> {
+    async fn terminate(&mut self) -> RtckResult<()> {
         use nix::{
             sys::signal::{kill, Signal},
             unistd::Pid,
@@ -690,7 +757,7 @@ impl Hypervisor {
     /// Terminate the hypervisor by sending SIGKILL
     /// Note: this command will kill firecracker itself.
     #[cfg(any(target_os = "linux", target_os = "unix"))]
-    pub async fn kill(&mut self) -> RtckResult<()> {
+    async fn kill(&mut self) -> RtckResult<()> {
         // the hypervisor occupies the pid by opening fd to it (procfs).
         // so kill -9 to this pid is safe.
         use nix::sys::signal::{kill, Signal};
@@ -722,83 +789,9 @@ impl Hypervisor {
     }
 
     /// Delete the machine by notifying firecracker
-    pub async fn delete(&mut self) -> RtckResult<()> {
-        if self.status != MicroVMStatus::Stop {
-            log::warn!("can not delete a machine that's not stopped");
-        }
-
-        // do cleaning
-        // terminate firecracker process
-
-        if self.terminate().await.is_err() {
-            let _ = self.kill();
-        }
-
-        use nix::{
-            sys::wait::{waitpid, WaitStatus},
-            unistd::Pid,
-        };
-        // let wait_res = waitpid(Pid::from_raw(self.pid as i32), Some(WaitPidFlag::WEXITED))
-        //     .map_err(|_| RtckError::Hypervisor(format!("fail to wait pid {}", self.pid)))?;
-
-        // wait for the process to exit
-        let pid = Pid::from_raw(self.pid as i32);
-        loop {
-            match waitpid(pid, None) {
-                Ok(WaitStatus::Exited(_, status)) => {
-                    log::info!("Process {} exited with status {}", pid, status);
-                    break;
-                }
-                Ok(WaitStatus::Signaled(_, signal, _)) => {
-                    log::warn!("Process {} was killed by signal {}", pid, signal);
-                    break;
-                }
-                Ok(_) => {
-                    // other WaitStatus，e.g. Stopped、Continued
-                    if self.terminate().await.is_err() {
-                        let _ = self.kill();
-                    }
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                }
-                Err(nix::errno::Errno::ECHILD) => {
-                    log::error!("No such process {}", pid);
-                    break;
-                }
-                Err(err) => {
-                    log::error!("Error occurred: {}", err);
-                    break;
-                }
-            }
-        }
-
-        // wait and clear firecracker process
-        // let exit_status = self
-        //     .child
-        //     .wait()
-        //     .await
-        //     .map_err(|_| RtckError::Hypervisor("fail to wait".to_string()))?;
-
-        // log::info!("firecracker exit: {}", exit_status);
-
-        // umount all mount points, if using jailer
-        if let Some(_) = &self.jailer_working_dir {
-            use nix::mount::{umount2, MntFlags};
-            while let Some(target_dir) = self.mounts.pop() {
-                // umount force
-                // make sure that kernel file and drives on host do not crash due to following
-                // removal of jailer
-                umount2(&target_dir, MntFlags::MNT_FORCE).map_err(|e| {
-                    RtckError::Hypervisor(format!("fail to umount the kernel dir, errno = {}", e))
-                })?;
-            }
-        }
-
-        // delete resource directory
-        if let Some(jailer_working_dir) = &self.jailer_working_dir {
-            if self.clear_jailer {
-                let _ = tokio::fs::remove_dir_all(jailer_working_dir).await;
-            }
-        }
+    pub async fn delete(mut self) -> RtckResult<()> {
+        let _ = self.stop().await;
+        drop(self);
 
         // delete network TUN/TAP interface
 

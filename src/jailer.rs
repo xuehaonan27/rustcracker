@@ -432,7 +432,7 @@ pub mod jailer_async {
             })
         }
 
-        pub async fn jail(&mut self) -> RtckResult<()> {
+        pub async fn jail(&mut self) -> RtckResult<PathBuf> {
             let id = &self.id;
 
             let temp_binding = PathBuf::from(&self.exec_file);
@@ -441,10 +441,8 @@ pub mod jailer_async {
             let chroot_base_dir = &self.chroot_base_dir;
 
             const ROOT_FOLDER_NAME: &'static str = "root";
-            let jailer_workspace_dir = PathBuf::from(chroot_base_dir)
-                .join(exec_file_name)
-                .join(id)
-                .join(ROOT_FOLDER_NAME);
+            let instance_dir = PathBuf::from(chroot_base_dir).join(exec_file_name).join(id);
+            let jailer_workspace_dir = instance_dir.join(ROOT_FOLDER_NAME);
 
             if jailer_workspace_dir.exists() {
                 return Err(RtckError::Jailer(
@@ -554,7 +552,7 @@ pub mod jailer_async {
                 }
             }
 
-            Ok(())
+            Ok(instance_dir)
         }
 
         pub async fn launch(&self) -> RtckResult<tokio::process::Child> {

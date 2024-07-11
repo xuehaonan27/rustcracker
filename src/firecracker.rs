@@ -268,6 +268,11 @@ pub mod firecracker_async {
             };
             Ok(stream)
         }
+
+        /// Get socket path
+        pub fn get_socket_path(&self) -> PathBuf {
+            self.socket.clone()
+        }
     }
 }
 

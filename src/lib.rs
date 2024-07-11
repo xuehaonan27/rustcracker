@@ -11,6 +11,7 @@ pub mod hypervisor;
 // pub mod machine_dev;
 pub mod models;
 pub mod pool;
+pub mod raii;
 pub mod reqres;
 
 #[derive(Debug, thiserror::Error)]
