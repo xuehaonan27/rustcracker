@@ -64,6 +64,10 @@ impl Rollback {
                 };
 
                 let pid = Pid::from_raw(pid as i32);
+                if terminate(pid).is_err() {
+                    let _ = kill(pid);
+                }
+
                 loop {
                     match waitpid(pid, None) {
                         Ok(WaitStatus::Exited(_, status)) => {

@@ -7,6 +7,30 @@ async fn sleep(secs: u64) {
     tokio::time::sleep(tokio::time::Duration::from_secs(secs)).await
 }
 
+#[allow(unused)]
+async fn demo() {
+    // read hypervisor
+    dotenvy::dotenv().ok();
+    let mut hypervisor = Hypervisor::new(&HYPERVISOR_WITHJAILER_CONFIG)
+        .await
+        .expect("fail to create hypervisor");
+    // check remote
+    hypervisor.ping_remote().await.expect("fail to ping remote");
+    // start microVM
+    hypervisor
+        .start(&MICROVM_CONFIG)
+        .await
+        .expect("fail to configure microVM");
+    // pause microVM
+    hypervisor.pause().await.expect("fail to pause");
+    // resume microVM
+    hypervisor.resume().await.expect("fail to resume");
+    // stop microVM (cannot recover)
+    hypervisor.stop().await.expect("fail to stop");
+    // stop firecracker, releasing resources with RAII
+    hypervisor.delete().await.expect("fail to delete");
+}
+
 pub async fn no_jailer() {
     dotenvy::dotenv().ok();
 
