@@ -314,6 +314,18 @@ impl Hypervisor {
     /// Logger configuration. Nothing to rollback in this step.
     async fn logger_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
         if let Some(logger) = &config.logger {
+            if let Some(jailer_working_dir) = &self.jailer_working_dir {
+                // using jailer
+                // jailer_working_dir = <chroot_base>/<exec_file_name>/<id>/root
+                let log_path_external = jailer_working_dir.join(&logger.log_path);
+                tokio::fs::File::create(log_path_external)
+                    .await
+                    .map_err(|_| {
+                        RtckError::Hypervisor("fail to create logging file".to_string())
+                    })?;
+                todo!()
+            }
+
             let put_logger = PutLogger::new(logger.clone());
             let res = self.agent.event(put_logger).await.map_err(|e| {
                 log::error!("PutLogger event failed");

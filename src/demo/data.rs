@@ -87,7 +87,7 @@ lazy_static! {
     pub static ref MICROVM_CONFIG: MicroVMConfig = MicroVMConfig {
         logger: Some(Logger {
             level: None,
-            log_path: "/run/firecracker.log".to_string(),
+            log_path: "firecracker.log".to_string(),
             show_level: None,
             show_log_origin: None,
             module: None
