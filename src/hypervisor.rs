@@ -310,7 +310,7 @@ impl Hypervisor {
                     let source_dir = source
                         .parent()
                         .ok_or(RtckError::Config("invalid path".to_string()))?;
-                    let kernel_file = source_dir.file_name().ok_or(RtckError::Config(
+                    let kernel_file = source.file_name().ok_or(RtckError::Config(
                         "invalid kernel image file path".to_string(),
                     ))?;
 
@@ -379,7 +379,7 @@ impl Hypervisor {
                         let source_dir = source
                             .parent()
                             .ok_or(RtckError::Config("invalid path".to_string()))?;
-                        let drive_file = source_dir
+                        let drive_file = source
                             .file_name()
                             .ok_or(RtckError::Config("invalid drive file path".to_string()))?;
 
