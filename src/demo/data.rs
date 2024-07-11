@@ -85,7 +85,13 @@ lazy_static! {
         socket: None
     };
     pub static ref MICROVM_CONFIG: MicroVMConfig = MicroVMConfig {
-        logger: None,
+        logger: Some(Logger {
+            level: None,
+            log_path: "/run/firecracker.log".to_string(),
+            show_level: None,
+            show_log_origin: None,
+            module: None
+        }),
         metrics: None,
         boot_source: Some(BOOT_SOURCE.clone()),
         drives: Some(vec![ROOTFS.clone()]),
