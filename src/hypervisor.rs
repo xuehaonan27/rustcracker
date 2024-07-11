@@ -67,6 +67,9 @@ pub struct Hypervisor {
 
     // jailer working directory
     jailer_working_dir: Option<PathBuf>,
+
+    // jailer uid and gid
+    uid_gid: Option<(u32, u32)>, // (uid, gid)
 }
 
 impl Hypervisor {
@@ -78,7 +81,7 @@ impl Hypervisor {
         //     config.export_config_async().await?;
         // }
 
-        let (pid, stream, firecracker, child, process, clear_jailer, jailer_working_dir) =
+        let (pid, stream, firecracker, child, process, clear_jailer, jailer_working_dir, uid_gid) =
             if let Some(true) = config.using_jailer {
                 let mut jailer = JailerAsync::from_config(&config)?;
 
@@ -103,6 +106,10 @@ impl Hypervisor {
 
                 let jailer_working_dir = jailer.get_jailer_workspace_dir().cloned();
 
+                let uid = jailer.get_uid();
+
+                let gid = jailer.get_gid();
+
                 let firecracker = FirecrackerAsync::from_jailer(jailer)?;
 
                 let clear_jailer = if config.clear_jailer.is_none() || !config.clear_jailer.unwrap()
@@ -120,6 +127,7 @@ impl Hypervisor {
                     process,
                     clear_jailer,
                     jailer_working_dir,
+                    Some((uid, gid)),
                 )
             } else {
                 let firecracker = FirecrackerAsync::from_config(&config)?;
@@ -141,7 +149,7 @@ impl Hypervisor {
 
                 let stream = firecracker.connect(config.socket_retry).await?;
 
-                (pid, stream, firecracker, child, process, false, None)
+                (pid, stream, firecracker, child, process, false, None, None)
             };
 
         let lock = fslock::LockFile::open(&firecracker.lock_path)
@@ -163,6 +171,7 @@ impl Hypervisor {
             status: MicroVMStatus::None,
             clear_jailer,
             jailer_working_dir: jailer_working_dir,
+            uid_gid,
         })
     }
 
@@ -399,6 +408,21 @@ impl Hypervisor {
                                 )))
                             }
                         }
+
+                        use nix::unistd::{Gid, Uid};
+                        // change the owner of the drive
+                        let (uid, gid) = self.uid_gid.ok_or(RtckError::Hypervisor(
+                            "no uid and gid found in jailer".to_string(),
+                        ))?;
+                        nix::unistd::chown(
+                            &source,
+                            Some(Uid::from_raw(uid)),
+                            Some(Gid::from_raw(gid)),
+                        )
+                        .map_err(|_| {
+                            RtckError::Hypervisor("fail to change the owner of jailer".to_string())
+                        })?;
+
                         let mut drive = drive.clone();
                         let mut jailed_drive_file_path =
                             PathBuf::from(format!("/drives{}", drive.drive_id));

@@ -352,6 +352,10 @@ pub mod jailer_async {
             self.uid
         }
 
+        pub fn get_gid(&self) -> u32 {
+            self.gid
+        }
+
         pub fn get_firecracker_exec_file(&self) -> &String {
             &self.exec_file
         }
