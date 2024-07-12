@@ -29,6 +29,9 @@ pub enum MicroVMStatus {
 
 // #[derive(Debug)]
 pub struct Hypervisor {
+    // instance id of the hypervisor process
+    id: String,
+
     // pid of the hypervisor process
     pid: Pid,
 
@@ -213,6 +216,7 @@ impl Hypervisor {
         let agent = Agent::from_stream_lock(stream, lock);
 
         Ok(Self {
+            id: firecracker.id,
             pid,
             child,
             process,

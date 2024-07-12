@@ -195,7 +195,7 @@ impl Agent {
         }
     }
 
-    /// Start a single event by passing an Request like object
+    /// Start a single event by passing a FirecrackerEvent like object
     pub async fn event<E: FirecrackerEvent>(&mut self, event: E) -> AgentResult<E::Res> {
         self.lock()?;
         log::info!("Agent locked");
@@ -207,7 +207,7 @@ impl Agent {
         E::decode(&res).map_err(|e| AgentError::BadResponse(e.to_string()))
     }
 
-    /// Start some events by passing Request like objects
+    /// Start some events by passing FirecrackerEvent like objects
     /// Useful since less locking and unlocking needed
     pub async fn events<E: FirecrackerEvent>(
         &mut self,
