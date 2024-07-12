@@ -59,13 +59,52 @@ impl Rollback {
             Rollback::StopProcess { pid } => {
                 log::info!("Terminating process {pid}");
                 use nix::{
-                    sys::wait::{waitpid, WaitStatus},
+                    sys::wait::{waitpid, WaitPidFlag, WaitStatus},
                     unistd::Pid,
                 };
-
                 let pid = Pid::from_raw(pid as i32);
-                if terminate(pid).is_err() {
-                    let _ = kill(pid);
+
+                // first check the status of process.
+                // if user has give up this microVM voluntarily
+                loop {
+                    match waitpid(pid, Some(WaitPidFlag::WNOHANG)) {
+                        Ok(WaitStatus::Exited(_, exit_status)) => {
+                            log::warn!("process {pid} has exited {exit_status}");
+                            return;
+                        }
+                        Ok(WaitStatus::Signaled(_, signal, core_dumped)) => {
+                            log::warn!(
+                            "process {pid} has been signaled {signal}, core_dumped: {core_dumped}"
+                        );
+                            return;
+                        }
+                        Ok(WaitStatus::StillAlive)
+                        | Ok(WaitStatus::PtraceEvent(_, _, _))
+                        | Ok(WaitStatus::PtraceSyscall(_))
+                        | Ok(WaitStatus::Continued(_)) => break, // terminate it!
+                        Err(nix::errno::Errno::ECHILD) => {
+                            log::error!("No such process {}", pid);
+                            return;
+                        }
+                        Err(nix::errno::Errno::EINTR) => {
+                            log::warn!("checking status interrupted, trying again...");
+                            continue;
+                        }
+                        Err(nix::errno::Errno::EINVAL) => {
+                            log::error!(
+                                "checking status invalid arguments, send a terminate signal anyway"
+                            );
+                            break;
+                        }
+                        _ => {
+                            log::error!("fatal error! unreachable");
+                            return;
+                        }
+                    }
+                }
+
+                if self::terminate(pid).is_err() {
+                    let _ = self::kill(pid);
                 }
 
                 loop {
