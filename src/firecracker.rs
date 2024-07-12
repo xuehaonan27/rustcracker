@@ -113,6 +113,8 @@ pub mod firecracker_async {
     /// Unlike using jailer, when using bare firecracker, socket path and lock path must be specified
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct FirecrackerAsync {
+        pub(crate) id: String,
+
         // Path to local firecracker bin
         // Usually something like `/usr/bin/firecracker` if not using jailer
         pub(crate) bin: String,
@@ -138,9 +140,24 @@ pub mod firecracker_async {
     impl FirecrackerAsync {
         /// Using bare firecracker
         pub fn from_config(config: &HypervisorConfig) -> RtckResult<Self> {
+            let id = if let Some(id) = &config.id {
+                id.clone()
+            } else {
+                uuid::Uuid::new_v4().to_string()
+            };
+
+            let socket = if let Some(socket) = &config.socket_path {
+                socket.clone()
+            } else {
+                // allocate one. format: /run/firecracker-<id>.socket
+                format!("/run/firecracker-{}.socket", id)
+            };
+            let socket = PathBuf::from(socket);
+
             Ok(Self {
+                id,
                 bin: handle_entry(&config.frck_bin)?,
-                socket: handle_entry(&config.socket_path)?.into(),
+                socket,
                 lock_path: handle_entry(&config.lock_path)?.into(),
                 log_path: handle_entry(&config.log_path)?.into(),
                 metrics_path: handle_entry(&config.metrics_path)?.into(),
@@ -195,6 +212,7 @@ pub mod firecracker_async {
             let stderr_to = jailer.get_stderr_redirection_exported().cloned();
 
             Ok(Self {
+                id: jailer.id,
                 bin,
                 socket,
                 lock_path,

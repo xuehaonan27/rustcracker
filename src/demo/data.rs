@@ -9,9 +9,6 @@ lazy_static! {
     pub static ref JAILER_CONFIG: JailerConfig = JailerConfig {
         gid: env::var("JAILER_GID").ok().and_then(|s| s.parse().ok()),
         uid: env::var("JAILER_UID").ok().and_then(|s| s.parse().ok()),
-        id: env::var("ID")
-            .ok()
-            .and_then(|s| Some(s + &uuid::Uuid::new_v4().to_string())),
         numa_node: None,
         exec_file: env::var("FRCK_BIN").ok(),
         jailer_bin: env::var("JAILER_BIN").ok(),
@@ -19,6 +16,10 @@ lazy_static! {
         daemonize: Some(false),
     };
     pub static ref HYPERVISOR_NOJAILER_CONFIG: HypervisorConfig = HypervisorConfig {
+        id: env::var("ID")
+            .ok()
+            .and_then(|s| Some(s + &uuid::Uuid::new_v4().to_string())),
+        poll_status_secs: 20,
         launch_timeout: 5,
         using_jailer: Some(false),
         frck_bin: env::var("FRCK_BIN").ok(),
@@ -44,6 +45,10 @@ lazy_static! {
             .and_then(|s| s.to_lowercase().parse().ok()),
     };
     pub static ref HYPERVISOR_WITHJAILER_CONFIG: HypervisorConfig = HypervisorConfig {
+        id: env::var("ID")
+            .ok()
+            .and_then(|s| Some(s + &uuid::Uuid::new_v4().to_string())),
+        poll_status_secs: 20,
         launch_timeout: 5,
         using_jailer: Some(true),
         frck_bin: env::var("FRCK_BIN").ok(),

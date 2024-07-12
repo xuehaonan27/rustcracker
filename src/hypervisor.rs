@@ -77,6 +77,10 @@ pub struct Hypervisor {
 
     // rollback stack
     rollbacks: RollbackStack,
+
+    // intervals in seconds for polling the status of microVM
+    // when waiting for the user to give up the microVM
+    poll_status_secs: u64,
 }
 
 impl Hypervisor {
@@ -225,6 +229,7 @@ impl Hypervisor {
             uid_gid,
             // mounts: Vec::new(),
             rollbacks,
+            poll_status_secs: config.poll_status_secs,
         })
     }
 
@@ -983,7 +988,7 @@ impl Hypervisor {
     /// Wait for microVM to exit microVM voluntarily
     pub async fn wait(&mut self) -> RtckResult<()> {
         loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(self.poll_status_secs)).await;
             let describe_metrics = DescribeInstance::new();
             let res = self.agent.event(describe_metrics).await;
             match res {

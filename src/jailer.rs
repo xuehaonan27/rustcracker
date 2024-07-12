@@ -102,10 +102,16 @@ pub mod jailer {
                 .as_ref()
                 .ok_or(RtckError::Config("Missing jailer config".to_string()))?;
 
+            let id = if let Some(id) = &config.id {
+                id.clone()
+            } else {
+                uuid::Uuid::new_v4().to_string()
+            };
+
             const DEFAULT_CHROOT_BASE_DIR: &'static str = "/srv/jailer";
             Ok(Self {
                 bin: handle_entry(&jailer_config.jailer_bin)?,
-                id: handle_entry(&jailer_config.id)?,
+                id,
                 exec_file: handle_entry(&jailer_config.exec_file)?,
                 uid: handle_entry(&jailer_config.uid)?,
                 gid: handle_entry(&jailer_config.gid)?,
@@ -284,7 +290,7 @@ pub mod jailer_async {
         bin: String,
 
         // Id of this jailer
-        id: String,
+        pub(crate) id: String,
 
         // Path to local firecracker bin
         exec_file: String,
@@ -402,10 +408,24 @@ pub mod jailer_async {
                 .as_ref()
                 .ok_or(RtckError::Config("missing jailer config".to_string()))?;
 
+            let id = if let Some(id) = &config.id {
+                id.clone()
+            } else {
+                uuid::Uuid::new_v4().to_string()
+            };
+
+            let socket = if let Some(socket) = &config.socket_path {
+                socket.clone()
+            } else {
+                // allocate one. format: run/firecracker.socket
+                "run/firecracker.socket".to_string()
+            };
+            let socket = Some(socket);
+
             const DEFAULT_CHROOT_BASE_DIR: &'static str = "/srv/jailer";
             Ok(Self {
                 bin: handle_entry(&jailer_config.jailer_bin)?,
-                id: handle_entry(&jailer_config.id)?,
+                id,
                 exec_file: handle_entry(&jailer_config.exec_file)?,
                 uid: handle_entry(&jailer_config.uid)?,
                 gid: handle_entry(&jailer_config.gid)?,
@@ -415,7 +435,7 @@ pub mod jailer_async {
                 ),
                 daemonize: jailer_config.daemonize.unwrap_or(false),
                 jailer_workspace_dir: None,
-                socket: config.socket_path.clone(),
+                socket,
                 socket_path_export: None,
                 lock_path: config.lock_path.clone(),
                 lock_path_export: None,

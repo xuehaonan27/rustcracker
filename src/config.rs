@@ -113,7 +113,7 @@ pub struct JailerConfig {
 
     // `id` is the unique VM identification string, which may contain alphanumeric
     // characters and hyphens. The maximum id length is currently 64 characters
-    pub id: Option<String>,
+    // pub id: Option<String>,
 
     // `numa_node` represents the NUMA node the process gets assigned to.
     pub numa_node: Option<usize>,
@@ -218,8 +218,21 @@ impl JailerConfig {
 /// Configuration relative to a hypervisor instance.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct HypervisorConfig {
+    /// instance id.
+    /// If set to None, then the hypervisor will allocate a random one for you.
+    /// So if you want to make sure which hypervisor you are running now,
+    /// you'd better assign a value to this field :)
+    pub id: Option<String>,
+
     /// launch timeout
     pub launch_timeout: u64,
+
+    /// intervals in seconds for hypervisor polling the status
+    /// of the microVM it holds when waiting for the user to
+    /// give up the microVM.
+    /// Default to 10 (seconds).
+    /// Could be set bigger to avoid large amount of log being produced.
+    pub poll_status_secs: u64,
 
     /// using jailer?
     pub using_jailer: Option<bool>,
@@ -236,7 +249,11 @@ pub struct HypervisorConfig {
     /// where to put firecracker exported config for `--config`
     pub frck_export_path: Option<String>,
 
-    /// where to put socket, default to None, and Local will allocate one for you
+    /// where to put socket, default to None, and hypervisor will allocate one for you.
+    /// When using jailer, default value "run/firecracker.socket" is used since this
+    /// name is impossible to conflict with other sockets when using jailer.
+    /// When not using jailer, default value would be "/run/firecracker-<id>.socket",
+    /// where <id> is the instance id of your hypervisor.
     pub socket_path: Option<String>,
 
     /// socket retrying times, default to 3 times
@@ -287,6 +304,7 @@ pub struct HypervisorConfig {
 impl Default for HypervisorConfig {
     fn default() -> Self {
         Self {
+            id: None,
             launch_timeout: 3,
             using_jailer: None,
             jailer_bin: None,
@@ -305,6 +323,7 @@ impl Default for HypervisorConfig {
             stdout_to: None,
             stderr_to: None,
             clear_jailer: None,
+            poll_status_secs: 10,
         }
     }
 }
