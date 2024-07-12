@@ -490,16 +490,58 @@ impl Hypervisor {
                     }
                     Err(e) => {
                         return Err(RtckError::Hypervisor(format!(
-                            "fail to mount kernel image dir into jailer, errno = {}",
-                            e
+                            "fail to mount kernel image dir into jailer, errno = {e}",
                         )))
                     }
                 }
+
                 let mut boot_source = config.boot_source.clone().unwrap();
                 let mut jailed_kernel_image_path = PathBuf::from("/kernel");
                 jailed_kernel_image_path.push(kernel_file);
                 boot_source.kernel_image_path =
                     jailed_kernel_image_path.to_string_lossy().to_string();
+
+                // mount the initrd directory (if using initrd)
+                if let Some(initrd_path) = &boot_source.initrd_path {
+                    let target_dir = jailer_working_dir.join("initrd");
+                    tokio::fs::create_dir_all(&target_dir).await.map_err(|_| {
+                        RtckError::Hypervisor("fail to create initrd dir".to_string())
+                    })?;
+                    let source = PathBuf::from(initrd_path)
+                        .canonicalize()
+                        .map_err(|_| RtckError::Config("invalid path".to_string()))?;
+                    let source_dir = source
+                        .parent()
+                        .ok_or(RtckError::Config("invalid path".to_string()))?;
+                    let initrd_file = source.file_name().ok_or(RtckError::Config(
+                        "invalid kernel image file path".to_string(),
+                    ))?;
+
+                    match mount(
+                        Some(source_dir),
+                        &target_dir,
+                        None::<&PathBuf>,
+                        MsFlags::MS_BIND,
+                        None::<&PathBuf>,
+                    ) {
+                        Ok(_) => {
+                            self.rollbacks.insert_1(Rollback::Umount {
+                                mount_point: target_dir,
+                            });
+                        }
+                        Err(e) => {
+                            return Err(RtckError::Hypervisor(format!(
+                                "fail to mount initrd dir into jailer, errno = {e}"
+                            )))
+                        }
+                    }
+
+                    let mut jailed_initrd_path = PathBuf::from("initrd");
+                    jailed_initrd_path.push(initrd_file);
+                    boot_source.initrd_path =
+                        Some(jailed_initrd_path.to_string_lossy().to_string());
+                }
+
                 Some(boot_source)
             } else {
                 None
