@@ -317,14 +317,47 @@ impl Hypervisor {
             if let Some(jailer_working_dir) = &self.jailer_working_dir {
                 // using jailer
                 // jailer_working_dir = <chroot_base>/<exec_file_name>/<id>/root
+
+                // FIXME: simple handling of logger path
                 let log_path_external = jailer_working_dir.join(&logger.log_path);
-                tokio::fs::File::create(log_path_external)
+                tokio::fs::File::create(&log_path_external)
                     .await
                     .map_err(|_| {
                         RtckError::Hypervisor("fail to create logging file".to_string())
                     })?;
+
+                // using jailer, must change the owner of logger file to jailer uid:gid.
+                use nix::unistd::{Gid, Uid};
+                // change the owner of the logger
+                let (uid, gid) = self.uid_gid.ok_or(RtckError::Hypervisor(
+                    "no uid and gid found in jailer".to_string(),
+                ))?;
+                let metadata = std::fs::metadata(&log_path_external).map_err(|_| {
+                    RtckError::Hypervisor(format!(
+                        "fail to get metadata of source path {:?}",
+                        &log_path_external
+                    ))
+                })?;
+                use std::os::unix::fs::MetadataExt;
+                let original_uid = metadata.uid();
+                let original_gid = metadata.gid();
+                nix::unistd::chown(
+                    &log_path_external,
+                    Some(Uid::from_raw(uid)),
+                    Some(Gid::from_raw(gid)),
+                )
+                .map_err(|_| {
+                    RtckError::Hypervisor("fail to change the owner of jailer".to_string())
+                })?;
+                self.rollbacks.insert_1(Rollback::Chown {
+                    path: log_path_external.clone(),
+                    original_uid,
+                    original_gid,
+                });
             }
 
+            // Logger's exported path is only useful when creating it and changing owner of it.
+            // Now we could just use jailed path, so no need for changing `logger`.
             let put_logger = PutLogger::new(logger.clone());
             let res = self.agent.event(put_logger).await.map_err(|e| {
                 log::error!("PutLogger event failed");
@@ -343,6 +376,50 @@ impl Hypervisor {
     /// Metrics configuration. Nothing to rollback in this step.
     async fn metrics_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
         if let Some(metrics) = &config.metrics {
+            if let Some(jailer_working_dir) = &self.jailer_working_dir {
+                // using jailer
+                // jailer_working_dir = <chroot_base>/<exec_file_name>/<id>/root
+
+                // FIXME: simple handling of metrics
+                let metrics_path_external = jailer_working_dir.join(&metrics.metrics_path);
+                tokio::fs::File::create(&metrics_path_external)
+                    .await
+                    .map_err(|_| {
+                        RtckError::Hypervisor("fail to create logging file".to_string())
+                    })?;
+
+                // using jailer, must change the owner of logger file to jailer uid:gid.
+                use nix::unistd::{Gid, Uid};
+                // change the owner of the logger
+                let (uid, gid) = self.uid_gid.ok_or(RtckError::Hypervisor(
+                    "no uid and gid found in jailer".to_string(),
+                ))?;
+                let metadata = std::fs::metadata(&metrics_path_external).map_err(|_| {
+                    RtckError::Hypervisor(format!(
+                        "fail to get metadata of source path {:?}",
+                        &metrics_path_external
+                    ))
+                })?;
+                use std::os::unix::fs::MetadataExt;
+                let original_uid = metadata.uid();
+                let original_gid = metadata.gid();
+                nix::unistd::chown(
+                    &metrics_path_external,
+                    Some(Uid::from_raw(uid)),
+                    Some(Gid::from_raw(gid)),
+                )
+                .map_err(|_| {
+                    RtckError::Hypervisor("fail to change the owner of jailer".to_string())
+                })?;
+                self.rollbacks.insert_1(Rollback::Chown {
+                    path: metrics_path_external.clone(),
+                    original_uid,
+                    original_gid,
+                });
+            }
+
+            // Logger's exported path is only useful when creating it and changing owner of it.
+            // Now we could just use jailed path, so no need for changing `logger`.
             let put_metrics = PutMetrics::new(metrics.clone());
             let res = self.agent.event(put_metrics).await.map_err(|e| {
                 log::error!("PutMetrics event failed");
