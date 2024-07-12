@@ -318,8 +318,16 @@ impl Hypervisor {
                 // using jailer
                 // jailer_working_dir = <chroot_base>/<exec_file_name>/<id>/root
 
-                // FIXME: simple handling of logger path
-                let log_path_external = jailer_working_dir.join(&logger.log_path);
+                // compute exported path
+                let log_path = PathBuf::from(&logger.log_path);
+                let log_path = if log_path.is_absolute() {
+                    log_path.strip_prefix("/").map_err(|_| {
+                        RtckError::Hypervisor("fail to strip absolute prefix".to_string())
+                    })?
+                } else {
+                    log_path.as_path()
+                };
+                let log_path_external = jailer_working_dir.join(log_path);
                 tokio::fs::File::create(&log_path_external)
                     .await
                     .map_err(|_| {
@@ -328,7 +336,6 @@ impl Hypervisor {
 
                 // using jailer, must change the owner of logger file to jailer uid:gid.
                 use nix::unistd::{Gid, Uid};
-                // change the owner of the logger
                 let (uid, gid) = self.uid_gid.ok_or(RtckError::Hypervisor(
                     "no uid and gid found in jailer".to_string(),
                 ))?;
@@ -349,6 +356,8 @@ impl Hypervisor {
                 .map_err(|_| {
                     RtckError::Hypervisor("fail to change the owner of jailer".to_string())
                 })?;
+
+                // rolling back if fail
                 self.rollbacks.insert_1(Rollback::Chown {
                     path: log_path_external.clone(),
                     original_uid,
@@ -380,17 +389,23 @@ impl Hypervisor {
                 // using jailer
                 // jailer_working_dir = <chroot_base>/<exec_file_name>/<id>/root
 
-                // FIXME: simple handling of metrics
-                let metrics_path_external = jailer_working_dir.join(&metrics.metrics_path);
+                let metrics_path = PathBuf::from(&metrics.metrics_path);
+                let metrics_path = if metrics_path.is_absolute() {
+                    metrics_path.strip_prefix("/").map_err(|_| {
+                        RtckError::Hypervisor("fail to strip absolute prefix".to_string())
+                    })?
+                } else {
+                    metrics_path.as_path()
+                };
+                let metrics_path_external = jailer_working_dir.join(metrics_path);
                 tokio::fs::File::create(&metrics_path_external)
                     .await
                     .map_err(|_| {
                         RtckError::Hypervisor("fail to create logging file".to_string())
                     })?;
 
-                // using jailer, must change the owner of logger file to jailer uid:gid.
+                // using jailer, must change the owner of metrics file to jailer uid:gid.
                 use nix::unistd::{Gid, Uid};
-                // change the owner of the logger
                 let (uid, gid) = self.uid_gid.ok_or(RtckError::Hypervisor(
                     "no uid and gid found in jailer".to_string(),
                 ))?;
@@ -411,6 +426,8 @@ impl Hypervisor {
                 .map_err(|_| {
                     RtckError::Hypervisor("fail to change the owner of jailer".to_string())
                 })?;
+
+                // rolling back if fail
                 self.rollbacks.insert_1(Rollback::Chown {
                     path: metrics_path_external.clone(),
                     original_uid,
