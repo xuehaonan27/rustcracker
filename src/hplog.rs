@@ -22,12 +22,13 @@ pub enum LogTo {
     File(PathBuf),
 }
 pub struct HPLogger {
+    id: Option<String>,
     log_to: LogTo,
     open_file: Option<Arc<std::fs::File>>,
 }
 
 impl HPLogger {
-    pub fn new(log_to: LogTo) -> LoggerResult<Self> {
+    pub fn new(id: Option<String>, log_to: LogTo) -> LoggerResult<Self> {
         let open_file = match &log_to {
             LogTo::Stdout => None,
             LogTo::File(ref path) => {
@@ -40,20 +41,28 @@ impl HPLogger {
             }
         };
 
-        Ok(HPLogger { log_to, open_file })
+        Ok(HPLogger {
+            id,
+            log_to,
+            open_file,
+        })
     }
 
     pub fn log(&self, level: log::Level, msg: &str) {
+        let id = match &self.id {
+            None => "null",
+            Some(s) => s.as_str(),
+        };
         match &self.log_to {
             LogTo::Stdout => {
                 let mut stdout = io::stdout();
-                writeln!(stdout, "{} - {}", level, msg).unwrap();
+                writeln!(stdout, "{} [{}] {}", id, level, msg).unwrap();
             }
             LogTo::File(_) => {
                 if let Some(file) = &self.open_file {
                     let mut file = file.clone();
                     file.lock_exclusive().unwrap();
-                    writeln!(file, "{} - {}", level, msg).unwrap();
+                    writeln!(file, "{} [{}] {}", id, level, msg).unwrap();
                     file.unlock().unwrap();
                 }
             }
@@ -81,8 +90,12 @@ mod tests {
     use super::*;
     #[test]
     fn demo() {
-        let logger1 = HPLogger::new(LogTo::File("rtck-test-output.log1".into())).unwrap();
-        let logger2 = HPLogger::new(LogTo::File("rtck-test-output.log2".into())).unwrap();
+        let logger1 = HPLogger::new(None, LogTo::File("rtck-test-output.log1".into())).unwrap();
+        let logger2 = HPLogger::new(
+            Some("demo-instance".into()),
+            LogTo::File("rtck-test-output.log2".into()),
+        )
+        .unwrap();
 
         log::set_boxed_logger(Box::new(logger1))
             .map(|()| log::set_max_level(log::LevelFilter::Info))
@@ -95,4 +108,11 @@ mod tests {
         logger2.log(log::Level::Error, "This is an error message from logger2!");
         logger2.log(log::Level::Info, "This is an info message from logger2!");
     }
+}
+
+pub fn global_init() {
+    let global_logger = HPLogger::new(None, LogTo::Stdout).unwrap();
+    log::set_boxed_logger(Box::new(global_logger))
+        .map(|()| log::set_max_level(log::LevelFilter::Info))
+        .unwrap();
 }

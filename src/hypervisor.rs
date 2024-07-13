@@ -15,7 +15,7 @@ use crate::{
     RtckError, RtckResult,
 };
 
-type Pid = u32;
+use log::Level::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MicroVMStatus {
@@ -34,7 +34,7 @@ pub struct Hypervisor {
     id: String,
 
     // pid of the hypervisor process
-    pid: Pid,
+    pid: u32,
 
     // child of the hypervisor process
     child: tokio::process::Child,
@@ -219,10 +219,13 @@ impl Hypervisor {
 
         let agent = Agent::from_stream_lock(stream, lock);
 
-        let logger = HPLogger::new(match firecracker.log_path {
-            None => LogTo::Stdout,
-            Some(ref s) => LogTo::File(s.clone()),
-        })?;
+        let logger = HPLogger::new(
+            config.id.clone(),
+            match firecracker.log_path {
+                None => LogTo::Stdout,
+                Some(ref s) => LogTo::File(s.clone()),
+            },
+        )?;
 
         Ok(Self {
             id: firecracker.id,
@@ -262,7 +265,8 @@ impl Hypervisor {
     /// Check hypervisor's state
     pub async fn check_state(&mut self) -> RtckResult<()> {
         if self.status == MicroVMStatus::None {
-            log::warn!("no microVM running");
+            // log::warn!("no microVM running");
+            self.log(Warn, "no microVM running");
             return Ok(());
         }
         // check if the process is still running
@@ -275,7 +279,8 @@ impl Hypervisor {
             {
                 self.fetch_output().await?;
             } else {
-                log::warn!("Process has terminated, but no status code available");
+                // log::warn!("Process has terminated, but no status code available");
+                self.log(Warn, "Process has terminated, but no status code available");
             }
         }
         Ok(())
@@ -393,11 +398,13 @@ impl Hypervisor {
             // Now we could just use jailed path, so no need for changing `logger`.
             let put_logger = PutLogger::new(logger.clone());
             let res = self.agent.event(put_logger).await.map_err(|e| {
-                log::error!("PutLogger event failed");
+                // log::error!("PutLogger event failed");
+                self.log(Error, "PutLogger event failed");
                 e
             })?;
             if res.is_err() {
-                log::error!("PutLogger failed");
+                // log::error!("PutLogger failed");
+                self.log(Error, "PutLogger failed");
                 return Err(RtckError::Hypervisor(
                     "fail to configure logger, rollback".to_string(),
                 ));
@@ -463,11 +470,13 @@ impl Hypervisor {
             // Now we could just use jailed path, so no need for changing `logger`.
             let put_metrics = PutMetrics::new(metrics.clone());
             let res = self.agent.event(put_metrics).await.map_err(|e| {
-                log::error!("PutMetrics event failed");
+                // log::error!("PutMetrics event failed");
+                self.log(Error, "PutMetrics event failed");
                 e
             })?;
             if res.is_err() {
-                log::error!("PutMetrics failed");
+                // log::error!("PutMetrics failed");
+                self.log(Error, "PutMetrics failed");
                 return Err(RtckError::Hypervisor(
                     "fail to configure metrics, rollback".to_string(),
                 ));
@@ -578,11 +587,13 @@ impl Hypervisor {
             // if let Some(boot_source) = &config.boot_source {
             let put_guest_boot_source = PutGuestBootSource::new(boot_source.clone());
             let res = self.agent.event(put_guest_boot_source).await.map_err(|e| {
-                log::error!("PutGuestBootSource event failed");
+                // log::error!("PutGuestBootSource event failed");
+                self.log(Error, "PutGuestBootSource event failed");
                 e
             })?;
             if res.is_err() {
-                log::error!("PutGuestBootSource failed");
+                // log::error!("PutGuestBootSource failed");
+                self.log(Error, "PutGuestBootSource failed");
                 return Err(RtckError::Hypervisor(
                     "fail to configure boot source, rollback".to_string(),
                 ));
@@ -676,11 +687,13 @@ impl Hypervisor {
 
                 let put_guest_drive_by_id = PutGuestDriveByID::new(drive.clone());
                 let res = self.agent.event(put_guest_drive_by_id).await.map_err(|e| {
-                    log::error!("PutGuestDriveByIDResponse event failed");
+                    // log::error!("PutGuestDriveByIDResponse event failed");
+                    self.log(Error, "PutGuestDriveByIDResponse event failed");
                     e
                 })?;
                 if res.is_err() {
-                    log::error!("PutGuestDriveById failed");
+                    // log::error!("PutGuestDriveById failed");
+                    self.log(Error, "PutGuestDriveById failed");
                     return Err(RtckError::Hypervisor(format!(
                         "fail to configure drive {}, rollback",
                         drive.drive_id
@@ -702,11 +715,13 @@ impl Hypervisor {
                     .event(put_guest_network_interface_by_id)
                     .await
                     .map_err(|e| {
-                        log::error!("PutGuestNetworkInterfaceByID event failed");
+                        // log::error!("PutGuestNetworkInterfaceByID event failed");
+                        self.log(Error, "PutGuestNetworkInterfaceByID event failed");
                         e
                     })?;
                 if res.is_err() {
-                    log::error!("PutGuestNetworkInterfaceById failed");
+                    // log::error!("PutGuestNetworkInterfaceById failed");
+                    self.log(Error, "PutGuestNetworkInterfaceById failed");
                     return Err(RtckError::Hypervisor(format!(
                         "fail to configure network {}, rollback",
                         iface.iface_id
@@ -723,11 +738,13 @@ impl Hypervisor {
             for vsock in vsocks {
                 let put_guest_vsock = PutGuestVsock::new(vsock.clone());
                 let res = self.agent.event(put_guest_vsock).await.map_err(|e| {
-                    log::error!("PutGuestVsock event failed");
+                    // log::error!("PutGuestVsock event failed");
+                    self.log(Error, "PutGuestVsock event failed");
                     e
                 })?;
                 if res.is_err() {
-                    log::error!("PutGuestVsock failed");
+                    // log::error!("PutGuestVsock failed");
+                    self.log(Error, "PutGuestVsock failed");
                     return Err(RtckError::Hypervisor(format!(
                         "fail to configure vsock {:?}, rollback",
                         vsock.vsock_id
@@ -743,11 +760,13 @@ impl Hypervisor {
         if let Some(cpu_config) = &config.cpu_config {
             let put_cpu_configuration = PutCpuConfiguration::new(cpu_config.clone());
             let res = self.agent.event(put_cpu_configuration).await.map_err(|e| {
-                log::error!("PutCpuConfiguration event failed");
+                // log::error!("PutCpuConfiguration event failed");
+                self.log(Error, "PutCpuConfiguration event failed");
                 e
             })?;
             if res.is_err() {
-                log::error!("PutCpuConfiguration failed");
+                // log::error!("PutCpuConfiguration failed");
+                self.log(Error, "PutCpuConfiguration failed");
                 return Err(RtckError::Hypervisor(
                     "fail to configure CPU, rollback".to_string(),
                 ));
@@ -765,11 +784,13 @@ impl Hypervisor {
                 .event(put_machine_configuration)
                 .await
                 .map_err(|e| {
-                    log::error!("PutMachineConfiguration event failed");
+                    // log::error!("PutMachineConfiguration event failed");
+                    self.log(Error, "PutMachineConfiguration event failed");
                     e
                 })?;
             if res.is_err() {
-                log::error!("PutMachineConfiguration failed");
+                // log::error!("PutMachineConfiguration failed");
+                self.log(Error, "PutMachineConfiguration failed");
                 return Err(RtckError::Hypervisor(
                     "fail to configure machine, rollback".to_string(),
                 ));
@@ -783,11 +804,13 @@ impl Hypervisor {
         if let Some(balloon) = &config.balloon {
             let put_balloon = PutBalloon::new(balloon.clone());
             let res = self.agent.event(put_balloon).await.map_err(|e| {
-                log::error!("PutBalloon event failed");
+                // log::error!("PutBalloon event failed");
+                self.log(Error, "PutBalloon event failed");
                 e
             })?;
             if res.is_err() {
-                log::error!("PutBalloon failed");
+                // log::error!("PutBalloon failed");
+                self.log(Error, "PutBalloon failed");
                 return Err(RtckError::Hypervisor(
                     "fail to configure balloon, rollback".to_string(),
                 ));
@@ -801,11 +824,13 @@ impl Hypervisor {
         if let Some(entropy_device) = &config.entropy_device {
             let put_entropy = PutEntropy::new(entropy_device.clone());
             let res = self.agent.event(put_entropy).await.map_err(|e| {
-                log::error!("PutEntropy event failed");
+                // log::error!("PutEntropy event failed");
+                self.log(Error, "PutEntropy event failed");
                 e
             })?;
             if res.is_err() {
-                log::error!("PutEntropy failed");
+                // log::error!("PutEntropy failed");
+                self.log(Error, "PutEntropy failed");
                 return Err(RtckError::Hypervisor(
                     "fail to configure entropy device, rollback".to_string(),
                 ));
@@ -819,11 +844,13 @@ impl Hypervisor {
         if let Some(content) = &config.init_metadata {
             let put_mmds = PutMmds::new(content.clone());
             let res = self.agent.event(put_mmds).await.map_err(|e| {
-                log::error!("PutMmds event failed");
+                // log::error!("PutMmds event failed");
+                self.log(Error, "PutMmds event failed");
                 e
             })?;
             if res.is_err() {
-                log::error!("PutMmds failed");
+                // log::error!("PutMmds failed");
+                self.log(Error, "PutMmds failed");
                 return Err(RtckError::Hypervisor(
                     "fail to configure initial metadata, rollback".to_string(),
                 ));
@@ -879,7 +906,8 @@ impl Hypervisor {
         self.status = MicroVMStatus::Start;
 
         self.configure(config).await.map_err(|_| {
-            log::error!("start fail, {} {}", file!(), line!());
+            // log::error!("start fail, {} {}", file!(), line!());
+            self.log(Error, "start fail, cannot configure");
             // change microVM status in hypervisor
             self.status = MicroVMStatus::Failure;
             RtckError::Hypervisor("fail to start".to_string())
@@ -891,7 +919,8 @@ impl Hypervisor {
 
         let res = self.agent.event(start_machine).await.map_err(|_| {
             {
-                log::error!("start fail, {} {}", file!(), line!());
+                // log::error!("start fail, {} {}", file!(), line!());
+                self.log(Error, "start fail, cannot start machine");
                 // change microVM status in hypervisor
                 self.status = MicroVMStatus::Failure;
                 RtckError::Hypervisor("fail to start".to_string())
@@ -899,7 +928,8 @@ impl Hypervisor {
         })?;
 
         if res.is_err() {
-            log::error!("start fail, {} {}", file!(), line!());
+            // log::error!("start fail, {} {}", file!(), line!());
+            self.log(Error, "start fail, cannot start machine");
             // change microVM status in hypervisor
             self.status = MicroVMStatus::Failure;
             Err(RtckError::Hypervisor("fail to start".to_string()))
@@ -913,20 +943,23 @@ impl Hypervisor {
     /// Pause the machine by notifying the hypervisor
     pub async fn pause(&mut self) -> RtckResult<()> {
         if self.status != MicroVMStatus::Running {
-            log::warn!("can not pause a microVM that's not running");
+            // log::warn!("can not pause a microVM that's not running");
+            self.log(Warn, "can not pause a microVM that's not running");
             return Ok(());
         }
 
         let pause_machine = PatchVm::new(vm::VM_STATE_PAUSED);
 
         let res = self.agent.event(pause_machine).await.map_err(|_| {
-            log::error!("pause fail");
+            // log::error!("pause fail");
+            self.log(Error, "pause fail");
             // no need for changing status here since pausing failure isn't a fatal error
             RtckError::Hypervisor("fail to pause".to_string())
         })?;
 
         if res.is_err() {
-            log::error!("pause fail");
+            // log::error!("pause fail");
+            self.log(Error, "pause fail");
             Err(RtckError::Hypervisor("fail to pause".to_string()))
         } else {
             self.status = MicroVMStatus::Paused;
@@ -937,19 +970,22 @@ impl Hypervisor {
     /// Resume the machine by notifying the hypervisor
     pub async fn resume(&mut self) -> RtckResult<()> {
         if self.status != MicroVMStatus::Paused {
-            log::warn!("can not resume a microVM that's not paused");
+            // log::warn!("can not resume a microVM that's not paused");
+            self.log(Warn, "can not resume a microVM that's not paused");
             return Ok(());
         }
 
         let resume_machine = PatchVm::new(vm::VM_STATE_RESUMED);
 
         let res = self.agent.event(resume_machine).await.map_err(|_| {
-            log::error!("resume fail");
+            // log::error!("resume fail");
+            self.log(Error, "resume fail");
             RtckError::Machine("fail to resume".to_string())
         })?;
 
         if res.is_err() {
-            log::error!("resume fail");
+            // log::error!("resume fail");
+            self.log(Error, "resume fail");
             Err(RtckError::Machine("fail to resume".to_string()))
         } else {
             self.status = MicroVMStatus::Running;
@@ -965,12 +1001,14 @@ impl Hypervisor {
         });
 
         let res = self.agent.event(stop_machine).await.map_err(|_| {
-            log::error!("stop fail");
+            // log::error!("stop fail");
+            self.log(Error, "stop fail");
             RtckError::Machine("fail to stop".to_string())
         })?;
 
         if res.is_err() {
-            log::error!("stop fail");
+            // log::error!("stop fail");
+            self.log(Error, "stop fail");
             Err(RtckError::Hypervisor("fail to stop".to_string()))
         } else {
             self.status = MicroVMStatus::Stop;
@@ -1048,7 +1086,8 @@ impl Hypervisor {
 
         let res = self.agent.event(create_snapshot).await?;
         if res.is_err() {
-            log::error!("Machine::snapshot fail");
+            // log::error!("Machine::snapshot fail");
+            self.log(Error, "snapshot fail");
             return Err(RtckError::Machine("fail to create snapshot".to_string()));
         }
         Ok(())
