@@ -27,6 +27,7 @@ fn kill(pid: Pid) -> RtckResult<()> {
 
 pub enum Rollback {
     Jailing {
+        clear: bool,
         instance_dir: PathBuf,
     },
     StopProcess {
@@ -51,10 +52,15 @@ pub enum Rollback {
 impl Rollback {
     fn rollback(self) {
         match self {
-            Rollback::Jailing { instance_dir } => {
+            Rollback::Jailing {
+                clear,
+                instance_dir,
+            } => {
                 // remove the instance directory
-                log::info!("Removing instance dir {:?}", instance_dir);
-                let _ = std::fs::remove_dir_all(instance_dir);
+                if clear {
+                    log::info!("Removing instance dir {:?}", instance_dir);
+                    let _ = std::fs::remove_dir_all(instance_dir);
+                }
             }
             Rollback::StopProcess { pid } => {
                 log::info!("Terminating process {pid}");

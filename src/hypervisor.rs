@@ -113,10 +113,19 @@ impl Hypervisor {
             let mut rollbacks = RollbackStack::new();
             let mut jailer = JailerAsync::from_config(&config)?;
 
+            let clear_jailer = if config.clear_jailer.is_none() || !config.clear_jailer.unwrap() {
+                false
+            } else {
+                true
+            };
+
             // jail the firecracker
             let instance_dir = jailer.jail().await?;
             if let Some(true) = config.using_jailer {
-                rollbacks.push(Rollback::Jailing { instance_dir });
+                rollbacks.push(Rollback::Jailing {
+                    clear: clear_jailer,
+                    instance_dir,
+                });
             }
 
             // spawn the firecracker process
@@ -152,12 +161,6 @@ impl Hypervisor {
             let gid = jailer.get_gid();
 
             let firecracker = FirecrackerAsync::from_jailer(jailer)?;
-
-            let clear_jailer = if config.clear_jailer.is_none() || !config.clear_jailer.unwrap() {
-                false
-            } else {
-                true
-            };
 
             (
                 pid,
