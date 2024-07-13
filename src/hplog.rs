@@ -33,6 +33,10 @@ impl HPLogger {
             LogTo::Stdout => None,
             LogTo::File(ref path) => {
                 if !path.exists() {
+                    if let Some(path_parent) = path.parent() {
+                        std::fs::create_dir_all(path_parent)
+                            .map_err(|e| LoggerError::FilesysIO(e.to_string()))?;
+                    }
                     std::fs::File::create(path)
                         .map_err(|e| LoggerError::FilesysIO(e.to_string()))?;
                 }
