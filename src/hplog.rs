@@ -32,8 +32,11 @@ impl HPLogger {
         let open_file = match &log_to {
             LogTo::Stdout => None,
             LogTo::File(ref path) => {
+                if !path.exists() {
+                    std::fs::File::create(path)
+                        .map_err(|e| LoggerError::FilesysIO(e.to_string()))?;
+                }
                 let file = OpenOptions::new()
-                    .create(true)
                     .append(true)
                     .open(path)
                     .map_err(|e| LoggerError::FilesysIO(e.to_string()))?;
