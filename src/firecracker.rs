@@ -123,9 +123,9 @@ pub mod firecracker_async {
 
         pub(crate) lock_path: PathBuf,
 
-        pub(crate) log_path: PathBuf,
+        pub(crate) log_path: Option<PathBuf>,
 
-        pub(crate) metrics_path: PathBuf,
+        // pub(crate) metrics_path: PathBuf,
 
         // Path to the config file
         pub(crate) config_path: Option<String>,
@@ -159,8 +159,8 @@ pub mod firecracker_async {
                 bin: handle_entry(&config.frck_bin)?,
                 socket,
                 lock_path: handle_entry(&config.lock_path)?.into(),
-                log_path: handle_entry(&config.log_path)?.into(),
-                metrics_path: handle_entry(&config.metrics_path)?.into(),
+                log_path: config.log_path.clone().map(PathBuf::from),
+                // metrics_path: handle_entry(&config.metrics_path)?.into(),
                 config_path: config.frck_export_path.clone().and_then(|s| Some(s.into())),
                 stdout_to: config
                     .stdout_to
@@ -198,12 +198,12 @@ pub mod firecracker_async {
                 ))?
                 .clone();
 
-            let metrics_path = jailer
-                .get_metrics_path_exported()
-                .ok_or(RtckError::Config(
-                    "jailer without metrics path exported".to_string(),
-                ))?
-                .clone();
+            // let metrics_path = jailer
+            //     .get_metrics_path_exported()
+            //     .ok_or(RtckError::Config(
+            //         "jailer without metrics path exported".to_string(),
+            //     ))?
+            //     .clone();
 
             let config_path = jailer.get_config_path_exported().cloned();
 
@@ -216,8 +216,8 @@ pub mod firecracker_async {
                 bin,
                 socket,
                 lock_path,
-                log_path,
-                metrics_path,
+                log_path: Some(log_path),
+                // metrics_path,
                 config_path,
                 stdout_to,
                 stderr_to,

@@ -7,6 +7,7 @@ use crate::{
     agent::agent::Agent,
     config::{HypervisorConfig, MicroVMConfig},
     firecracker::FirecrackerAsync,
+    hplog::{HPLogger, LogTo},
     jailer::JailerAsync,
     models::*,
     raii::{Rollback, RollbackStack},
@@ -51,10 +52,13 @@ pub struct Hypervisor {
     lock_path: PathBuf,
 
     // log path of this hypervisor
-    log_path: PathBuf,
+    log_path: Option<PathBuf>,
+
+    // hypervisor logger
+    logger: HPLogger,
 
     // metrics path of this hypervisor
-    metrics_path: PathBuf,
+    // metrics_path: PathBuf,
 
     // config path of this hypervisor
     config_path: Option<String>,
@@ -215,6 +219,11 @@ impl Hypervisor {
 
         let agent = Agent::from_stream_lock(stream, lock);
 
+        let logger = HPLogger::new(match firecracker.log_path {
+            None => LogTo::Stdout,
+            Some(ref s) => LogTo::File(s.clone()),
+        })?;
+
         Ok(Self {
             id: firecracker.id,
             pid,
@@ -224,7 +233,8 @@ impl Hypervisor {
             socket_retry: config.socket_retry,
             lock_path: firecracker.lock_path,
             log_path: firecracker.log_path,
-            metrics_path: firecracker.metrics_path,
+            logger,
+            // metrics_path: firecracker.metrics_path,
             config_path: firecracker.config_path,
             agent,
             status: MicroVMStatus::None,
@@ -235,6 +245,11 @@ impl Hypervisor {
             rollbacks,
             poll_status_secs: config.poll_status_secs,
         })
+    }
+
+    /// Log
+    pub fn log(&self, level: log::Level, msg: &str) {
+        self.logger.log(level, msg);
     }
 
     /// Ping firecracker to check its soundness
@@ -300,22 +315,22 @@ impl Hypervisor {
         tokio::join!(stdout_future, stderr_future);
 
         // Open the log file in append mode
-        let mut log_file = tokio::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.log_path)
-            .await
-            .map_err(|_| RtckError::Hypervisor("fail to open log file".to_string()))?;
+        // let mut log_file = tokio::fs::OpenOptions::new()
+        //     .create(true)
+        //     .append(true)
+        //     .open(&self.log_path)
+        //     .await
+        //     .map_err(|_| RtckError::Hypervisor("fail to open log file".to_string()))?;
 
         // Write stdout and stderr to the log file
-        log_file
-            .write_all(&stdout_buf)
-            .await
-            .map_err(|_| RtckError::Hypervisor("fail to write stdout to log".to_string()))?;
-        log_file
-            .write_all(&stderr_buf)
-            .await
-            .map_err(|_| RtckError::Hypervisor("fail to write stderr to log".to_string()))?;
+        // log_file
+        //     .write_all(&stdout_buf)
+        //     .await
+        //     .map_err(|_| RtckError::Hypervisor("fail to write stdout to log".to_string()))?;
+        // log_file
+        //     .write_all(&stderr_buf)
+        //     .await
+        //     .map_err(|_| RtckError::Hypervisor("fail to write stderr to log".to_string()))?;
 
         Ok(())
     }

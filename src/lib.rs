@@ -1,4 +1,5 @@
 use agent::agent::AgentError;
+use hplog::LoggerError;
 
 pub mod config;
 pub mod firecracker;
@@ -9,6 +10,7 @@ pub mod agent;
 pub mod database;
 pub mod hypervisor;
 // pub mod machine_dev;
+pub mod hplog;
 pub mod models;
 pub mod pool;
 pub mod raii;
@@ -34,6 +36,8 @@ pub enum RtckError {
     Hypervisor(String),
     #[error("Process: {0}")]
     Machine(String),
+    #[error("Logger: {0}")]
+    Logger(#[from] LoggerError),
 }
 
 pub type RtckResult<T> = std::result::Result<T, RtckError>;
