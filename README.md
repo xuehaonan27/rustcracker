@@ -6,32 +6,55 @@ Thanks for supports from all members of LCPU (Linux Club of Peking University).
 # Break Changes
 The API of rustcracker 2.0.0 has a break change, which is completely incompatible with 1.x, and is cleaner, more organized and easier to use.
 
+# Prepare Your Environment
+* Get firecracker from [firecracker's getting-started page](https://github.com/firecracker-microvm/firecracker/blob/main/docs/getting-started.md)
+* If you fail to get kernel image or rootfs image from [firecracker's getting-started page](https://github.com/firecracker-microvm/firecracker/blob/main/docs/getting-started.md), you could:
+    * Build vmlinux image and rootfs image on your own.
+    * Try these instead, which are also provided by Amazon AWS: 
+        * kernel image: https://s3.amazonaws.com/spec.ccfc.min/img/hello/kernel/hello-vmlinux.bin
+        * rootfs: https://s3.amazonaws.com/spec.ccfc.min/img/hello/fsfiles/hello-rootfs.ext4
+
+* Get rustcracker:
+    * From [crates.io](https://crates.io/crates/rustcracker)
+    * From source code:
+        ```bash
+        git clone https://github.com/xuehaonan27/rustcracker
+        cd rustcracker
+        cargo build
+        ```
+
 # Example
-```Rust
-async fn _demo_use_async_machine() -> RtckResult<()> {
-    use rustcracker::config::GlobalConfig;
-    let config = GlobalConfig {
-        ..Default::default()
-    };
+```rust
+// You should pass in hypervisor configuration to create a hypervisor.
+// Then a microVM configuration to start a firecracker microVM instance/
 
-    use rustcracker::machine::machine_async;
-    use rustcracker::models::snapshot_create_params;
-    let machine = machine_async::Machine::create(&config).await?;
-    machine.configure().await?;
-    machine.start().await?;
-    machine.pause().await?;
-    machine
-        .snapshot(
-            "/snapshot/state/demo",
-            "/snapshot/mem/demo",
-            snapshot_create_params::SnapshotType::Diff,
-        )
-        .await?;
-    machine.resume().await?;
-    machine.stop().await?;
-    machine.delete().await?;
-    machine.delete_and_clean().await?;
+async fn using() {
+    dotenvy::dotenv().ok();
 
-    Ok(())
+    let mut hypervisor = Hypervisor::new(&HYPERVISOR_WITHJAILER_CONFIG)
+        .await
+        .expect("fail to create hypervisor");
+    log::info!("Hypervisor created");
+    sleep(3).await;
+
+    hypervisor.ping_remote().await.expect("fail to ping remote");
+    log::info!("Hypervisor running!");
+    sleep(3).await;
+
+    hypervisor
+        .start(&MICROVM_CONFIG)
+        .await
+        .expect("fail to configure microVM");
+    log::info!("microVM configured");
+    sleep(3).await;
+
+    let _ = hypervisor.wait().await;
+
+    hypervisor.stop().await.expect("fail to stop");
+    log::info!("microVM stopped");
+    sleep(3).await;
+
+    hypervisor.delete().await.expect("fail to delete");
+    log::info!("microVM deleted");
 }
 ```

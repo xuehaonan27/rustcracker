@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use procfs::process::Process;
+// use procfs::process::Process;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::{
@@ -40,7 +40,7 @@ pub struct Hypervisor {
     child: tokio::process::Child,
 
     // process of the hypervisor process, which holds a fd to /proc/<pid>
-    process: Process,
+    // process: Process,
 
     // socket path of this hypervisor
     socket_path: PathBuf,
@@ -104,7 +104,7 @@ impl Hypervisor {
             stream,
             firecracker,
             child,
-            process,
+            // process,
             clear_jailer,
             jailer_working_dir,
             uid_gid,
@@ -149,8 +149,8 @@ impl Hypervisor {
 
             // error: the process doesn't exist, or if you don't have permission to access it.
             // it's recommended that rustcracker run as root.
-            let process = Process::new(pid as i32)
-                .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
+            // let process = Process::new(pid as i32)
+            //     .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
 
             let stream = jailer.connect(config.socket_retry).await?;
 
@@ -167,7 +167,7 @@ impl Hypervisor {
                 stream,
                 firecracker,
                 child,
-                process,
+                // process,
                 clear_jailer,
                 jailer_working_dir,
                 Some((uid, gid)),
@@ -196,8 +196,8 @@ impl Hypervisor {
 
             // error: the process doesn't exist, or if you don't have permission to access it.
             // it's recommended that rustcracker run as root.
-            let process = Process::new(pid as i32)
-                .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
+            // let process = Process::new(pid as i32)
+            //     .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
 
             let stream = firecracker.connect(config.socket_retry).await?;
 
@@ -206,7 +206,7 @@ impl Hypervisor {
                 stream,
                 firecracker,
                 child,
-                process,
+                // process,
                 false,
                 None,
                 None,
@@ -234,7 +234,7 @@ impl Hypervisor {
             id: firecracker.id,
             pid,
             child,
-            process,
+            // process,
             socket_path: firecracker.socket,
             socket_retry: config.socket_retry,
             lock_path: firecracker.lock_path,
@@ -266,82 +266,82 @@ impl Hypervisor {
     }
 
     /// Check hypervisor's state
-    pub async fn check_state(&mut self) -> RtckResult<()> {
-        if self.status == MicroVMStatus::None {
-            // log::warn!("no microVM running");
-            self.log(Warn, "no microVM running");
-            return Ok(());
-        }
-        // check if the process is still running
-        if !self.process.is_alive() {
-            // process is no longer running, fetch output and error
-            if let Some(_status) = self
-                .child
-                .try_wait()
-                .map_err(|_| RtckError::Hypervisor("fail to wait the process".to_string()))?
-            {
-                self.fetch_output().await?;
-            } else {
-                // log::warn!("Process has terminated, but no status code available");
-                self.log(Warn, "Process has terminated, but no status code available");
-            }
-        }
-        Ok(())
-    }
+    // async fn check_state(&mut self) -> RtckResult<()> {
+    //     if self.status == MicroVMStatus::None {
+    //         // log::warn!("no microVM running");
+    //         self.log(Warn, "no microVM running");
+    //         return Ok(());
+    //     }
+    //     // check if the process is still running
+    //     if !self.process.is_alive() {
+    //         // process is no longer running, fetch output and error
+    //         if let Some(_status) = self
+    //             .child
+    //             .try_wait()
+    //             .map_err(|_| RtckError::Hypervisor("fail to wait the process".to_string()))?
+    //         {
+    //             self.fetch_output().await?;
+    //         } else {
+    //             // log::warn!("Process has terminated, but no status code available");
+    //             self.log(Warn, "Process has terminated, but no status code available");
+    //         }
+    //     }
+    //     Ok(())
+    // }
 
-    async fn fetch_output(&mut self) -> RtckResult<()> {
-        let mut stdout = self
-            .child
-            .stdout
-            .take()
-            .ok_or(RtckError::Hypervisor("fail to take stdout".to_string()))?;
+    // async fn fetch_output(&mut self) -> RtckResult<()> {
+    //     let mut stdout = self
+    //         .child
+    //         .stdout
+    //         .take()
+    //         .ok_or(RtckError::Hypervisor("fail to take stdout".to_string()))?;
 
-        let mut stderr = self
-            .child
-            .stderr
-            .take()
-            .ok_or(RtckError::Hypervisor("fail to take stdout".to_string()))?;
+    //     let mut stderr = self
+    //         .child
+    //         .stderr
+    //         .take()
+    //         .ok_or(RtckError::Hypervisor("fail to take stdout".to_string()))?;
 
-        let mut stdout_buf = Vec::new();
-        let mut stderr_buf = Vec::new();
+    //     let mut stdout_buf = Vec::new();
+    //     let mut stderr_buf = Vec::new();
 
-        // Read stdout and stderr concurrently
-        let stdout_future = async {
-            let _ = stdout
-                .read_to_end(&mut stdout_buf)
-                .await
-                .map_err(|_| RtckError::Hypervisor("fail to read stdout from child".to_string()));
-        };
+    //     // Read stdout and stderr concurrently
+    //     let stdout_future = async {
+    //         let _ = stdout
+    //             .read_to_end(&mut stdout_buf)
+    //             .await
+    //             .map_err(|_| RtckError::Hypervisor("fail to read stdout from child".to_string()));
+    //     };
 
-        let stderr_future = async {
-            let _ = stderr
-                .read_to_end(&mut stderr_buf)
-                .await
-                .map_err(|_| RtckError::Hypervisor("fail to read stderr from child".to_string()));
-        };
+    //     let stderr_future = async {
+    //         let _ = stderr
+    //             .read_to_end(&mut stderr_buf)
+    //             .await
+    //             .map_err(|_| RtckError::Hypervisor("fail to read stderr from child".to_string()));
+    //     };
 
-        tokio::join!(stdout_future, stderr_future);
+    //     tokio::join!(stdout_future, stderr_future);
 
-        // Open the log file in append mode
-        // let mut log_file = tokio::fs::OpenOptions::new()
-        //     .create(true)
-        //     .append(true)
-        //     .open(&self.log_path)
-        //     .await
-        //     .map_err(|_| RtckError::Hypervisor("fail to open log file".to_string()))?;
+    //     // Open the log file in append mode
+    //     // let mut log_file = tokio::fs::OpenOptions::new()
+    //     //     .create(true)
+    //     //     .append(true)
+    //     //     .open(&self.log_path)
+    //     //     .await
+    //     //     .map_err(|_| RtckError::Hypervisor("fail to open log file".to_string()))?;
 
-        // Write stdout and stderr to the log file
-        // log_file
-        //     .write_all(&stdout_buf)
-        //     .await
-        //     .map_err(|_| RtckError::Hypervisor("fail to write stdout to log".to_string()))?;
-        // log_file
-        //     .write_all(&stderr_buf)
-        //     .await
-        //     .map_err(|_| RtckError::Hypervisor("fail to write stderr to log".to_string()))?;
+    //     // Write stdout and stderr to the log file
+    //     // log_file
+    //     //     .write_all(&stdout_buf)
+    //     //     .await
+    //     //     .map_err(|_| RtckError::Hypervisor("fail to write stdout to log".to_string()))?;
+    //     // log_file
+    //     //     .write_all(&stderr_buf)
+    //     //     .await
+    //     //     .map_err(|_| RtckError::Hypervisor("fail to write stderr to log".to_string()))?;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     /// Logger configuration. Nothing to rollback in this step.
     async fn logger_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
