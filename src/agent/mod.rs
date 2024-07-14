@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod sync_agent;
 
 use std::collections::HashMap;
 

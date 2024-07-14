@@ -15,6 +15,7 @@ pub mod models;
 pub mod pool;
 pub mod raii;
 pub mod reqres;
+pub mod sync_hypervisor;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RtckError {

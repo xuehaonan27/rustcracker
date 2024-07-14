@@ -19,6 +19,7 @@ async fn main() {
         "--with-jailer" => demo::with_jailer().await,
         "--using" => demo::using().await,
         "--reusing" => demo::reusing_hypervisor().await,
+        "--syncusing" => demo::syncusing(),
         _ => panic!("unknown option"),
     };
 }

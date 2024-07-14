@@ -4,6 +4,7 @@ pub mod jailer {
     use std::{
         os::unix::net::UnixStream,
         path::PathBuf,
+        process::Stdio,
         sync::{Arc, Condvar, Mutex},
     };
 
@@ -22,7 +23,7 @@ pub mod jailer {
         bin: String,
 
         // Id of this jailer
-        id: String,
+        pub(crate) id: String,
 
         // Path to local firecracker bin
         exec_file: String,
@@ -71,9 +72,33 @@ pub mod jailer {
 
         // Metrics path seen by Rtck
         metrics_path_export: Option<PathBuf>,
+
+        // stdout redirection
+        stdout_to: Option<String>,
+
+        // stdout redirection exported
+        stdout_to_exported: Option<PathBuf>,
+
+        // stderr redirection
+        stderr_to: Option<String>,
+
+        // stderr redirection exported
+        stderr_to_exported: Option<PathBuf>,
     }
 
     impl Jailer {
+        pub fn get_uid(&self) -> u32 {
+            self.uid
+        }
+
+        pub fn get_gid(&self) -> u32 {
+            self.gid
+        }
+
+        pub fn get_firecracker_exec_file(&self) -> &String {
+            &self.exec_file
+        }
+
         pub fn get_socket_path_exported(&self) -> Option<&PathBuf> {
             self.socket_path_export.as_ref()
         }
@@ -90,13 +115,27 @@ pub mod jailer {
             self.metrics_path_export.as_ref()
         }
 
+        pub fn get_config_path_exported(&self) -> Option<&String> {
+            self.config_path.as_ref()
+        }
+
         pub fn get_jailer_workspace_dir(&self) -> Option<&PathBuf> {
             self.jailer_workspace_dir.as_ref()
+        }
+
+        pub fn get_stdout_redirection_exported(&self) -> Option<&PathBuf> {
+            self.stdout_to_exported.as_ref()
+        }
+
+        pub fn get_stderr_redirection_exported(&self) -> Option<&PathBuf> {
+            self.stderr_to_exported.as_ref()
         }
     }
 
     impl Jailer {
         pub fn from_config(config: &HypervisorConfig) -> RtckResult<Self> {
+            config.validate()?;
+
             let jailer_config = config
                 .jailer_config
                 .as_ref()
@@ -107,6 +146,14 @@ pub mod jailer {
             } else {
                 uuid::Uuid::new_v4().to_string()
             };
+
+            let socket = if let Some(socket) = &config.socket_path {
+                socket.clone()
+            } else {
+                // allocate one. format: run/firecracker.socket
+                "run/firecracker.socket".to_string()
+            };
+            let socket = Some(socket);
 
             const DEFAULT_CHROOT_BASE_DIR: &'static str = "/srv/jailer";
             Ok(Self {
@@ -121,7 +168,7 @@ pub mod jailer {
                 ),
                 daemonize: jailer_config.daemonize.unwrap_or(false),
                 jailer_workspace_dir: None,
-                socket: config.socket_path.clone(),
+                socket,
                 socket_path_export: None,
                 lock_path: config.lock_path.clone(),
                 lock_path_export: None,
@@ -131,10 +178,14 @@ pub mod jailer {
                 log_path_export: None,
                 metrics_path: config.metrics_path.clone(),
                 metrics_path_export: None,
+                stdout_to: config.stdout_to.clone(),
+                stdout_to_exported: None,
+                stderr_to: config.stderr_to.clone(),
+                stderr_to_exported: None,
             })
         }
 
-        pub fn jail(&mut self) -> RtckResult<()> {
+        pub fn jail(&mut self) -> RtckResult<PathBuf> {
             let id = &self.id;
 
             let temp_binding = PathBuf::from(&self.exec_file);
@@ -143,26 +194,54 @@ pub mod jailer {
             let chroot_base_dir = &self.chroot_base_dir;
 
             const ROOT_FOLDER_NAME: &'static str = "root";
-            let jailer_workspace_dir = PathBuf::from(chroot_base_dir)
-                .join(exec_file_name)
-                .join(id)
-                .join(ROOT_FOLDER_NAME);
+            let instance_dir = PathBuf::from(chroot_base_dir).join(exec_file_name).join(id);
+            let jailer_workspace_dir = instance_dir.join(ROOT_FOLDER_NAME);
+
+            if jailer_workspace_dir.exists() {
+                return Err(RtckError::Jailer(
+                    "please choose another instance name".to_string(),
+                ));
+            }
 
             self.jailer_workspace_dir = Some(jailer_workspace_dir.clone());
 
             const DEFAULT_SOCKET_PATH_UNDER_JAILER: &'static str = "run/firecracker.socket";
             let socket_path =
                 handle_entry_default(&self.socket, DEFAULT_SOCKET_PATH_UNDER_JAILER.to_string());
+            let socket_path = PathBuf::from(socket_path);
+            let socket_path = if socket_path.is_absolute() {
+                socket_path
+                    .strip_prefix("/")
+                    .map_err(|_| RtckError::Jailer("fail to strip absolute prefix".to_string()))?
+            } else {
+                socket_path.as_path()
+            };
             self.socket_path_export = Some(jailer_workspace_dir.join(socket_path));
 
             const DEFAULT_LOCK_PATH_UNDER_JAILER: &'static str = "run/firecracker.lock";
             let lock_path =
                 handle_entry_default(&self.lock_path, DEFAULT_LOCK_PATH_UNDER_JAILER.to_string());
+            let lock_path = PathBuf::from(lock_path);
+            let lock_path = if lock_path.is_absolute() {
+                lock_path
+                    .strip_prefix("/")
+                    .map_err(|_| RtckError::Jailer("fail to strip absolute prefix".to_string()))?
+            } else {
+                lock_path.as_path()
+            };
             self.lock_path_export = Some(jailer_workspace_dir.join(lock_path));
 
             const DEFAULT_LOG_PATH_UNDER_JAILER: &'static str = "run/firecracker.log";
             let log_path =
                 handle_entry_default(&self.log_path, DEFAULT_LOG_PATH_UNDER_JAILER.to_string());
+            let log_path = PathBuf::from(log_path);
+            let log_path = if log_path.is_absolute() {
+                log_path
+                    .strip_prefix("/")
+                    .map_err(|_| RtckError::Jailer("fail to strip absolute prefix".to_string()))?
+            } else {
+                log_path.as_path()
+            };
             self.log_path_export = Some(jailer_workspace_dir.join(log_path));
 
             const DEFAULT_METRICS_PATH_UNDER_JAILER: &'static str = "run/firecracker.metrics";
@@ -170,6 +249,14 @@ pub mod jailer {
                 &self.metrics_path,
                 DEFAULT_METRICS_PATH_UNDER_JAILER.to_string(),
             );
+            let metrics_path = PathBuf::from(metrics_path);
+            let metrics_path = if metrics_path.is_absolute() {
+                metrics_path
+                    .strip_prefix("/")
+                    .map_err(|_| RtckError::Jailer("fail to strip absolute prefix".to_string()))?
+            } else {
+                metrics_path.as_path()
+            };
             self.metrics_path_export = Some(jailer_workspace_dir.join(metrics_path));
 
             match &self.config_path {
@@ -186,7 +273,38 @@ pub mod jailer {
                 }
             }
 
-            Ok(())
+            match &self.stdout_to {
+                // not using stdout redirection, skipping
+                None => (),
+                Some(stdout_to) => {
+                    let stdout_to = PathBuf::from(stdout_to);
+                    let stdout_to = if stdout_to.is_absolute() {
+                        stdout_to.strip_prefix("/").map_err(|_| {
+                            RtckError::Jailer("fail to strip absolute prefix".to_string())
+                        })?
+                    } else {
+                        stdout_to.as_path()
+                    };
+                    self.stdout_to_exported = Some(jailer_workspace_dir.join(stdout_to));
+                }
+            }
+
+            match &self.stderr_to {
+                None => (),
+                Some(stderr_to) => {
+                    let stderr_to = PathBuf::from(stderr_to);
+                    let stderr_to = if stderr_to.is_absolute() {
+                        stderr_to.strip_prefix("/").map_err(|_| {
+                            RtckError::Jailer("fail to strip absolute prefix".to_string())
+                        })?
+                    } else {
+                        stderr_to.as_path()
+                    };
+                    self.stderr_to_exported = Some(jailer_workspace_dir.join(stderr_to));
+                }
+            }
+
+            Ok(instance_dir)
         }
 
         pub fn launch(&self) -> RtckResult<std::process::Child> {
@@ -213,6 +331,36 @@ pub mod jailer {
                 Some(path) => {
                     cmd.args(vec!["--config-file", path]);
                 }
+            }
+
+            match &self.stdout_to_exported {
+                Some(stdout_to) => {
+                    if !PathBuf::from(stdout_to).exists() {
+                        std::fs::File::create(stdout_to).map_err(|_| {
+                            RtckError::FilesysIO("fail to create stdout file".to_string())
+                        })?;
+                    }
+                    let stdout = std::fs::File::open(stdout_to).map_err(|_| {
+                        RtckError::FilesysIO("fail to open stdout redirection file".to_string())
+                    })?;
+                    cmd.stdout(Stdio::from(stdout));
+                }
+                None => (),
+            }
+
+            match &self.stderr_to_exported {
+                Some(stderr_to) => {
+                    if !PathBuf::from(stderr_to).exists() {
+                        std::fs::File::create(stderr_to).map_err(|_| {
+                            RtckError::FilesysIO("fail to create stderr file".to_string())
+                        })?;
+                    }
+                    let stderr = std::fs::File::open(stderr_to).map_err(|_| {
+                        RtckError::FilesysIO("fail to open stderr redirection file".to_string())
+                    })?;
+                    cmd.stderr(Stdio::from(stderr));
+                }
+                None => (),
             }
 
             cmd.spawn()
@@ -261,18 +409,30 @@ pub mod jailer {
         }
 
         /// Connect to the socket
-        pub fn connect(&self) -> RtckResult<UnixStream> {
-            UnixStream::connect(handle_entry_ref(&self.socket_path_export)?)
-                .map_err(|_| RtckError::Jailer("connecting socket".to_string()))
+        pub fn connect(&self, retry: usize) -> RtckResult<UnixStream> {
+            let mut trying = retry;
+            let stream = loop {
+                if trying == 0 {
+                    return Err(RtckError::Firecracker(format!(
+                        "fail to connect unix socket after {retry} tries"
+                    )));
+                }
+                match UnixStream::connect(handle_entry_ref(&self.socket_path_export)?) {
+                    Ok(stream) => break stream,
+                    Err(_) => {
+                        trying -= 1;
+                        std::thread::sleep(std::time::Duration::from_secs(1));
+                        continue;
+                    }
+                }
+            };
+            Ok(stream)
         }
     }
 }
 
 pub mod jailer_async {
-    use std::{
-        path::{Path, PathBuf},
-        process::Stdio,
-    };
+    use std::{path::PathBuf, process::Stdio};
 
     use serde::{Deserialize, Serialize};
     use tokio::net::UnixStream;

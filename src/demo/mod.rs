@@ -190,3 +190,34 @@ pub async fn reusing_hypervisor() {
 
     hypervisor.delete().await.expect("fail to delete");
 }
+
+
+pub fn syncusing() {
+    dotenvy::dotenv().ok();
+
+    let mut hypervisor = Hypervisor::new(&HYPERVISOR_WITHJAILER_CONFIG)
+        
+        .expect("fail to create hypervisor");
+    log::info!("Hypervisor created");
+    std::thread::sleep(std::time::Duration::from_secs(3));
+
+    hypervisor.ping_remote().expect("fail to ping remote");
+    log::info!("Hypervisor running!");
+    std::thread::sleep(std::time::Duration::from_secs(3));
+
+    hypervisor
+        .start(&MICROVM_CONFIG)
+        
+        .expect("fail to configure microVM");
+    log::info!("microVM configured");
+    std::thread::sleep(std::time::Duration::from_secs(3));
+
+    let _ = hypervisor.wait();
+
+    hypervisor.stop().expect("fail to stop");
+    log::info!("microVM stopped");
+    std::thread::sleep(std::time::Duration::from_secs(3));
+
+    hypervisor.delete().expect("fail to delete");
+    log::info!("microVM deleted");
+}
