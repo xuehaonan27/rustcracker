@@ -193,6 +193,7 @@ pub async fn reusing_hypervisor() {
 
 
 pub fn syncusing() {
+    use rustcracker::sync_hypervisor::Hypervisor;
     dotenvy::dotenv().ok();
 
     let mut hypervisor = Hypervisor::new(&HYPERVISOR_WITHJAILER_CONFIG)
