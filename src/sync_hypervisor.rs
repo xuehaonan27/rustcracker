@@ -193,6 +193,9 @@ impl Hypervisor {
             path: firecracker.lock_path.clone(),
         });
 
+        stream.set_nonblocking(true).map_err(|_| {
+            RtckError::Hypervisor("couldn't set stream to non-blocking".to_string())
+        })?;
         let agent = Agent::from_stream_lock(stream, lock);
 
         let logger = HPLogger::new(
