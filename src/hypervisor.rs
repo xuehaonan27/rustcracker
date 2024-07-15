@@ -1066,7 +1066,11 @@ impl Hypervisor {
                         }
                     }
                 }
-                Err(_) => continue,
+                // If there's error trying to get status of instance,
+                // then something has happened to firecracker, maybe
+                // the stop of execution of hypervisor.
+                // Exit anyway.
+                Err(_) => break,
             }
         }
 
