@@ -179,9 +179,7 @@ impl Agent {
     /// Start a single event by passing a FirecrackerEvent like object
     pub fn event<E: FirecrackerEvent>(&mut self, event: E) -> AgentResult<E::Res> {
         self.lock()?;
-        println!("Agent locked");
         self.clear_stream()?;
-        println!("Stream cleared");
         self.send_request(event.req())?;
         let res = self.recv_response()?;
         self.unlock()?;
