@@ -21,6 +21,9 @@ impl Agent {
     pub fn new(stream_path: String, lock_path: String) -> Result<Self, AgentError> {
         let stream = UnixStream::connect(&stream_path)
             .map_err(|e| AgentError::BadUnixSocket(e.to_string()))?;
+        stream.set_nonblocking(true).map_err(|_| {
+            AgentError::BadUnixSocket("couldn't set stream to non-blocking".to_string())
+        })?;
         // You should make sure that `lock_path` contains no nul-terminators
         let lock =
             LockFile::open(&lock_path).map_err(|e| AgentError::BadLockFile(e.to_string()))?;
@@ -86,12 +89,8 @@ impl Agent {
                         break;
                     }
                 }
-                Err(ref e) if e.kind() == ErrorKind::Interrupted => {
-                    continue;
-                }
-                Err(e) => {
-                    return Err(AgentError::BadUnixSocket(e.to_string()));
-                }
+                Err(ref e) if e.kind() == ErrorKind::WouldBlock => continue,
+                Err(e) => return Err(AgentError::BadUnixSocket(e.to_string())),
             }
         }
 
@@ -162,10 +161,8 @@ impl Agent {
             match self.stream.read(&mut buf) {
                 Ok(0) => break true,
                 Ok(_) => continue,
-                Err(ref e) if e.kind() == tokio::io::ErrorKind::WouldBlock => break true,
-                Err(_) => {
-                    break false;
-                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => break true,
+                Err(_) => break false,
             }
         };
 
@@ -182,9 +179,9 @@ impl Agent {
     /// Start a single event by passing a FirecrackerEvent like object
     pub fn event<E: FirecrackerEvent>(&mut self, event: E) -> AgentResult<E::Res> {
         self.lock()?;
-        // log::info!("Agent locked");
+        println!("Agent locked");
         self.clear_stream()?;
-        // log::info!("Stream cleared");
+        println!("Stream cleared");
         self.send_request(event.req())?;
         let res = self.recv_response()?;
         self.unlock()?;

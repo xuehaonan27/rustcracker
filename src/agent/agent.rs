@@ -102,12 +102,8 @@ impl Agent {
                         break;
                     }
                 }
-                Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-                    continue;
-                }
-                Err(e) => {
-                    return Err(AgentError::BadUnixSocket(e.to_string()));
-                }
+                Err(ref e) if e.kind() == ErrorKind::WouldBlock => continue,
+                Err(e) => return Err(AgentError::BadUnixSocket(e.to_string())),
             }
         }
 
@@ -179,9 +175,7 @@ impl Agent {
                 Ok(0) => break true,
                 Ok(_) => continue,
                 Err(ref e) if e.kind() == tokio::io::ErrorKind::WouldBlock => break true,
-                Err(_) => {
-                    break false;
-                }
+                Err(_) => break false,
             }
         };
 
