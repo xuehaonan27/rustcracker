@@ -2,7 +2,10 @@
 pub mod firecracker {
 
     use std::{
-        os::unix::net::UnixStream, path::PathBuf, process::Stdio, sync::{Arc, Condvar, Mutex}
+        os::unix::net::UnixStream,
+        path::PathBuf,
+        process::Stdio,
+        sync::{Arc, Condvar, Mutex},
     };
 
     use serde::{Deserialize, Serialize};
@@ -153,9 +156,8 @@ pub mod firecracker {
 
             c.spawn()
                 .map_err(|_| RtckError::Firecracker("spawn fail".to_string()))
-        
         }
-    
+
         /// Waiting for the socket set by firecracker
         pub fn waiting_socket(&self, timeout: std::time::Duration) -> RtckResult<()> {
             let pair = Arc::new((Mutex::new(false), Condvar::new()));
@@ -203,7 +205,7 @@ pub mod firecracker {
         pub fn connect(&self, retry: usize) -> RtckResult<UnixStream> {
             let mut trying = retry;
             let stream = loop {
-                if trying == 0{
+                if trying == 0 {
                     return Err(RtckError::Firecracker(format!(
                         "fail to connect unix socket after {retry} tries"
                     )));

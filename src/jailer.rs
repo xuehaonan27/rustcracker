@@ -373,14 +373,14 @@ pub mod jailer {
             let pair_peer = Arc::clone(&pair);
 
             // Wait for the socket
-            let path = PathBuf::from(handle_entry_ref(&self.socket)?);
+            let socket_path = handle_entry(&self.socket_path_export)?;
             std::thread::spawn(move || -> RtckResult<()> {
                 let &(ref lock, ref cvar) = &*pair_peer;
                 let mut created = lock
                     .lock()
                     .map_err(|_| RtckError::Jailer("waiting socket".to_string()))?;
 
-                while !path.exists() {}
+                while !socket_path.exists() {}
 
                 *created = true;
                 cvar.notify_one();
