@@ -369,43 +369,53 @@ pub mod jailer {
 
         /// Waiting for the socket set by firecracker
         pub fn waiting_socket(&self, timeout: std::time::Duration) -> RtckResult<()> {
-            let pair = Arc::new((Mutex::new(false), Condvar::new()));
-            let pair_peer = Arc::clone(&pair);
-
-            // Wait for the socket
+            let start = std::time::Instant::now();
             let socket_path = handle_entry(&self.socket_path_export)?;
-            std::thread::spawn(move || -> RtckResult<()> {
-                let &(ref lock, ref cvar) = &*pair_peer;
-                let mut created = lock
-                    .lock()
-                    .map_err(|_| RtckError::Jailer("waiting socket".to_string()))?;
-
-                while !socket_path.exists() {}
-
-                *created = true;
-                cvar.notify_one();
-
-                Ok(())
-            });
-
-            let &(ref lock, ref cvar) = &*pair;
-            let created = lock
-                .lock()
-                .map_err(|_| RtckError::Jailer("waiting socket".to_string()))?;
-            if !*created {
-                let result = cvar
-                    .wait_timeout(
-                        lock.lock()
-                            .map_err(|_| RtckError::Jailer("waiting socket".to_string()))?,
-                        timeout,
-                    )
-                    .map_err(|_| RtckError::Jailer("waiting socket".to_string()))?;
-                if result.1.timed_out() {
-                    return Err(RtckError::Jailer("remote socket timeout".to_string()));
+            while start.elapsed() < timeout {
+                if socket_path.exists() {
+                    return Ok(());
                 }
+                std::thread::sleep(std::time::Duration::from_millis(100)); // check every 100 ms
             }
 
-            Ok(())
+            Err(RtckError::Jailer("remote socket timeout".to_string()))
+            // let pair = Arc::new((Mutex::new(false), Condvar::new()));
+            // let pair_peer = Arc::clone(&pair);
+
+            // // Wait for the socket
+            // let socket_path = handle_entry(&self.socket_path_export)?;
+            // std::thread::spawn(move || -> RtckResult<()> {
+            //     let &(ref lock, ref cvar) = &*pair_peer;
+            //     let mut created = lock
+            //         .lock()
+            //         .map_err(|_| RtckError::Jailer("waiting socket".to_string()))?;
+
+            //     while !socket_path.exists() {}
+
+            //     *created = true;
+            //     cvar.notify_one();
+
+            //     Ok(())
+            // });
+
+            // let &(ref lock, ref cvar) = &*pair;
+            // let created = lock
+            //     .lock()
+            //     .map_err(|_| RtckError::Jailer("waiting socket".to_string()))?;
+            // if !*created {
+            //     let result = cvar
+            //         .wait_timeout(
+            //             lock.lock()
+            //                 .map_err(|_| RtckError::Jailer("waiting socket".to_string()))?,
+            //             timeout,
+            //         )
+            //         .map_err(|_| RtckError::Jailer("waiting socket".to_string()))?;
+            //     if result.1.timed_out() {
+            //         return Err(RtckError::Jailer("remote socket timeout".to_string()));
+            //     }
+            // }
+
+            // Ok(())
         }
 
         /// Connect to the socket

@@ -117,7 +117,7 @@ impl Hypervisor {
 
             // wait socket
             // error: socket do not exists after <timeout> secs
-            jailer.waiting_socket(tokio::time::Duration::from_secs(config.launch_timeout))?;
+            jailer.waiting_socket(std::time::Duration::from_secs(config.launch_timeout))?;
             rollbacks.insert_1(Rollback::RemoveSocket {
                 // unwrap safe because correct arguments provided
                 // otherwise rollback would occur right after `jail`
@@ -162,7 +162,7 @@ impl Hypervisor {
 
             // wait socket
             // error: socket do not exists after <timeout> secs
-            firecracker.waiting_socket(tokio::time::Duration::from_secs(config.launch_timeout))?;
+            firecracker.waiting_socket(std::time::Duration::from_secs(config.launch_timeout))?;
             rollbacks.insert_1(Rollback::RemoveSocket {
                 path: firecracker.get_socket_path(),
             });
