@@ -291,12 +291,11 @@ pub struct HypervisorConfig {
     ///			parameters of the allowed syscalls.
     pub seccomp_level: Option<usize>,
 
-    /// redirect stdout here
-    pub stdout_to: Option<String>,
+    // /// redirect stdout here
+    // pub stdout_to: Option<String>,
 
-    /// redirect stderr here
-    pub stderr_to: Option<String>,
-
+    // /// redirect stderr here
+    // pub stderr_to: Option<String>,
     /// clear jailer directory, default to false
     pub clear_jailer: Option<bool>,
 }
@@ -320,8 +319,8 @@ impl Default for HypervisorConfig {
             metrics_clear: None,
             network_clear: None,
             seccomp_level: None,
-            stdout_to: None,
-            stderr_to: None,
+            // stdout_to: None,
+            // stderr_to: None,
             clear_jailer: None,
             poll_status_secs: 10,
         }

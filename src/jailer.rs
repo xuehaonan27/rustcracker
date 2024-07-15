@@ -1,12 +1,7 @@
 use crate::{RtckError, RtckResult};
 
 pub mod jailer {
-    use std::{
-        os::unix::net::UnixStream,
-        path::PathBuf,
-        process::Stdio,
-        sync::{Arc, Condvar, Mutex},
-    };
+    use std::{os::unix::net::UnixStream, path::PathBuf};
 
     use serde::{Deserialize, Serialize};
 
@@ -72,18 +67,17 @@ pub mod jailer {
 
         // Metrics path seen by Rtck
         metrics_path_export: Option<PathBuf>,
+        // // stdout redirection
+        // stdout_to: Option<String>,
 
-        // stdout redirection
-        stdout_to: Option<String>,
+        // // stdout redirection exported
+        // stdout_to_exported: Option<PathBuf>,
 
-        // stdout redirection exported
-        stdout_to_exported: Option<PathBuf>,
+        // // stderr redirection
+        // stderr_to: Option<String>,
 
-        // stderr redirection
-        stderr_to: Option<String>,
-
-        // stderr redirection exported
-        stderr_to_exported: Option<PathBuf>,
+        // // stderr redirection exported
+        // stderr_to_exported: Option<PathBuf>,
     }
 
     impl Jailer {
@@ -123,13 +117,13 @@ pub mod jailer {
             self.jailer_workspace_dir.as_ref()
         }
 
-        pub fn get_stdout_redirection_exported(&self) -> Option<&PathBuf> {
-            self.stdout_to_exported.as_ref()
-        }
+        // pub fn get_stdout_redirection_exported(&self) -> Option<&PathBuf> {
+        //     self.stdout_to_exported.as_ref()
+        // }
 
-        pub fn get_stderr_redirection_exported(&self) -> Option<&PathBuf> {
-            self.stderr_to_exported.as_ref()
-        }
+        // pub fn get_stderr_redirection_exported(&self) -> Option<&PathBuf> {
+        //     self.stderr_to_exported.as_ref()
+        // }
     }
 
     impl Jailer {
@@ -178,10 +172,10 @@ pub mod jailer {
                 log_path_export: None,
                 metrics_path: config.metrics_path.clone(),
                 metrics_path_export: None,
-                stdout_to: config.stdout_to.clone(),
-                stdout_to_exported: None,
-                stderr_to: config.stderr_to.clone(),
-                stderr_to_exported: None,
+                // stdout_to: config.stdout_to.clone(),
+                // stdout_to_exported: None,
+                // stderr_to: config.stderr_to.clone(),
+                // stderr_to_exported: None,
             })
         }
 
@@ -273,36 +267,36 @@ pub mod jailer {
                 }
             }
 
-            match &self.stdout_to {
-                // not using stdout redirection, skipping
-                None => (),
-                Some(stdout_to) => {
-                    let stdout_to = PathBuf::from(stdout_to);
-                    let stdout_to = if stdout_to.is_absolute() {
-                        stdout_to.strip_prefix("/").map_err(|_| {
-                            RtckError::Jailer("fail to strip absolute prefix".to_string())
-                        })?
-                    } else {
-                        stdout_to.as_path()
-                    };
-                    self.stdout_to_exported = Some(jailer_workspace_dir.join(stdout_to));
-                }
-            }
+            // match &self.stdout_to {
+            //     // not using stdout redirection, skipping
+            //     None => (),
+            //     Some(stdout_to) => {
+            //         let stdout_to = PathBuf::from(stdout_to);
+            //         let stdout_to = if stdout_to.is_absolute() {
+            //             stdout_to.strip_prefix("/").map_err(|_| {
+            //                 RtckError::Jailer("fail to strip absolute prefix".to_string())
+            //             })?
+            //         } else {
+            //             stdout_to.as_path()
+            //         };
+            //         self.stdout_to_exported = Some(jailer_workspace_dir.join(stdout_to));
+            //     }
+            // }
 
-            match &self.stderr_to {
-                None => (),
-                Some(stderr_to) => {
-                    let stderr_to = PathBuf::from(stderr_to);
-                    let stderr_to = if stderr_to.is_absolute() {
-                        stderr_to.strip_prefix("/").map_err(|_| {
-                            RtckError::Jailer("fail to strip absolute prefix".to_string())
-                        })?
-                    } else {
-                        stderr_to.as_path()
-                    };
-                    self.stderr_to_exported = Some(jailer_workspace_dir.join(stderr_to));
-                }
-            }
+            // match &self.stderr_to {
+            //     None => (),
+            //     Some(stderr_to) => {
+            //         let stderr_to = PathBuf::from(stderr_to);
+            //         let stderr_to = if stderr_to.is_absolute() {
+            //             stderr_to.strip_prefix("/").map_err(|_| {
+            //                 RtckError::Jailer("fail to strip absolute prefix".to_string())
+            //             })?
+            //         } else {
+            //             stderr_to.as_path()
+            //         };
+            //         self.stderr_to_exported = Some(jailer_workspace_dir.join(stderr_to));
+            //     }
+            // }
 
             Ok(instance_dir)
         }
@@ -333,35 +327,35 @@ pub mod jailer {
                 }
             }
 
-            match &self.stdout_to_exported {
-                Some(stdout_to) => {
-                    if !PathBuf::from(stdout_to).exists() {
-                        std::fs::File::create(stdout_to).map_err(|_| {
-                            RtckError::FilesysIO("fail to create stdout file".to_string())
-                        })?;
-                    }
-                    let stdout = std::fs::File::open(stdout_to).map_err(|_| {
-                        RtckError::FilesysIO("fail to open stdout redirection file".to_string())
-                    })?;
-                    cmd.stdout(Stdio::from(stdout));
-                }
-                None => (),
-            }
+            // match &self.stdout_to_exported {
+            //     Some(stdout_to) => {
+            //         if !PathBuf::from(stdout_to).exists() {
+            //             std::fs::File::create(stdout_to).map_err(|_| {
+            //                 RtckError::FilesysIO("fail to create stdout file".to_string())
+            //             })?;
+            //         }
+            //         let stdout = std::fs::File::open(stdout_to).map_err(|_| {
+            //             RtckError::FilesysIO("fail to open stdout redirection file".to_string())
+            //         })?;
+            //         cmd.stdout(Stdio::from(stdout));
+            //     }
+            //     None => (),
+            // }
 
-            match &self.stderr_to_exported {
-                Some(stderr_to) => {
-                    if !PathBuf::from(stderr_to).exists() {
-                        std::fs::File::create(stderr_to).map_err(|_| {
-                            RtckError::FilesysIO("fail to create stderr file".to_string())
-                        })?;
-                    }
-                    let stderr = std::fs::File::open(stderr_to).map_err(|_| {
-                        RtckError::FilesysIO("fail to open stderr redirection file".to_string())
-                    })?;
-                    cmd.stderr(Stdio::from(stderr));
-                }
-                None => (),
-            }
+            // match &self.stderr_to_exported {
+            //     Some(stderr_to) => {
+            //         if !PathBuf::from(stderr_to).exists() {
+            //             std::fs::File::create(stderr_to).map_err(|_| {
+            //                 RtckError::FilesysIO("fail to create stderr file".to_string())
+            //             })?;
+            //         }
+            //         let stderr = std::fs::File::open(stderr_to).map_err(|_| {
+            //             RtckError::FilesysIO("fail to open stderr redirection file".to_string())
+            //         })?;
+            //         cmd.stderr(Stdio::from(stderr));
+            //     }
+            //     None => (),
+            // }
 
             cmd.spawn()
                 .map_err(|_| RtckError::Jailer("spawning jailer".to_string()))
@@ -442,7 +436,7 @@ pub mod jailer {
 }
 
 pub mod jailer_async {
-    use std::{path::PathBuf, process::Stdio};
+    use std::path::PathBuf;
 
     use serde::{Deserialize, Serialize};
     use tokio::net::UnixStream;
@@ -509,18 +503,17 @@ pub mod jailer_async {
 
         // Metrics path seen by Rtck
         metrics_path_export: Option<PathBuf>,
+        // // stdout redirection
+        // stdout_to: Option<String>,
 
-        // stdout redirection
-        stdout_to: Option<String>,
+        // // stdout redirection exported
+        // stdout_to_exported: Option<PathBuf>,
 
-        // stdout redirection exported
-        stdout_to_exported: Option<PathBuf>,
+        // // stderr redirection
+        // stderr_to: Option<String>,
 
-        // stderr redirection
-        stderr_to: Option<String>,
-
-        // stderr redirection exported
-        stderr_to_exported: Option<PathBuf>,
+        // // stderr redirection exported
+        // stderr_to_exported: Option<PathBuf>,
     }
 
     impl JailerAsync {
@@ -560,13 +553,13 @@ pub mod jailer_async {
             self.jailer_workspace_dir.as_ref()
         }
 
-        pub fn get_stdout_redirection_exported(&self) -> Option<&PathBuf> {
-            self.stdout_to_exported.as_ref()
-        }
+        // pub fn get_stdout_redirection_exported(&self) -> Option<&PathBuf> {
+        //     self.stdout_to_exported.as_ref()
+        // }
 
-        pub fn get_stderr_redirection_exported(&self) -> Option<&PathBuf> {
-            self.stderr_to_exported.as_ref()
-        }
+        // pub fn get_stderr_redirection_exported(&self) -> Option<&PathBuf> {
+        //     self.stderr_to_exported.as_ref()
+        // }
     }
 
     impl JailerAsync {
@@ -615,10 +608,10 @@ pub mod jailer_async {
                 log_path_export: None,
                 metrics_path: config.metrics_path.clone(),
                 metrics_path_export: None,
-                stdout_to: config.stdout_to.clone(),
-                stdout_to_exported: None,
-                stderr_to: config.stderr_to.clone(),
-                stderr_to_exported: None,
+                // stdout_to: config.stdout_to.clone(),
+                // stdout_to_exported: None,
+                // stderr_to: config.stderr_to.clone(),
+                // stderr_to_exported: None,
             })
         }
 
@@ -711,36 +704,36 @@ pub mod jailer_async {
                 }
             }
 
-            match &self.stdout_to {
-                // not using stdout redirection, skipping
-                None => (),
-                Some(stdout_to) => {
-                    let stdout_to = PathBuf::from(stdout_to);
-                    let stdout_to = if stdout_to.is_absolute() {
-                        stdout_to.strip_prefix("/").map_err(|_| {
-                            RtckError::Jailer("fail to strip absolute prefix".to_string())
-                        })?
-                    } else {
-                        stdout_to.as_path()
-                    };
-                    self.stdout_to_exported = Some(jailer_workspace_dir.join(stdout_to));
-                }
-            }
+            // match &self.stdout_to {
+            //     // not using stdout redirection, skipping
+            //     None => (),
+            //     Some(stdout_to) => {
+            //         let stdout_to = PathBuf::from(stdout_to);
+            //         let stdout_to = if stdout_to.is_absolute() {
+            //             stdout_to.strip_prefix("/").map_err(|_| {
+            //                 RtckError::Jailer("fail to strip absolute prefix".to_string())
+            //             })?
+            //         } else {
+            //             stdout_to.as_path()
+            //         };
+            //         self.stdout_to_exported = Some(jailer_workspace_dir.join(stdout_to));
+            //     }
+            // }
 
-            match &self.stderr_to {
-                None => (),
-                Some(stderr_to) => {
-                    let stderr_to = PathBuf::from(stderr_to);
-                    let stderr_to = if stderr_to.is_absolute() {
-                        stderr_to.strip_prefix("/").map_err(|_| {
-                            RtckError::Jailer("fail to strip absolute prefix".to_string())
-                        })?
-                    } else {
-                        stderr_to.as_path()
-                    };
-                    self.stderr_to_exported = Some(jailer_workspace_dir.join(stderr_to));
-                }
-            }
+            // match &self.stderr_to {
+            //     None => (),
+            //     Some(stderr_to) => {
+            //         let stderr_to = PathBuf::from(stderr_to);
+            //         let stderr_to = if stderr_to.is_absolute() {
+            //             stderr_to.strip_prefix("/").map_err(|_| {
+            //                 RtckError::Jailer("fail to strip absolute prefix".to_string())
+            //             })?
+            //         } else {
+            //             stderr_to.as_path()
+            //         };
+            //         self.stderr_to_exported = Some(jailer_workspace_dir.join(stderr_to));
+            //     }
+            // }
 
             Ok(instance_dir)
         }
@@ -771,35 +764,35 @@ pub mod jailer_async {
                 }
             }
 
-            match &self.stdout_to_exported {
-                Some(stdout_to) => {
-                    if !PathBuf::from(stdout_to).exists() {
-                        std::fs::File::create(stdout_to).map_err(|_| {
-                            RtckError::FilesysIO("fail to create stdout file".to_string())
-                        })?;
-                    }
-                    let stdout = std::fs::File::open(stdout_to).map_err(|_| {
-                        RtckError::FilesysIO("fail to open stdout redirection file".to_string())
-                    })?;
-                    cmd.stdout(Stdio::from(stdout));
-                }
-                None => (),
-            }
+            // match &self.stdout_to_exported {
+            //     Some(stdout_to) => {
+            //         if !PathBuf::from(stdout_to).exists() {
+            //             std::fs::File::create(stdout_to).map_err(|_| {
+            //                 RtckError::FilesysIO("fail to create stdout file".to_string())
+            //             })?;
+            //         }
+            //         let stdout = std::fs::File::open(stdout_to).map_err(|_| {
+            //             RtckError::FilesysIO("fail to open stdout redirection file".to_string())
+            //         })?;
+            //         cmd.stdout(Stdio::from(stdout));
+            //     }
+            //     None => (),
+            // }
 
-            match &self.stderr_to_exported {
-                Some(stderr_to) => {
-                    if !PathBuf::from(stderr_to).exists() {
-                        std::fs::File::create(stderr_to).map_err(|_| {
-                            RtckError::FilesysIO("fail to create stderr file".to_string())
-                        })?;
-                    }
-                    let stderr = std::fs::File::open(stderr_to).map_err(|_| {
-                        RtckError::FilesysIO("fail to open stderr redirection file".to_string())
-                    })?;
-                    cmd.stderr(Stdio::from(stderr));
-                }
-                None => (),
-            }
+            // match &self.stderr_to_exported {
+            //     Some(stderr_to) => {
+            //         if !PathBuf::from(stderr_to).exists() {
+            //             std::fs::File::create(stderr_to).map_err(|_| {
+            //                 RtckError::FilesysIO("fail to create stderr file".to_string())
+            //             })?;
+            //         }
+            //         let stderr = std::fs::File::open(stderr_to).map_err(|_| {
+            //             RtckError::FilesysIO("fail to open stderr redirection file".to_string())
+            //         })?;
+            //         cmd.stderr(Stdio::from(stderr));
+            //     }
+            //     None => (),
+            // }
 
             cmd.spawn()
                 .map_err(|_| RtckError::Jailer("spawning jailer".to_string()))

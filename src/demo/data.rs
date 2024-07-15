@@ -38,8 +38,8 @@ lazy_static! {
         metrics_clear: Some(false),
         network_clear: None,
         seccomp_level: None,
-        stdout_to: env::var("STDOUT_TO").ok(),
-        stderr_to: env::var("STDERR_TO").ok(),
+        // stdout_to: env::var("STDOUT_TO").ok(),
+        // stderr_to: env::var("STDERR_TO").ok(),
         clear_jailer: env::var("CLEAR_JAILER")
             .ok()
             .and_then(|s| s.to_lowercase().parse().ok()),
@@ -67,8 +67,8 @@ lazy_static! {
         metrics_clear: Some(false),
         network_clear: None,
         seccomp_level: None,
-        stdout_to: env::var("STDOUT_TO").ok(),
-        stderr_to: env::var("STDERR_TO").ok(),
+        // stdout_to: env::var("STDOUT_TO").ok(),
+        // stderr_to: env::var("STDERR_TO").ok(),
         clear_jailer: env::var("CLEAR_JAILER")
             .ok()
             .and_then(|s| s.to_lowercase().parse().ok()),

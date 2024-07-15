@@ -4,7 +4,6 @@ pub mod firecracker {
     use std::{
         os::unix::net::UnixStream,
         path::PathBuf,
-        process::Stdio,
         sync::{Arc, Condvar, Mutex},
     };
 
@@ -31,12 +30,11 @@ pub mod firecracker {
 
         // Path to the config file
         pub(crate) config_path: Option<String>,
+        // // stdout redirection
+        // pub(crate) stdout_to: Option<PathBuf>,
 
-        // stdout redirection
-        pub(crate) stdout_to: Option<PathBuf>,
-
-        // stderr redirection
-        pub(crate) stderr_to: Option<PathBuf>,
+        // // stderr redirection
+        // pub(crate) stderr_to: Option<PathBuf>,
     }
 
     impl Firecracker {
@@ -64,14 +62,14 @@ pub mod firecracker {
                 log_path: config.log_path.clone().map(PathBuf::from),
                 // metrics_path: handle_entry(&config.metrics_path)?.into(),
                 config_path: config.frck_export_path.clone().and_then(|s| Some(s.into())),
-                stdout_to: config
-                    .stdout_to
-                    .clone()
-                    .and_then(|s| Some(PathBuf::from(s))),
-                stderr_to: config
-                    .stderr_to
-                    .clone()
-                    .and_then(|s| Some(PathBuf::from(s))),
+                // stdout_to: config
+                //     .stdout_to
+                //     .clone()
+                //     .and_then(|s| Some(PathBuf::from(s))),
+                // stderr_to: config
+                //     .stderr_to
+                //     .clone()
+                //     .and_then(|s| Some(PathBuf::from(s))),
             })
         }
 
@@ -109,9 +107,9 @@ pub mod firecracker {
 
             let config_path = jailer.get_config_path_exported().cloned();
 
-            let stdout_to = jailer.get_stdout_redirection_exported().cloned();
+            // let stdout_to = jailer.get_stdout_redirection_exported().cloned();
 
-            let stderr_to = jailer.get_stderr_redirection_exported().cloned();
+            // let stderr_to = jailer.get_stderr_redirection_exported().cloned();
 
             Ok(Self {
                 id: jailer.id,
@@ -121,8 +119,8 @@ pub mod firecracker {
                 log_path: Some(log_path),
                 // metrics_path,
                 config_path,
-                stdout_to,
-                stderr_to,
+                // stdout_to,
+                // stderr_to,
             })
         }
 
@@ -134,25 +132,25 @@ pub mod firecracker {
                 None => (),
             }
 
-            match &self.stdout_to {
-                Some(stdout_to) => {
-                    let stdout = std::fs::File::open(stdout_to).map_err(|_| {
-                        RtckError::FilesysIO("fail to open stdout redirection file".to_string())
-                    })?;
-                    c.stdout(Stdio::from(stdout));
-                }
-                None => (),
-            }
+            // match &self.stdout_to {
+            //     Some(stdout_to) => {
+            //         let stdout = std::fs::File::open(stdout_to).map_err(|_| {
+            //             RtckError::FilesysIO("fail to open stdout redirection file".to_string())
+            //         })?;
+            //         c.stdout(Stdio::from(stdout));
+            //     }
+            //     None => (),
+            // }
 
-            match &self.stderr_to {
-                Some(stderr_to) => {
-                    let stderr = std::fs::File::open(stderr_to).map_err(|_| {
-                        RtckError::FilesysIO("fail to open stderr redirection file".to_string())
-                    })?;
-                    c.stdout(Stdio::from(stderr));
-                }
-                None => (),
-            }
+            // match &self.stderr_to {
+            //     Some(stderr_to) => {
+            //         let stderr = std::fs::File::open(stderr_to).map_err(|_| {
+            //             RtckError::FilesysIO("fail to open stderr redirection file".to_string())
+            //         })?;
+            //         c.stdout(Stdio::from(stderr));
+            //     }
+            //     None => (),
+            // }
 
             c.spawn()
                 .map_err(|_| RtckError::Firecracker("spawn fail".to_string()))
@@ -230,7 +228,7 @@ pub mod firecracker {
 }
 
 pub mod firecracker_async {
-    use std::{path::PathBuf, process::Stdio};
+    use std::path::PathBuf;
 
     use serde::{Deserialize, Serialize};
     use tokio::net::UnixStream;
@@ -258,12 +256,11 @@ pub mod firecracker_async {
 
         // Path to the config file
         pub(crate) config_path: Option<String>,
+        // // stdout redirection
+        // pub(crate) stdout_to: Option<PathBuf>,
 
-        // stdout redirection
-        pub(crate) stdout_to: Option<PathBuf>,
-
-        // stderr redirection
-        pub(crate) stderr_to: Option<PathBuf>,
+        // // stderr redirection
+        // pub(crate) stderr_to: Option<PathBuf>,
     }
 
     impl FirecrackerAsync {
@@ -291,14 +288,14 @@ pub mod firecracker_async {
                 log_path: config.log_path.clone().map(PathBuf::from),
                 // metrics_path: handle_entry(&config.metrics_path)?.into(),
                 config_path: config.frck_export_path.clone().and_then(|s| Some(s.into())),
-                stdout_to: config
-                    .stdout_to
-                    .clone()
-                    .and_then(|s| Some(PathBuf::from(s))),
-                stderr_to: config
-                    .stderr_to
-                    .clone()
-                    .and_then(|s| Some(PathBuf::from(s))),
+                // stdout_to: config
+                //     .stdout_to
+                //     .clone()
+                //     .and_then(|s| Some(PathBuf::from(s))),
+                // stderr_to: config
+                //     .stderr_to
+                //     .clone()
+                //     .and_then(|s| Some(PathBuf::from(s))),
             })
         }
 
@@ -336,9 +333,9 @@ pub mod firecracker_async {
 
             let config_path = jailer.get_config_path_exported().cloned();
 
-            let stdout_to = jailer.get_stdout_redirection_exported().cloned();
+            // let stdout_to = jailer.get_stdout_redirection_exported().cloned();
 
-            let stderr_to = jailer.get_stderr_redirection_exported().cloned();
+            // let stderr_to = jailer.get_stderr_redirection_exported().cloned();
 
             Ok(Self {
                 id: jailer.id,
@@ -348,8 +345,8 @@ pub mod firecracker_async {
                 log_path: Some(log_path),
                 // metrics_path,
                 config_path,
-                stdout_to,
-                stderr_to,
+                // stdout_to,
+                // stderr_to,
             })
         }
 
@@ -361,25 +358,25 @@ pub mod firecracker_async {
                 None => (),
             }
 
-            match &self.stdout_to {
-                Some(stdout_to) => {
-                    let stdout = std::fs::File::open(stdout_to).map_err(|_| {
-                        RtckError::FilesysIO("fail to open stdout redirection file".to_string())
-                    })?;
-                    c.stdout(Stdio::from(stdout));
-                }
-                None => (),
-            }
+            // match &self.stdout_to {
+            //     Some(stdout_to) => {
+            //         let stdout = std::fs::File::open(stdout_to).map_err(|_| {
+            //             RtckError::FilesysIO("fail to open stdout redirection file".to_string())
+            //         })?;
+            //         c.stdout(Stdio::from(stdout));
+            //     }
+            //     None => (),
+            // }
 
-            match &self.stderr_to {
-                Some(stderr_to) => {
-                    let stderr = std::fs::File::open(stderr_to).map_err(|_| {
-                        RtckError::FilesysIO("fail to open stderr redirection file".to_string())
-                    })?;
-                    c.stdout(Stdio::from(stderr));
-                }
-                None => (),
-            }
+            // match &self.stderr_to {
+            //     Some(stderr_to) => {
+            //         let stderr = std::fs::File::open(stderr_to).map_err(|_| {
+            //             RtckError::FilesysIO("fail to open stderr redirection file".to_string())
+            //         })?;
+            //         c.stdout(Stdio::from(stderr));
+            //     }
+            //     None => (),
+            // }
 
             c.spawn()
                 .map_err(|_| RtckError::Firecracker("spawn fail".to_string()))
