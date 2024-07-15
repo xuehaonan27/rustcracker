@@ -236,10 +236,6 @@ pub fn syncusing() {
 
     let _ = hypervisor.wait();
 
-    hypervisor.stop().expect("fail to stop");
-    log::info!("microVM stopped");
-    std::thread::sleep(std::time::Duration::from_secs(3));
-
     hypervisor.delete().expect("fail to delete");
     log::info!("microVM deleted");
 }

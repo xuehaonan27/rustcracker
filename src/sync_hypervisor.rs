@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, process::ExitStatus};
 
 use crate::{
     agent::sync_agent::Agent,
@@ -907,8 +907,14 @@ impl Hypervisor {
         }
     }
 
+    pub fn wait(&mut self) -> RtckResult<ExitStatus> {
+        self.child
+            .wait()
+            .map_err(|_| RtckError::Hypervisor("waiting hypervisor to exit".to_string()))
+    }
+
     /// Wait for microVM to exit microVM voluntarily
-    pub fn wait(&mut self) -> RtckResult<()> {
+    pub fn unused(&mut self) -> RtckResult<()> {
         loop {
             std::thread::sleep(std::time::Duration::from_secs(self.poll_status_secs));
             let describe_metrics = DescribeInstance::new();
@@ -963,8 +969,7 @@ impl Hypervisor {
     }
 
     /// Delete the machine by notifying firecracker
-    pub fn delete(mut self) -> RtckResult<()> {
-        let _ = self.stop();
+    pub fn delete(self) -> RtckResult<()> {
         drop(self);
 
         // delete network TUN/TAP interface
