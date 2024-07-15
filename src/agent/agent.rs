@@ -192,11 +192,21 @@ impl Agent {
     /// Start a single event by passing a FirecrackerEvent like object
     pub async fn event<E: FirecrackerEvent>(&mut self, event: E) -> AgentResult<E::Res> {
         self.lock()?;
-        // log::info!("Agent locked");
-        self.clear_stream().await?;
-        // log::info!("Stream cleared");
-        self.send_request(event.req()).await?;
-        let res = self.recv_response().await?;
+        if let Err(e) = self.clear_stream().await {
+            self.unlock()?;
+            return Err(e);
+        }
+        if let Err(e) = self.send_request(event.req()).await {
+            self.unlock()?;
+            return Err(e);
+        }
+        let res = match self.recv_response().await {
+            Ok(res) => res,
+            Err(e) => {
+                self.unlock()?;
+                return Err(e);
+            }
+        };
         self.unlock()?;
         E::decode(&res).map_err(|e| AgentError::BadResponse(e.to_string()))
     }
