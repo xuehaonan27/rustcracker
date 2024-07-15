@@ -120,9 +120,33 @@ pub async fn using() {
 
     let _ = hypervisor.wait().await;
 
-    hypervisor.stop().await.expect("fail to stop");
-    log::info!("microVM stopped");
+    hypervisor.delete().await.expect("fail to delete");
+    log::info!("microVM deleted");
+}
+
+pub async fn force_terminating() {
+    dotenvy::dotenv().ok();
+
+    let mut hypervisor = Hypervisor::new(&HYPERVISOR_WITHJAILER_CONFIG)
+        .await
+        .expect("fail to create hypervisor");
+    log::info!("Hypervisor created");
     sleep(3).await;
+
+    hypervisor.ping_remote().await.expect("fail to ping remote");
+    log::info!("Hypervisor running!");
+    sleep(3).await;
+
+    hypervisor
+        .start(&MICROVM_CONFIG)
+        .await
+        .expect("fail to configure microVM");
+    log::info!("microVM configured");
+    sleep(3).await;
+
+    sleep(30).await;
+
+    hypervisor.stop().await.expect("fail to stop");
 
     hypervisor.delete().await.expect("fail to delete");
     log::info!("microVM deleted");
@@ -191,14 +215,12 @@ pub async fn reusing_hypervisor() {
     hypervisor.delete().await.expect("fail to delete");
 }
 
-
 pub fn syncusing() {
     use rustcracker::sync_hypervisor::Hypervisor;
     dotenvy::dotenv().ok();
 
-    let mut hypervisor = Hypervisor::new(&HYPERVISOR_WITHJAILER_CONFIG)
-        
-        .expect("fail to create hypervisor");
+    let mut hypervisor =
+        Hypervisor::new(&HYPERVISOR_WITHJAILER_CONFIG).expect("fail to create hypervisor");
     log::info!("Hypervisor created");
     std::thread::sleep(std::time::Duration::from_secs(3));
 
@@ -208,7 +230,6 @@ pub fn syncusing() {
 
     hypervisor
         .start(&MICROVM_CONFIG)
-        
         .expect("fail to configure microVM");
     log::info!("microVM configured");
     std::thread::sleep(std::time::Duration::from_secs(3));

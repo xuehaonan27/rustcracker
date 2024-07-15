@@ -18,6 +18,7 @@ async fn main() {
         "--no-jailer" => demo::no_jailer().await,
         "--with-jailer" => demo::with_jailer().await,
         "--using" => demo::using().await,
+        "--force" => demo::force_terminating().await,
         "--reusing" => demo::reusing_hypervisor().await,
         "--syncusing" => demo::syncusing(),
         _ => panic!("unknown option"),

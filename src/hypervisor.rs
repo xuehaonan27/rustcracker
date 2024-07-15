@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, process::ExitStatus};
 
 // use procfs::process::Process;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1045,8 +1045,15 @@ impl Hypervisor {
             .map_err(|_| RtckError::Machine("fail to terminate".to_string()))
     }
 
+    pub async fn wait(&mut self) -> RtckResult<ExitStatus> {
+        self.child
+            .wait()
+            .await
+            .map_err(|_| RtckError::Hypervisor("waiting hypervisor to exit".to_string()))
+    }
+
     /// Wait for microVM to exit microVM voluntarily
-    pub async fn wait(&mut self) -> RtckResult<()> {
+    pub async fn unused(&mut self) -> RtckResult<()> {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(self.poll_status_secs)).await;
             let describe_metrics = DescribeInstance::new();
@@ -1101,8 +1108,7 @@ impl Hypervisor {
     }
 
     /// Delete the machine by notifying firecracker
-    pub async fn delete(mut self) -> RtckResult<()> {
-        let _ = self.stop().await;
+    pub async fn delete(self) -> RtckResult<()> {
         drop(self);
 
         // delete network TUN/TAP interface
