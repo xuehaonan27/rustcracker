@@ -1143,3 +1143,172 @@ impl Hypervisor {
         self.status
     }
 }
+
+/// API for actions that is legal after MicroVM started.
+impl Hypervisor {
+    pub async fn patch_balloon_stats_interval(
+        &mut self,
+        stats_polling_interval_s: i64,
+    ) -> RtckResult<()> {
+        let patch_balloon_stats_interval = PatchBalloonStatsInterval::new(BalloonStatsUpdate {
+            stats_polling_interval_s,
+        });
+        let res = self
+            .agent
+            .event(patch_balloon_stats_interval)
+            .await
+            .map_err(|e| {
+                // log::error!("PatchBalloonStatsInterval event failed");
+                self.log(Error, "PatchBalloonStatsInterval event failed");
+                e
+            })?;
+        if res.is_err() {
+            // log::error!("PatchBalloonStatsInterval failed");
+            self.log(Error, "PatchBalloonStatsInterval failed");
+            return Err(RtckError::Hypervisor("fail to patch balloon".to_string()));
+        }
+        Ok(())
+    }
+
+    pub async fn patch_balloon(&mut self, amount_mib: i64) -> RtckResult<()> {
+        let patch_balloon = PatchBalloon::new(BalloonUpdate { amount_mib });
+        let res = self.agent.event(patch_balloon).await.map_err(|e| {
+            // log::error!("PatchBalloon event failed");
+            self.log(Error, "PatchBalloon event failed");
+            e
+        })?;
+        if res.is_err() {
+            // log::error!("PatchBalloon failed");
+            self.log(Error, "PatchBalloon failed");
+            return Err(RtckError::Hypervisor("fail to patch balloon".to_string()));
+        }
+        Ok(())
+    }
+
+    pub async fn patch_guest_drive_by_id(
+        &mut self,
+        drive_id: String,
+        path_on_host: Option<String>,
+        rate_limiter: Option<RateLimiter>,
+    ) -> RtckResult<()> {
+        let patch_guest_drive_by_id = PatchGuestDriveByID::new(PartialDrive {
+            drive_id,
+            path_on_host,
+            rate_limiter,
+        });
+        let res = self
+            .agent
+            .event(patch_guest_drive_by_id)
+            .await
+            .map_err(|e| {
+                // log::error!("PatchGuestDriveByID event failed");
+                self.log(Error, "PatchGuestDriveByID event failed");
+                e
+            })?;
+        if res.is_err() {
+            // log::error!("PatchGuestDriveByID failed");
+            self.log(Error, "PatchGuestDriveByID failed");
+            return Err(RtckError::Hypervisor(
+                "fail to patch guest drive".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub async fn patch_guest_network_interface_by_id(
+        &mut self,
+        iface_id: String,
+        rx_rate_limiter: Option<RateLimiter>,
+        tx_rate_limiter: Option<RateLimiter>,
+    ) -> RtckResult<()> {
+        let patch_guest_network_interface_by_id =
+            PatchGuestNetworkInterfaceByID::new(PartialNetworkInterface {
+                iface_id,
+                rx_rate_limiter,
+                tx_rate_limiter,
+            });
+        let res = self
+            .agent
+            .event(patch_guest_network_interface_by_id)
+            .await
+            .map_err(|e| {
+                // log::error!("PatchGuestNetworkInterfaceByID event failed");
+                self.log(Error, "PatchGuestNetworkInterfaceByID event failed");
+                e
+            })?;
+        if res.is_err() {
+            // log::error!("PatchGuestNetworkInterfaceByID failed");
+            self.log(Error, "PatchGuestNetworkInterfaceByID failed");
+            return Err(RtckError::Hypervisor(
+                "fail to path guest network interface".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub async fn patch_machine_configuration(
+        &mut self,
+        vcpu_count: isize,
+        mem_size_mib: isize,
+        cpu_template: Option<CPUTemplate>,
+        ht_enabled: Option<bool>,
+        track_dirty_pages: Option<bool>,
+    ) -> RtckResult<()> {
+        let patch_machine_configuration = PatchMachineConfiguration::new(MachineConfiguration {
+            cpu_template,
+            ht_enabled,
+            mem_size_mib,
+            track_dirty_pages,
+            vcpu_count,
+        });
+        let res = self
+            .agent
+            .event(patch_machine_configuration)
+            .await
+            .map_err(|e| {
+                // log::error!("PatchMachineConfiguration event failed");
+                self.log(Error, "PatchMachineConfiguration event failed");
+                e
+            })?;
+        if res.is_err() {
+            // log::error!("PatchMachineConfiguration failed");
+            self.log(Error, "PatchMachineConfiguration failed");
+            return Err(RtckError::Hypervisor(
+                "fail to patch machine configuration".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub async fn patch_mmds(&mut self, content: String) -> RtckResult<()> {
+        let patch_mmds = PatchMmds::new(content);
+        let res = self.agent.event(patch_mmds).await.map_err(|e| {
+            // log::error!("PatchMmds event failed");
+            self.log(Error, "PatchMmds event failed");
+            e
+        })?;
+        if res.is_err() {
+            // log::error!("PatchMmds failed");
+            self.log(Error, "PatchMmds failed");
+            return Err(RtckError::Hypervisor(
+                "fail to patch mmds content".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub async fn patch_vm(&mut self, state: VmState) -> RtckResult<()> {
+        let patch_vm = PatchVm::new(Vm { state });
+        let res = self.agent.event(patch_vm).await.map_err(|e| {
+            // log::error!("PatchVm event failed");
+            self.log(Error, "PatchVm event failed");
+            e
+        })?;
+        if res.is_err() {
+            // log::error!("PatchVm failed");
+            self.log(Error, "PatchVm failed");
+            return Err(RtckError::Hypervisor("fail to patch vm".to_string()));
+        }
+        Ok(())
+    }
+}

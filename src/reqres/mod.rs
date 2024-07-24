@@ -35,6 +35,13 @@ pub trait FirecrackerResponse {
     }
 }
 
+pub trait FirecrackerEvent {
+    type Req: FirecrackerRequest;
+    type Res: FirecrackerResponse;
+    fn req(&self) -> String;
+    fn decode(payload: &Vec<u8>) -> RtckResult<Self::Res>;
+}
+
 macro_rules! impl_all_firecracker_traits {
     // with body
     ($struct_name:ty, $method:expr, $endpoint:expr, $payload:ty, $res_succ:ty, $res_fail:ty) => {
@@ -250,13 +257,6 @@ macro_rules! impl_firecracker_response {
             }
         }
     };
-}
-
-pub trait FirecrackerEvent {
-    type Req: FirecrackerRequest;
-    type Res: FirecrackerResponse;
-    fn req(&self) -> String;
-    fn decode(payload: &Vec<u8>) -> RtckResult<Self::Res>;
 }
 
 pub mod create_snapshot;
