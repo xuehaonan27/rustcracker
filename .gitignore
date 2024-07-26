@@ -2,3 +2,4 @@
 .cargo
 .DS_Store
 rtck-test-output.*
+.vscode
