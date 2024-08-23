@@ -3,3 +3,5 @@
 .DS_Store
 rtck-test-output.*
 .vscode
+/config
+/log

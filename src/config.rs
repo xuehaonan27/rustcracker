@@ -1,8 +1,7 @@
-use std::path::PathBuf;
-
-use serde::{Deserialize, Serialize};
-
 use crate::{models::*, RtckError, RtckResult};
+use log::*;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// Configuration for a microVM instance
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -141,77 +140,50 @@ impl JailerConfig {
     pub fn validate(&self) -> RtckResult<()> {
         match &self.exec_file {
             None => {
-                log::error!(
-                    "[Rustcracker {}:{}:JailerConfig::validate missing exec_file]",
-                    file!(),
-                    line!()
-                );
-                return Err(RtckError::Config("no executable file".to_string()));
+                let msg = "Firecracker executable file not configured";
+                error!("{msg}");
+                return Err(RtckError::Config(msg.into()));
             }
             Some(path) => {
                 // forced by firecracker specification
                 if !path.contains("firecracker") {
-                    return Err(RtckError::Config(
-                        "executable path must contain `firecracker`".to_string(),
-                    ));
+                    let msg = "Firecracker executable path must contain `firecracker`";
+                    error!("{msg}");
+                    return Err(RtckError::Config(msg.into()));
                 }
                 let path = PathBuf::from(path);
                 if !path.exists() || !path.is_file() {
-                    log::error!(
-                        "[Rustcracker {}:{}:JailerConfig::validate missing exec_file]",
-                        file!(),
-                        line!()
-                    );
-                    return Err(RtckError::Config(
-                        "no executable file with jailer".to_string(),
-                    ));
+                    let msg = format!("Firecracker executable file not found at {path:?}");
+                    error!("{msg}");
+                    return Err(RtckError::Config(msg));
                 }
             }
         }
 
         match &self.jailer_bin {
             None => {
-                log::error!(
-                    "[Rustcracker {}:{}:JailerConfig::validate missing jailer_bin]",
-                    file!(),
-                    line!()
-                );
-                return Err(RtckError::Config(
-                    "jailer binary must be specified in configuration".to_string(),
-                ));
+                let msg = "Jailer binary path not configured";
+                error!("{msg}");
+                return Err(RtckError::Config(msg.into()));
             }
             Some(path) => {
                 let path = PathBuf::from(path);
                 if !path.exists() || !path.is_file() {
-                    log::error!(
-                        "[Rustcracker {}:{}:JailerConfig::validate missing jailer_bin]",
-                        file!(),
-                        line!()
-                    );
-                    return Err(RtckError::Config("missing jailer binary".to_string()));
+                    let msg = format!("Jailer binary not fount at {path:?}");
+                    error!("{msg}");
+                    return Err(RtckError::Config(msg));
                 }
             }
         }
 
         match &self.chroot_base_dir {
             None => (),
-            Some(path) => log::info!(
-                "[Rustcracker {}:{}:JailerConfig::validate using chroot_base_dir = {}]",
-                file!(),
-                line!(),
-                path
-            ),
+            Some(path) => info!("Using {path} as jailer chroot base directory"),
         }
 
+        trace!("Jailer configuration validated");
+
         Ok(())
-    }
-
-    pub fn to_vec(&self) -> RtckResult<Vec<u8>> {
-        serde_json::to_vec(&self).map_err(|_| RtckError::Encode("jailer config to vec".to_string()))
-    }
-
-    pub fn get_exec_file(&self) -> Option<&String> {
-        self.exec_file.as_ref()
     }
 }
 
@@ -332,23 +304,39 @@ impl HypervisorConfig {
         if let Some(true) = self.using_jailer {
             match &self.jailer_bin {
                 Some(path) if !PathBuf::from(path).exists() => {
-                    return Err(RtckError::Config("jailer bin missing".to_string()));
+                    let msg = "Jailer binary path not configured";
+                    error!("{msg}");
+                    return Err(RtckError::Config(msg.into()));
                 }
-                None => return Err(RtckError::Config("jailer bin missing".to_string())),
+                None => {
+                    let msg = "Jailer binary path not configured";
+                    error!("{msg}");
+                    return Err(RtckError::Config(msg.into()));
+                }
                 _ => (),
             }
 
             match &self.jailer_config {
-                None => return Err(RtckError::Config("no jailer config".to_string())),
+                None => {
+                    let msg = "No jailer config";
+                    error!("{msg}");
+                    return Err(RtckError::Config(msg.into()));
+                }
                 Some(config) => config.validate()?,
             }
         } else {
             match &self.socket_path {
-                None => return Err(RtckError::Config("missing socket path entry".to_string())),
+                None => {
+                    let msg = "Socket path not configured";
+                    error!("{msg}");
+                    return Err(RtckError::Config(msg.into()));
+                }
                 Some(path) => {
                     let path = PathBuf::from(path);
                     if path.exists() {
-                        return Err(RtckError::Config("socket path occupied".to_string()));
+                        let msg = "Socket path occupied";
+                        error!("{msg}");
+                        return Err(RtckError::Config(msg.into()));
                     }
                 }
             }
@@ -356,58 +344,23 @@ impl HypervisorConfig {
 
         match &self.frck_bin {
             None => {
-                return Err(RtckError::Config(
-                    "missing firecracker bin entry".to_string(),
-                ))
+                let msg = "Firecracker binary path not configured";
+                error!("{msg}");
+                return Err(RtckError::Config(msg.into()));
             }
             Some(path) => {
                 let path = PathBuf::from(path);
                 if !path.exists() || !path.is_file() {
-                    return Err(RtckError::Config("firecracker bin not found".to_string()));
+                    let msg = format!("Firecracker binary not found, provided path: {path:#?}");
+                    error!("{msg}");
+                    return Err(RtckError::Config(msg));
                 }
             }
         }
 
-        // if self.frck_export_path.is_some() {
-        //     match &self.frck_config {
-        //         None => return Err(RtckError::Config("no config to export".to_string())),
-        //         Some(_) => (),
-        //     }
-        // }
-
+        trace!("Hypervisor configuration validated");
         Ok(())
     }
-
-    // /// Export the firecracker config
-    // pub fn export_config(&self) -> RtckResult<()> {
-    //     match &self.frck_export_path {
-    //         None => Ok(()),
-    //         Some(path) => std::fs::write(
-    //             path,
-    //             self.frck_config
-    //                 .as_ref()
-    //                 .ok_or(RtckError::Config("no firecracker config".to_string()))?
-    //                 .to_vec()?,
-    //         )
-    //         .map_err(|e| RtckError::FilesysIO(format!("when exporting config, {}", e.to_string()))),
-    //     }
-    // }
-
-    // /// Export the firecracker config
-    // pub async fn export_config_async(&self) -> RtckResult<()> {
-    //     match &self.frck_export_path {
-    //         None => Ok(()),
-    //         Some(path) => tokio::fs::write(
-    //             path,
-    //             self.frck_config
-    //                 .as_ref()
-    //                 .ok_or(RtckError::Config("no firecracker config".to_string()))?
-    //                 .to_vec()?,
-    //         )
-    //         .await
-    //         .map_err(|_| RtckError::FilesysIO("exporting config".to_string())),
-    //     }
-    // }
 }
 
 /// Configuration combined for fast path microVM creation
@@ -415,107 +368,4 @@ impl HypervisorConfig {
 pub struct GlobalConfig {
     pub frck_config: Option<MicroVMConfig>,
     pub hv_config: Option<HypervisorConfig>,
-}
-
-#[cfg(test)]
-mod test {
-    // use crate::{
-    //     config::{boot_source, HypervisorConfig},
-    //     models::{
-    //         balloon::Balloon,
-    //         drive::Drive,
-    //         logger::{self, LogLevel},
-    //         machine_configuration::MachineConfiguration,
-    //         metrics,
-    //         network_interface::NetworkInterface,
-    //     },
-    // };
-
-    // use super::{GlobalConfig, MicroVMConfig};
-
-    // #[test]
-    // fn test_write_config_consistent() {
-    //     const SAVE_PATH: &'static str = "/tmp/test_firecracker_export_config.json";
-
-    //     let frck_config = MicroVMConfig {
-    //         logger: Some(logger::Logger {
-    //             log_path: "/var/log/firecracker/vm.log".to_string(),
-    //             level: Some(LogLevel::Error),
-    //             show_level: None,
-    //             show_log_origin: Some(true),
-    //             module: None,
-    //         }),
-    //         metrics: Some(metrics::Metrics {
-    //             metrics_path: "/var/metrics/firecracker/metrics".to_string(),
-    //         }),
-    //         boot_source: Some(boot_source::BootSource {
-    //             boot_args: Some("console=ttyS0 reboot=k panic=1 pci=off".to_string()),
-    //             initrd_path: None,
-    //             kernel_image_path: "/images/ubuntu_22_04.img".to_string(),
-    //         }),
-    //         drives: Some(vec![Drive {
-    //             drive_id: "rootfs".to_string(),
-    //             path_on_host: "./ubuntu-22.04.ext4".to_string(),
-    //             is_read_only: false,
-    //             is_root_device: true,
-    //             partuuid: None,
-    //             cache_type: None,
-    //             rate_limiter: None,
-    //             io_engine: None,
-    //             socket: None,
-    //         }]),
-    //         network_interfaces: Some(vec![NetworkInterface {
-    //             guest_mac: Some("06:00:AC:10:00:02".to_string()),
-    //             host_dev_name: "tap0".to_string(),
-    //             iface_id: "net1".to_string(),
-    //             rx_rate_limiter: None,
-    //             tx_rate_limiter: None,
-    //         }]),
-    //         vsock_devices: None,
-    //         cpu_config: None,
-    //         machine_config: Some(MachineConfiguration {
-    //             cpu_template: None,
-    //             ht_enabled: None,
-    //             mem_size_mib: 256,
-    //             track_dirty_pages: None,
-    //             vcpu_count: 8,
-    //         }),
-    //         vmid: Some("test_machine".to_string()),
-    //         net_ns: Some("mynetns".to_string()),
-    //         mmds_address: None,
-    //         balloon: Some(Balloon {
-    //             amount_mib: 64,
-    //             deflate_on_oom: true,
-    //             stats_polling_interval_s: None,
-    //         }),
-    //         entropy_device: None,
-    //         init_metadata: Some("This is initial metadata".to_string()),
-    //     };
-
-    //     let config = HypervisorConfig {
-    //         using_jailer: Some(false),
-    //         jailer_bin: None,
-    //         jailer_config: None,
-    //         socket_path: Some("/tmp/firecracker.sock".to_string()),
-    //         lock_path: None,
-    //         frck_bin: Some("/usr/bin/firecracker".to_string()),
-    //         // frck_config: Some(frck_config),
-    //         frck_export_path: Some(SAVE_PATH.to_string()),
-    //         log_path: None,
-    //         metrics_path: None,
-    //         log_clear: Some(false),
-    //         metrics_clear: Some(false),
-    //         network_clear: Some(false),
-    //         seccomp_level: None,
-    //     };
-
-    //     config.export_config().expect("Fail to export config");
-
-    //     let vec = std::fs::read(SAVE_PATH).expect("Fail to read config from file");
-
-    //     let config_: MicroVMConfig =
-    //         serde_json::from_slice(&vec).expect("Fail to deserialize the config");
-
-    //     assert_eq!(config.frck_config, Some(config_));
-    // }
 }

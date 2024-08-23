@@ -1,13 +1,10 @@
 use std::env;
 
-use rustcracker::hplog;
-
 mod demo;
 
 #[tokio::main]
 async fn main() {
-    // env_logger::init();
-    hplog::global_init();
+    log4rs::init_file("config/log4rs.yaml", Default::default()).unwrap();
 
     let set = env::args()
         .skip(1)

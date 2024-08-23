@@ -56,20 +56,11 @@ pub mod firecracker {
 
             Ok(Self {
                 id,
-                bin: handle_entry(&config.frck_bin)?,
+                bin: handle_entry(&config.frck_bin, "firecracker binary")?,
                 socket,
-                lock_path: handle_entry(&config.lock_path)?.into(),
+                lock_path: handle_entry(&config.lock_path, "lock path")?.into(),
                 log_path: config.log_path.clone().map(PathBuf::from),
-                // metrics_path: handle_entry(&config.metrics_path)?.into(),
                 config_path: config.frck_export_path.clone().and_then(|s| Some(s.into())),
-                // stdout_to: config
-                //     .stdout_to
-                //     .clone()
-                //     .and_then(|s| Some(PathBuf::from(s))),
-                // stderr_to: config
-                //     .stderr_to
-                //     .clone()
-                //     .and_then(|s| Some(PathBuf::from(s))),
             })
         }
 
@@ -282,20 +273,11 @@ pub mod firecracker_async {
 
             Ok(Self {
                 id,
-                bin: handle_entry(&config.frck_bin)?,
+                bin: handle_entry(&config.frck_bin, "firecracker binary")?,
                 socket,
-                lock_path: handle_entry(&config.lock_path)?.into(),
+                lock_path: handle_entry(&config.lock_path, "lock path")?.into(),
                 log_path: config.log_path.clone().map(PathBuf::from),
-                // metrics_path: handle_entry(&config.metrics_path)?.into(),
                 config_path: config.frck_export_path.clone().and_then(|s| Some(s.into())),
-                // stdout_to: config
-                //     .stdout_to
-                //     .clone()
-                //     .and_then(|s| Some(PathBuf::from(s))),
-                // stderr_to: config
-                //     .stderr_to
-                //     .clone()
-                //     .and_then(|s| Some(PathBuf::from(s))),
             })
         }
 
