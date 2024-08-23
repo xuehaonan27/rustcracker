@@ -1,17 +1,15 @@
 use std::{path::PathBuf, process::ExitStatus};
 
-use crate::{
-    agent::sync_agent::Agent,
-    config::{HypervisorConfig, MicroVMConfig},
-    firecracker::Firecracker,
-    hplog::{HPLogger, LogTo},
-    hypervisor::MicroVMStatus,
-    jailer::Jailer,
-    models::*,
-    raii::{Rollback, RollbackStack},
-    reqres::*,
-    RtckError, RtckResult,
-};
+use crate::agent::sync_agent::Agent;
+use crate::config::{HypervisorConfig, MicroVMConfig};
+use crate::firecracker::Firecracker;
+use crate::hplog::{HPLogger, LogTo};
+use crate::hypervisor::MicroVMStatus;
+use crate::jailer::Jailer;
+use crate::models::*;
+use crate::raii::{Rollback, RollbackStack};
+use crate::reqres::*;
+use crate::{RtckError, RtckResult};
 
 use log::Level::*;
 

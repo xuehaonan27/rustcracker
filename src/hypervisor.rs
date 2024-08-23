@@ -1,16 +1,14 @@
 use std::{path::PathBuf, process::ExitStatus};
 
-use crate::{
-    agent::agent::Agent,
-    config::{HypervisorConfig, MicroVMConfig},
-    firecracker::FirecrackerAsync,
-    hplog::{HPLogger, LogTo},
-    jailer::JailerAsync,
-    models::*,
-    raii::{Rollback, RollbackStack},
-    reqres::*,
-    RtckError, RtckResult,
-};
+use crate::agent::agent::Agent;
+use crate::config::{HypervisorConfig, MicroVMConfig};
+use crate::firecracker::FirecrackerAsync;
+use crate::hplog::{HPLogger, LogTo};
+use crate::jailer::JailerAsync;
+use crate::models::*;
+use crate::raii::{Rollback, RollbackStack};
+use crate::reqres::*;
+use crate::{RtckError, RtckResult};
 
 use log::Level::*;
 
@@ -953,32 +951,6 @@ impl Hypervisor {
             self.status = MicroVMStatus::Stop;
             Ok(())
         }
-    }
-
-    /// Terminate the hypervisor by sending SIGTERM
-    /// Note: this command will terminate firecracker itself.
-    #[cfg(any(target_os = "linux", target_os = "unix"))]
-    async fn terminate(&mut self) -> RtckResult<()> {
-        use nix::{
-            sys::signal::{kill, Signal},
-            unistd::Pid,
-        };
-        // the hypervisor occupies the pid by opening fd to it (procfs).
-        // so kill -9 to this pid is safe.
-        kill(Pid::from_raw(self.pid as i32), Signal::SIGTERM)
-            .map_err(|_| RtckError::Machine("fail to terminate".to_string()))
-    }
-
-    /// Terminate the hypervisor by sending SIGKILL
-    /// Note: this command will kill firecracker itself.
-    #[cfg(any(target_os = "linux", target_os = "unix"))]
-    async fn kill(&mut self) -> RtckResult<()> {
-        // the hypervisor occupies the pid by opening fd to it (procfs).
-        // so kill -9 to this pid is safe.
-        use nix::sys::signal::{kill, Signal};
-        kill(nix::unistd::Pid::from_raw(self.pid as i32), Signal::SIGKILL)
-            // kill -9 should not trigger this error since SIGKILL is not blockable
-            .map_err(|_| RtckError::Machine("fail to terminate".to_string()))
     }
 
     pub async fn wait(&mut self) -> RtckResult<ExitStatus> {

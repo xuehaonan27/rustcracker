@@ -22,9 +22,6 @@ fn kill(pid: Pid) -> RtckResult<()> {
         .map_err(|_| RtckError::Machine("fail to terminate".to_string()))
 }
 
-// 定义一个操作的回滚函数类型
-// pub type RollbackFn = Box<dyn FnOnce() + Send + 'static>;
-
 pub enum Rollback {
     Jailing {
         clear: bool,
@@ -180,7 +177,7 @@ impl Rollback {
     }
 }
 
-// RollbackStack 用于管理回滚函数的栈
+/// Stack that manages rollbacks.
 pub struct RollbackStack {
     pub stack: Vec<Rollback>,
 }
@@ -190,7 +187,6 @@ impl RollbackStack {
         RollbackStack { stack: Vec::new() }
     }
 
-    // 添加一个回滚函数到栈中
     pub fn push(&mut self, rollback: Rollback) {
         self.stack.push(rollback);
     }
@@ -199,7 +195,6 @@ impl RollbackStack {
         self.stack.insert(self.stack.len() - 1, rollback);
     }
 
-    // 执行所有的回滚函数，按LIFO顺序
     pub fn rollback_all(&mut self) {
         while let Some(op) = self.stack.pop() {
             op.rollback();
@@ -207,51 +202,8 @@ impl RollbackStack {
     }
 }
 
-// 自动在作用域结束时调用回滚函数
 impl Drop for RollbackStack {
     fn drop(&mut self) {
         self.rollback_all();
     }
 }
-
-// // 示例操作函数，返回Result并携带其回滚函数
-// fn perform_operation(i: usize) -> Result<Rollback, Box<dyn Error>> {
-//     println!("Performing operation {}", i);
-//     if i == 8 {
-//         return Err(Box::new(MyError(format!("Error in operation {}", i))));
-//     }
-//     // Ok(Box::new(move || println!("Rollback operation {}", i)))
-//     if i % 2 == 0 {
-//         Ok(Rollback::StopProcess { pid: i as u32 })
-//     } else {
-//         Ok(Rollback::Umount {
-//             source: format!("source {i}"),
-//             mount_point: format!("mount_point {i}"),
-//         })
-//     }
-// }
-
-// fn main() -> Result<(), Box<dyn Error>> {
-//     let mut rollback_stack = RollbackStack::new();
-
-//     for i in 0..10 {
-//         match perform_operation(i) {
-//             Ok(rollback_fn) => {
-//                 rollback_stack.push(rollback_fn);
-//             }
-//             Err(e) => {
-//                 println!("Error occurred: {}", e);
-//                 // 发生错误，回滚所有操作
-//                 return Err(e);
-//             }
-//         }
-//     }
-
-//     let size = size_of_val(&rollback_stack.stack[..]);
-//     println!("size of roll_back_stack = {size}");
-
-//     // 如果所有操作都成功，清空回滚栈以避免回滚
-//     std::mem::forget(rollback_stack);
-
-//     Ok(())
-// }
