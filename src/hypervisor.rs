@@ -96,120 +96,69 @@ impl Hypervisor {
         //     config.export_config_async().await?;
         // }
 
-        let (
-            pid,
-            stream,
-            firecracker,
-            child,
-            // process,
-            clear_jailer,
-            jailer_working_dir,
-            uid_gid,
-            mut rollbacks,
-        ) = if let Some(true) = config.using_jailer {
-            let mut rollbacks = RollbackStack::new();
-            let mut jailer = JailerAsync::from_config(&config)?;
-
-            let clear_jailer = if config.clear_jailer.is_none() || !config.clear_jailer.unwrap() {
-                false
-            } else {
-                true
-            };
-
-            // jail the firecracker
-            let instance_dir = jailer.jail().await?;
-            if let Some(true) = config.using_jailer {
-                rollbacks.push(Rollback::Jailing {
-                    clear: clear_jailer,
-                    instance_dir,
-                });
-            }
-
-            // spawn the firecracker process
-            // error: fail to launch the process
-            let child = jailer.launch().await?;
-            let pid = child
-                .id()
-                .ok_or(RtckError::Hypervisor("child fail to get pid".to_string()))?;
-            rollbacks.push(Rollback::StopProcess { pid });
-
-            // wait socket
-            // error: socket do not exists after <timeout> secs
-            jailer
-                .waiting_socket(tokio::time::Duration::from_secs(config.launch_timeout))
-                .await?;
-            rollbacks.insert_1(Rollback::RemoveSocket {
-                // unwrap safe because correct arguments provided
-                // otherwise rollback would occur right after `jail`
-                path: jailer.get_socket_path_exported().cloned().unwrap(),
-            });
-
-            // error: the process doesn't exist, or if you don't have permission to access it.
-            // it's recommended that rustcracker run as root.
-            // let process = Process::new(pid as i32)
-            //     .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
-
-            let stream = jailer.connect(config.socket_retry).await?;
-
-            let jailer_working_dir = jailer.get_jailer_workspace_dir().cloned();
-
-            let uid = jailer.get_uid();
-
-            let gid = jailer.get_gid();
-
-            let firecracker = FirecrackerAsync::from_jailer(jailer)?;
-
-            (
-                pid,
-                stream,
-                firecracker,
-                child,
-                // process,
-                clear_jailer,
-                jailer_working_dir,
-                Some((uid, gid)),
-                rollbacks,
-            )
+        if let Some(true) = config.using_jailer {
+            Self::new_with_jailer(config).await
         } else {
-            let mut rollbacks = RollbackStack::new();
-            let firecracker = FirecrackerAsync::from_config(&config)?;
+            Self::new_without_jailer(config).await
+        }
+    }
 
-            // spawn the firecracker process
-            // error: fail to launch the process
-            let child = firecracker.launch().await?;
-            let pid = child
-                .id()
-                .ok_or(RtckError::Hypervisor("child fail to get pid".to_string()))?;
-            rollbacks.push(Rollback::StopProcess { pid });
+    async fn new_with_jailer(config: &HypervisorConfig) -> RtckResult<Self> {
+        let mut rollbacks = RollbackStack::new();
+        let mut jailer = JailerAsync::from_config(&config)?;
 
-            // wait socket
-            // error: socket do not exists after <timeout> secs
-            firecracker
-                .waiting_socket(tokio::time::Duration::from_secs(config.launch_timeout))
-                .await?;
-            rollbacks.insert_1(Rollback::RemoveSocket {
-                path: firecracker.get_socket_path(),
-            });
-
-            // error: the process doesn't exist, or if you don't have permission to access it.
-            // it's recommended that rustcracker run as root.
-            // let process = Process::new(pid as i32)
-            //     .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
-
-            let stream = firecracker.connect(config.socket_retry).await?;
-
-            (
-                pid,
-                stream,
-                firecracker,
-                child,
-                // process,
-                false,
-                None,
-                None,
-                rollbacks,
-            )
+        let clear_jailer = if config.clear_jailer.is_none() || !config.clear_jailer.unwrap() {
+            false
+        } else {
+            true
         };
+
+        // jail the firecracker
+        let instance_dir = jailer.jail().await?;
+        if let Some(true) = config.using_jailer {
+            rollbacks.push(Rollback::Jailing {
+                clear: clear_jailer,
+                instance_dir,
+            });
+        }
+
+        // spawn the firecracker process
+        // error: fail to launch the process
+        let child = jailer.launch().await?;
+        let pid = child
+            .id()
+            .ok_or(RtckError::Hypervisor("child fail to get pid".to_string()))?;
+        rollbacks.push(Rollback::StopProcess { pid });
+
+        // wait socket
+        // error: socket do not exists after <timeout> secs
+        jailer
+            .waiting_socket(tokio::time::Duration::from_secs(config.launch_timeout))
+            .await?;
+        rollbacks.insert_1(Rollback::RemoveSocket {
+            // unwrap safe because correct arguments provided
+            // otherwise rollback would occur right after `jail`
+            path: jailer.get_socket_path_exported().cloned().unwrap(),
+        });
+
+        // error: the process doesn't exist, or if you don't have permission to access it.
+        // it's recommended that rustcracker run as root.
+        // let process = Process::new(pid as i32)
+        //     .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
+
+        let stream = jailer.connect(config.socket_retry).await?;
+
+        let jailer_working_dir = jailer.get_jailer_workspace_dir().cloned();
+
+        let uid = jailer.get_uid();
+
+        let gid = jailer.get_gid();
+
+        let uid_gid = Some((uid, gid));
+
+        let firecracker = FirecrackerAsync::from_jailer(jailer)?;
+
+        // Shared code
 
         let lock = fslock::LockFile::open(&firecracker.lock_path)
             .map_err(|_| RtckError::Hypervisor("creating file lock".to_string()))?;
@@ -250,6 +199,74 @@ impl Hypervisor {
         })
     }
 
+    async fn new_without_jailer(config: &HypervisorConfig) -> RtckResult<Self> {
+        let mut rollbacks = RollbackStack::new();
+        let firecracker = FirecrackerAsync::from_config(&config)?;
+
+        // spawn the firecracker process
+        // error: fail to launch the process
+        let child = firecracker.launch().await?;
+        let pid = child
+            .id()
+            .ok_or(RtckError::Hypervisor("child fail to get pid".to_string()))?;
+        rollbacks.push(Rollback::StopProcess { pid });
+
+        // wait socket
+        // error: socket do not exists after <timeout> secs
+        firecracker
+            .waiting_socket(tokio::time::Duration::from_secs(config.launch_timeout))
+            .await?;
+        rollbacks.insert_1(Rollback::RemoveSocket {
+            path: firecracker.get_socket_path(),
+        });
+
+        // error: the process doesn't exist, or if you don't have permission to access it.
+        // it's recommended that rustcracker run as root.
+        // let process = Process::new(pid as i32)
+        //     .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
+
+        let stream = firecracker.connect(config.socket_retry).await?;
+
+        // Shared code
+        let lock = fslock::LockFile::open(&firecracker.lock_path)
+            .map_err(|_| RtckError::Hypervisor("creating file lock".to_string()))?;
+        rollbacks.insert_1(Rollback::RemoveFsLock {
+            path: firecracker.lock_path.clone(),
+        });
+
+        let agent = Agent::from_stream_lock(stream, lock);
+
+        let logger = HPLogger::new(
+            config.id.clone(),
+            match firecracker.log_path {
+                None => LogTo::Stdout,
+                Some(ref s) => LogTo::File(s.clone()),
+            },
+        )?;
+
+        Ok(Self {
+            id: firecracker.id,
+            pid,
+            child,
+            // process,
+            socket_path: firecracker.socket,
+            socket_retry: config.socket_retry,
+            lock_path: firecracker.lock_path,
+            log_path: firecracker.log_path,
+            logger,
+            // metrics_path: firecracker.metrics_path,
+            config_path: firecracker.config_path,
+            agent,
+            status: MicroVMStatus::None,
+            clear_jailer: false,
+            jailer_working_dir: None,
+            uid_gid: None,
+            // mounts: Vec::new(),
+            rollbacks,
+            poll_status_secs: config.poll_status_secs,
+        })
+    }
+
     /// Log
     pub fn log(&self, level: log::Level, msg: &str) {
         self.logger.log(level, msg);
@@ -261,84 +278,6 @@ impl Hypervisor {
         let _ = self.agent.event(event).await?;
         Ok(())
     }
-
-    /// Check hypervisor's state
-    // async fn check_state(&mut self) -> RtckResult<()> {
-    //     if self.status == MicroVMStatus::None {
-    //         // log::warn!("no microVM running");
-    //         self.log(Warn, "no microVM running");
-    //         return Ok(());
-    //     }
-    //     // check if the process is still running
-    //     if !self.process.is_alive() {
-    //         // process is no longer running, fetch output and error
-    //         if let Some(_status) = self
-    //             .child
-    //             .try_wait()
-    //             .map_err(|_| RtckError::Hypervisor("fail to wait the process".to_string()))?
-    //         {
-    //             self.fetch_output().await?;
-    //         } else {
-    //             // log::warn!("Process has terminated, but no status code available");
-    //             self.log(Warn, "Process has terminated, but no status code available");
-    //         }
-    //     }
-    //     Ok(())
-    // }
-
-    // async fn fetch_output(&mut self) -> RtckResult<()> {
-    //     let mut stdout = self
-    //         .child
-    //         .stdout
-    //         .take()
-    //         .ok_or(RtckError::Hypervisor("fail to take stdout".to_string()))?;
-
-    //     let mut stderr = self
-    //         .child
-    //         .stderr
-    //         .take()
-    //         .ok_or(RtckError::Hypervisor("fail to take stdout".to_string()))?;
-
-    //     let mut stdout_buf = Vec::new();
-    //     let mut stderr_buf = Vec::new();
-
-    //     // Read stdout and stderr concurrently
-    //     let stdout_future = async {
-    //         let _ = stdout
-    //             .read_to_end(&mut stdout_buf)
-    //             .await
-    //             .map_err(|_| RtckError::Hypervisor("fail to read stdout from child".to_string()));
-    //     };
-
-    //     let stderr_future = async {
-    //         let _ = stderr
-    //             .read_to_end(&mut stderr_buf)
-    //             .await
-    //             .map_err(|_| RtckError::Hypervisor("fail to read stderr from child".to_string()));
-    //     };
-
-    //     tokio::join!(stdout_future, stderr_future);
-
-    //     // Open the log file in append mode
-    //     // let mut log_file = tokio::fs::OpenOptions::new()
-    //     //     .create(true)
-    //     //     .append(true)
-    //     //     .open(&self.log_path)
-    //     //     .await
-    //     //     .map_err(|_| RtckError::Hypervisor("fail to open log file".to_string()))?;
-
-    //     // Write stdout and stderr to the log file
-    //     // log_file
-    //     //     .write_all(&stdout_buf)
-    //     //     .await
-    //     //     .map_err(|_| RtckError::Hypervisor("fail to write stdout to log".to_string()))?;
-    //     // log_file
-    //     //     .write_all(&stderr_buf)
-    //     //     .await
-    //     //     .map_err(|_| RtckError::Hypervisor("fail to write stderr to log".to_string()))?;
-
-    //     Ok(())
-    // }
 
     /// Logger configuration. Nothing to rollback in this step.
     async fn logger_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
