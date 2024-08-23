@@ -1,5 +1,6 @@
 use agent::agent::AgentError;
 use hplog::LoggerError;
+use pool::PoolError;
 
 pub mod config;
 pub mod firecracker;
@@ -39,6 +40,8 @@ pub enum RtckError {
     Machine(String),
     #[error("Logger: {0}")]
     Logger(#[from] LoggerError),
+    #[error("Pool: {0}")]
+    Pool(#[from] PoolError),
 }
 
 pub type RtckResult<T> = std::result::Result<T, RtckError>;
