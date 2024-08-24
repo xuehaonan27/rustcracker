@@ -65,15 +65,50 @@ pub struct Hypervisor {
     // jailer uid and gid
     uid_gid: Option<(u32, u32)>, // (uid, gid)
 
-    // mounting points
-    // mounts: Vec<PathBuf>,
-
     // rollback stack
     rollbacks: RollbackStack,
 
     // intervals in seconds for polling the status of microVM
     // when waiting for the user to give up the microVM
     poll_status_secs: u64,
+}
+
+impl Hypervisor {
+    pub fn id(&self) -> &String {
+        &self.id
+    }
+
+    pub fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    pub fn socket_path(&self) -> &PathBuf {
+        &self.socket_path
+    }
+
+    pub fn socket_retry(&self) -> usize {
+        self.socket_retry
+    }
+
+    pub fn lock_path(&self) -> &PathBuf {
+        &self.lock_path
+    }
+    
+    pub fn log_path(&self) -> Option<&PathBuf> {
+        self.log_path.as_ref()
+    }
+
+    pub fn config_path(&self) -> Option<&String> {
+        self.config_path.as_ref()
+    }
+
+    pub fn status(&self) -> MicroVMStatus {
+        self.status
+    }
+
+    pub fn clear_jailer(&self) -> bool {
+        self.clear_jailer
+    }
 }
 
 impl Hypervisor {

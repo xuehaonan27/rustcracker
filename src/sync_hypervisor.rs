@@ -68,6 +68,45 @@ pub struct Hypervisor {
     poll_status_secs: u64,
 }
 
+
+impl Hypervisor {
+    pub fn id(&self) -> &String {
+        &self.id
+    }
+
+    pub fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    pub fn socket_path(&self) -> &PathBuf {
+        &self.socket_path
+    }
+
+    pub fn socket_retry(&self) -> usize {
+        self.socket_retry
+    }
+
+    pub fn lock_path(&self) -> &PathBuf {
+        &self.lock_path
+    }
+    
+    pub fn log_path(&self) -> Option<&PathBuf> {
+        self.log_path.as_ref()
+    }
+
+    pub fn config_path(&self) -> Option<&String> {
+        self.config_path.as_ref()
+    }
+
+    pub fn status(&self) -> MicroVMStatus {
+        self.status
+    }
+
+    pub fn clear_jailer(&self) -> bool {
+        self.clear_jailer
+    }
+}
+
 impl Hypervisor {
     pub fn new(config: &HypervisorConfig) -> RtckResult<Self> {
         config.validate()?;
@@ -158,11 +197,6 @@ impl Hypervisor {
             rollbacks.insert_1(Rollback::RemoveSocket {
                 path: firecracker.get_socket_path(),
             });
-
-            // error: the process doesn't exist, or if you don't have permission to access it.
-            // it's recommended that rustcracker run as root.
-            // let process = Process::new(pid as i32)
-            //     .map_err(|_| RtckError::Hypervisor("child fail to get process".to_string()))?;
 
             let stream = firecracker.connect(config.socket_retry)?;
 
