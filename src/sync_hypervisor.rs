@@ -20,9 +20,6 @@ pub struct Hypervisor {
     // child of the hypervisor process
     child: std::process::Child,
 
-    // process of the hypervisor process, which holds a fd to /proc/<pid>
-    // process: Process,
-
     // socket path of this hypervisor
     socket_path: PathBuf,
 
@@ -34,9 +31,6 @@ pub struct Hypervisor {
 
     // log path of this hypervisor
     log_path: Option<PathBuf>,
-
-    // metrics path of this hypervisor
-    // metrics_path: PathBuf,
 
     // config path of this hypervisor
     config_path: Option<String>,
@@ -56,9 +50,6 @@ pub struct Hypervisor {
 
     // jailer uid and gid
     uid_gid: Option<(u32, u32)>, // (uid, gid)
-
-    // mounting points
-    // mounts: Vec<PathBuf>,
 
     // rollback stack
     rollbacks: RollbackStack,

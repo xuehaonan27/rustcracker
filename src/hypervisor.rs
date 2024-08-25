@@ -31,9 +31,6 @@ pub struct Hypervisor {
     // child of the hypervisor process
     child: tokio::process::Child,
 
-    // process of the hypervisor process, which holds a fd to /proc/<pid>
-    // process: Process,
-
     // socket path of this hypervisor
     socket_path: PathBuf,
 
