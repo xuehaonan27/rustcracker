@@ -1,15 +1,13 @@
 /// Module for manipulating host firecracker process
-pub mod firecracker {
-
-    use std::{
-        os::unix::net::UnixStream,
-        path::PathBuf,
-        sync::{Arc, Condvar, Mutex},
-    };
-
+mod firecracker {
+    use crate::config::HypervisorConfig;
+    use crate::handle_entry;
+    use crate::jailer::Jailer;
+    use crate::{RtckError, RtckResult};
+    use log::*;
     use serde::{Deserialize, Serialize};
-
-    use crate::{config::HypervisorConfig, handle_entry, jailer::Jailer, RtckError, RtckResult};
+    use std::os::unix::net::UnixStream;
+    use std::path::PathBuf;
 
     /// Unlike using jailer, when using bare firecracker, socket path and lock path must be specified
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,15 +24,8 @@ pub mod firecracker {
 
         pub(crate) log_path: Option<PathBuf>,
 
-        // pub(crate) metrics_path: PathBuf,
-
         // Path to the config file
         pub(crate) config_path: Option<String>,
-        // // stdout redirection
-        // pub(crate) stdout_to: Option<PathBuf>,
-
-        // // stderr redirection
-        // pub(crate) stderr_to: Option<PathBuf>,
     }
 
     impl Firecracker {
@@ -70,37 +61,32 @@ pub mod firecracker {
 
             let socket = jailer
                 .get_socket_path_exported()
-                .ok_or(RtckError::Config(
-                    "jailer without socket path exported".to_string(),
-                ))?
+                .ok_or({
+                    let msg = "Jailer without exported socket path";
+                    error!("{msg}");
+                    RtckError::Config(msg.into())
+                })?
                 .clone();
 
             let lock_path = jailer
                 .get_lock_path_exported()
-                .ok_or(RtckError::Config(
-                    "jailer without lock path exported".to_string(),
-                ))?
+                .ok_or({
+                    let msg = "Jailer without exported lock path";
+                    error!("{msg}");
+                    RtckError::Config(msg.into())
+                })?
                 .clone();
 
             let log_path = jailer
                 .get_log_path_exported()
-                .ok_or(RtckError::Config(
-                    "jailer without log path exported".to_string(),
-                ))?
+                .ok_or({
+                    let msg = "Jailer without exported log path";
+                    error!("{msg}");
+                    RtckError::Config(msg.into())
+                })?
                 .clone();
 
-            // let metrics_path = jailer
-            //     .get_metrics_path_exported()
-            //     .ok_or(RtckError::Config(
-            //         "jailer without metrics path exported".to_string(),
-            //     ))?
-            //     .clone();
-
             let config_path = jailer.get_config_path_exported().cloned();
-
-            // let stdout_to = jailer.get_stdout_redirection_exported().cloned();
-
-            // let stderr_to = jailer.get_stderr_redirection_exported().cloned();
 
             Ok(Self {
                 id: jailer.id,
@@ -108,10 +94,7 @@ pub mod firecracker {
                 socket,
                 lock_path,
                 log_path: Some(log_path),
-                // metrics_path,
                 config_path,
-                // stdout_to,
-                // stderr_to,
             })
         }
 
@@ -123,71 +106,25 @@ pub mod firecracker {
                 None => (),
             }
 
-            // match &self.stdout_to {
-            //     Some(stdout_to) => {
-            //         let stdout = std::fs::File::open(stdout_to).map_err(|_| {
-            //             RtckError::FilesysIO("fail to open stdout redirection file".to_string())
-            //         })?;
-            //         c.stdout(Stdio::from(stdout));
-            //     }
-            //     None => (),
-            // }
-
-            // match &self.stderr_to {
-            //     Some(stderr_to) => {
-            //         let stderr = std::fs::File::open(stderr_to).map_err(|_| {
-            //             RtckError::FilesysIO("fail to open stderr redirection file".to_string())
-            //         })?;
-            //         c.stdout(Stdio::from(stderr));
-            //     }
-            //     None => (),
-            // }
-
-            c.spawn()
-                .map_err(|_| RtckError::Firecracker("spawn fail".to_string()))
+            c.spawn().map_err(|e| {
+                let msg = format!("Fail to spawn firecracker process: {e}");
+                error!("{msg}");
+                RtckError::Firecracker(msg)
+            })
         }
 
         /// Waiting for the socket set by firecracker
         pub fn waiting_socket(&self, timeout: std::time::Duration) -> RtckResult<()> {
-            let pair = Arc::new((Mutex::new(false), Condvar::new()));
-            let pair_peer = Arc::clone(&pair);
-
-            // Wait for the socket
-            let path = PathBuf::from(&self.socket);
-            std::thread::spawn(move || -> RtckResult<()> {
-                let &(ref lock, ref cvar) = &*pair_peer;
-                let mut created = lock
-                    .lock()
-                    .map_err(|_| RtckError::Firecracker("waiting socket".to_string()))?;
-
-                while !path.exists() {}
-
-                *created = true;
-                cvar.notify_one();
-
-                Ok(())
-            });
-
-            let &(ref lock, ref cvar) = &*pair;
-            let created = lock
-                .lock()
-                .map_err(|_| RtckError::Firecracker("waiting socket".to_string()))?;
-
-            if !*created {
-                let result = cvar
-                    .wait_timeout(
-                        lock.lock()
-                            .map_err(|_| RtckError::Firecracker("waiting socket".to_string()))?,
-                        timeout,
-                    )
-                    .unwrap();
-                if result.1.timed_out() {
-                    // if result.timed_out() {
-                    return Err(RtckError::Firecracker("remote socket timeout".to_string()));
+            let start = std::time::Instant::now();
+            let socket_path = PathBuf::from(&self.socket);
+            while start.elapsed() < timeout {
+                if socket_path.exists() {
+                    return Ok(());
                 }
+                std::thread::sleep(std::time::Duration::from_millis(100)); // check every 100 ms
             }
 
-            Ok(())
+            Err(RtckError::Jailer("remote socket timeout".to_string()))
         }
 
         /// Connect to the socket
@@ -196,7 +133,7 @@ pub mod firecracker {
             let stream = loop {
                 if trying == 0 {
                     return Err(RtckError::Firecracker(format!(
-                        "fail to connect unix socket after {retry} tries"
+                        "Fail to connect unix socket after {retry} tries"
                     )));
                 }
                 match UnixStream::connect(&self.socket) {
@@ -218,15 +155,14 @@ pub mod firecracker {
     }
 }
 
-pub mod firecracker_async {
-    use std::path::PathBuf;
-
+mod firecracker_async {
+    use crate::config::HypervisorConfig;
+    use crate::{handle_entry, jailer::JailerAsync};
+    use crate::{RtckError, RtckResult};
+    use log::*;
     use serde::{Deserialize, Serialize};
+    use std::path::PathBuf;
     use tokio::net::UnixStream;
-
-    use crate::{
-        config::HypervisorConfig, handle_entry, jailer::JailerAsync, RtckError, RtckResult,
-    };
 
     /// Unlike using jailer, when using bare firecracker, socket path and lock path must be specified
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -243,15 +179,8 @@ pub mod firecracker_async {
 
         pub(crate) log_path: Option<PathBuf>,
 
-        // pub(crate) metrics_path: PathBuf,
-
         // Path to the config file
         pub(crate) config_path: Option<String>,
-        // // stdout redirection
-        // pub(crate) stdout_to: Option<PathBuf>,
-
-        // // stderr redirection
-        // pub(crate) stderr_to: Option<PathBuf>,
     }
 
     impl FirecrackerAsync {
@@ -287,37 +216,32 @@ pub mod firecracker_async {
 
             let socket = jailer
                 .get_socket_path_exported()
-                .ok_or(RtckError::Config(
-                    "jailer without socket path exported".to_string(),
-                ))?
+                .ok_or({
+                    let msg = "Jailer without exported socket path";
+                    error!("{msg}");
+                    RtckError::Config(msg.into())
+                })?
                 .clone();
 
             let lock_path = jailer
                 .get_lock_path_exported()
-                .ok_or(RtckError::Config(
-                    "jailer without lock path exported".to_string(),
-                ))?
+                .ok_or({
+                    let msg = "Jailer without exported lock path";
+                    error!("{msg}");
+                    RtckError::Config(msg.into())
+                })?
                 .clone();
 
             let log_path = jailer
                 .get_log_path_exported()
-                .ok_or(RtckError::Config(
-                    "jailer without log path exported".to_string(),
-                ))?
+                .ok_or({
+                    let msg = "Jailer without exported log path";
+                    error!("{msg}");
+                    RtckError::Config(msg.into())
+                })?
                 .clone();
 
-            // let metrics_path = jailer
-            //     .get_metrics_path_exported()
-            //     .ok_or(RtckError::Config(
-            //         "jailer without metrics path exported".to_string(),
-            //     ))?
-            //     .clone();
-
             let config_path = jailer.get_config_path_exported().cloned();
-
-            // let stdout_to = jailer.get_stdout_redirection_exported().cloned();
-
-            // let stderr_to = jailer.get_stderr_redirection_exported().cloned();
 
             Ok(Self {
                 id: jailer.id,
@@ -325,10 +249,7 @@ pub mod firecracker_async {
                 socket,
                 lock_path,
                 log_path: Some(log_path),
-                // metrics_path,
                 config_path,
-                // stdout_to,
-                // stderr_to,
             })
         }
 
@@ -340,28 +261,11 @@ pub mod firecracker_async {
                 None => (),
             }
 
-            // match &self.stdout_to {
-            //     Some(stdout_to) => {
-            //         let stdout = std::fs::File::open(stdout_to).map_err(|_| {
-            //             RtckError::FilesysIO("fail to open stdout redirection file".to_string())
-            //         })?;
-            //         c.stdout(Stdio::from(stdout));
-            //     }
-            //     None => (),
-            // }
-
-            // match &self.stderr_to {
-            //     Some(stderr_to) => {
-            //         let stderr = std::fs::File::open(stderr_to).map_err(|_| {
-            //             RtckError::FilesysIO("fail to open stderr redirection file".to_string())
-            //         })?;
-            //         c.stdout(Stdio::from(stderr));
-            //     }
-            //     None => (),
-            // }
-
-            c.spawn()
-                .map_err(|_| RtckError::Firecracker("spawn fail".to_string()))
+            c.spawn().map_err(|e| {
+                let msg = format!("Fail to spawn firecracker process: {e}");
+                error!("{msg}");
+                RtckError::Firecracker(msg)
+            })
         }
 
         /// Waiting for the socket set by firecracker
@@ -371,7 +275,11 @@ pub mod firecracker_async {
                 while tokio::fs::try_exists(&self.socket).await.is_err() {}
             })
             .await
-            .map_err(|_| RtckError::Config("remote socket timeout".to_string()))?)
+            .map_err(|e| {
+                let msg = format!("Failed when waiting socket: {e}");
+                error!("{msg}");
+                RtckError::Config(msg)
+            })?)
         }
 
         /// Connect to the socket
@@ -380,7 +288,7 @@ pub mod firecracker_async {
             let stream = loop {
                 if trying == 0 {
                     return Err(RtckError::Firecracker(format!(
-                        "fail to connect unix socket after {retry} tries"
+                        "Fail to connect unix socket after {retry} tries"
                     )));
                 }
                 match UnixStream::connect(&self.socket).await {
