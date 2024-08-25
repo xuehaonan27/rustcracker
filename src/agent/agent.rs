@@ -1,6 +1,7 @@
 //! Firecracker Agent
 use crate::reqres::FirecrackerEvent;
 use fslock::LockFile;
+use log::*;
 use tokio::io::{AsyncWriteExt, ErrorKind};
 use tokio::net::UnixStream;
 
@@ -46,15 +47,19 @@ impl Agent {
     }
 
     pub fn lock(&mut self) -> AgentResult<()> {
-        self.lock
-            .lock()
-            .map_err(|e| AgentError::BadLockFile(e.to_string()))
+        self.lock.lock().map_err(|e| {
+            let msg = format!("When locking the lock file: {e}");
+            error!("{msg}");
+            AgentError::BadLockFile(msg)
+        })
     }
 
     pub fn unlock(&mut self) -> AgentResult<()> {
-        self.lock
-            .unlock()
-            .map_err(|e| AgentError::BadLockFile(e.to_string()))
+        self.lock.unlock().map_err(|e| {
+            let msg = format!("When unlocking the lock file: {e}");
+            error!("{msg}");
+            AgentError::BadLockFile(msg)
+        })
     }
 
     /// One should make sure that this Agent is locked up before sending any data into the stream
@@ -62,19 +67,26 @@ impl Agent {
         assert!(self.is_locked());
 
         // Wait for the stream available to write
-        self.stream
-            .writable()
-            .await
-            .map_err(|_| AgentError::BadRequest("waiting writable".into()))?;
+        self.stream.writable().await.map_err(|e| {
+            let msg = format!("When waiting for the socket stream become writable: {e}");
+            error!("{msg}");
+            AgentError::BadRequest(msg)
+        })?;
 
         self.stream
             .write_all(&request.as_bytes())
             .await
-            .map_err(|_| AgentError::BadRequest("writing".into()))?;
-        self.stream
-            .flush()
-            .await
-            .map_err(|_| AgentError::BadRequest("flush".into()))?;
+            .map_err(|e| {
+                let msg = format!("When writing to the socket stream: {e}");
+                error!("{msg}");
+                AgentError::BadRequest(msg)
+            })?;
+
+        self.stream.flush().await.map_err(|e| {
+            let msg = format!("When flushing the socket stream: {e}");
+            error!("{msg}");
+            AgentError::BadRequest(msg)
+        })?;
         Ok(())
     }
 
@@ -88,10 +100,11 @@ impl Agent {
 
         let mut vec: Vec<u8> = Vec::new();
         loop {
-            self.stream
-                .readable()
-                .await
-                .map_err(|_| AgentError::BadResponse("waiting readable".into()))?;
+            self.stream.readable().await.map_err(|e| {
+                let msg = format!("When waiting for the socket stream become readable: {e}");
+                error!("{msg}");
+                AgentError::BadResponse("waiting readable".into())
+            })?;
 
             match self.stream.try_read(&mut buf) {
                 Ok(0) => break,
@@ -103,46 +116,20 @@ impl Agent {
                     }
                 }
                 Err(ref e) if e.kind() == ErrorKind::WouldBlock => continue,
-                Err(e) => return Err(AgentError::BadUnixSocket(e.to_string())),
+                Err(e) => {
+                    let msg = format!("Bad reading from the socket: {e}");
+                    error!("{msg}");
+                    return Err(AgentError::BadUnixSocket(msg));
+                }
             }
         }
-
-        /*
-        // Wait for the stream available to read
-        self.stream
-            .readable()
-            .await
-            .map_err(|_| AgentError::BadResponse("waiting readable".into()))?;
-
-        let read_bytes = self
-            .stream
-            .read(&mut buf)
-            .await
-            .map_err(|_| AgentError::BadResponse("read first buffer".into()))?;
-        let vec = if read_bytes == MAX_BUFFER_SIZE {
-            // Need to append once again
-            let mut vec = buf.to_vec();
-            buf.fill(0);
-            while self
-                .stream
-                .read(&mut buf)
-                .await
-                .map_err(|_| AgentError::BadResponse("read following buffer".into()))?
-                == MAX_BUFFER_SIZE
-            {
-                vec.extend_from_slice(&buf);
-                buf.fill(0);
-            }
-            vec
-        } else {
-            buf.to_vec()
-        };
-        */
 
         let body_start = res.parse(&vec).unwrap();
         if body_start.is_partial() {
             // Bad response
-            return Err(AgentError::BadResponse("incomplete response".into()));
+            let msg = "Got incomplete response";
+            error!("{msg}");
+            return Err(AgentError::BadResponse(msg.into()));
         }
         let body_start = body_start.unwrap();
 
@@ -185,7 +172,9 @@ impl Agent {
         if read && write && flush {
             Ok(())
         } else {
-            Err(AgentError::BadUnixSocket("clearing".into()))
+            let msg = "Fail to clear the socket stream";
+            error!("{msg}");
+            Err(AgentError::BadUnixSocket(msg.into()))
         }
     }
 
@@ -208,7 +197,11 @@ impl Agent {
             }
         };
         self.unlock()?;
-        E::decode(&res).map_err(|e| AgentError::BadResponse(e.to_string()))
+        E::decode(&res).map_err(|e| {
+            let msg = format!("Fail to decode response: {e}");
+            error!("{msg}");
+            AgentError::BadResponse(msg.into())
+        })
     }
 
     /// Start some events by passing FirecrackerEvent like objects
@@ -225,7 +218,11 @@ impl Agent {
         for event in events {
             self.send_request(event.req()).await?;
             let res = self.recv_response().await?;
-            let res = E::decode(&res).map_err(|e| AgentError::BadResponse(e.to_string()))?;
+            let res = E::decode(&res).map_err(|e| {
+                let msg = format!("Fail to decode response: {e}");
+                error!("{msg}");
+                AgentError::BadResponse(msg.into())
+            })?;
             res_vec.push(res);
         }
         self.unlock()?;
