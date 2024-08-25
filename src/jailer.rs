@@ -2,6 +2,7 @@ pub mod jailer {
     use crate::config::HypervisorConfig;
     use crate::{handle_entry, handle_entry_default, handle_entry_ref};
     use crate::{RtckError, RtckResult};
+    use log::*;
     use serde::{Deserialize, Serialize};
     use std::{os::unix::net::UnixStream, path::PathBuf};
 
@@ -61,17 +62,6 @@ pub mod jailer {
 
         // Metrics path seen by Rtck
         metrics_path_export: Option<PathBuf>,
-        // // stdout redirection
-        // stdout_to: Option<String>,
-
-        // // stdout redirection exported
-        // stdout_to_exported: Option<PathBuf>,
-
-        // // stderr redirection
-        // stderr_to: Option<String>,
-
-        // // stderr redirection exported
-        // stderr_to_exported: Option<PathBuf>,
     }
 
     impl Jailer {
@@ -110,24 +100,17 @@ pub mod jailer {
         pub fn get_jailer_workspace_dir(&self) -> Option<&PathBuf> {
             self.jailer_workspace_dir.as_ref()
         }
-
-        // pub fn get_stdout_redirection_exported(&self) -> Option<&PathBuf> {
-        //     self.stdout_to_exported.as_ref()
-        // }
-
-        // pub fn get_stderr_redirection_exported(&self) -> Option<&PathBuf> {
-        //     self.stderr_to_exported.as_ref()
-        // }
     }
 
     impl Jailer {
         pub fn from_config(config: &HypervisorConfig) -> RtckResult<Self> {
             config.validate()?;
 
-            let jailer_config = config
-                .jailer_config
-                .as_ref()
-                .ok_or(RtckError::Config("Missing jailer config".to_string()))?;
+            let jailer_config = config.jailer_config.as_ref().ok_or({
+                let msg = "Missing jailer config";
+                error!("{msg}");
+                RtckError::Config(msg.into())
+            })?;
 
             let id = if let Some(id) = &config.id {
                 id.clone()
@@ -166,87 +149,60 @@ pub mod jailer {
                 log_path_export: None,
                 metrics_path: config.metrics_path.clone(),
                 metrics_path_export: None,
-                // stdout_to: config.stdout_to.clone(),
-                // stdout_to_exported: None,
-                // stderr_to: config.stderr_to.clone(),
-                // stderr_to_exported: None,
             })
         }
 
         pub fn jail(&mut self) -> RtckResult<PathBuf> {
             let id = &self.id;
-
             let temp_binding = PathBuf::from(&self.exec_file);
             let exec_file_name =
                 *handle_entry_ref(&temp_binding.file_name(), "firecracker executable file")?;
-
             let chroot_base_dir = &self.chroot_base_dir;
-
             const ROOT_FOLDER_NAME: &'static str = "root";
             let instance_dir = PathBuf::from(chroot_base_dir).join(exec_file_name).join(id);
             let jailer_workspace_dir = instance_dir.join(ROOT_FOLDER_NAME);
-
             if jailer_workspace_dir.exists() {
-                return Err(RtckError::Jailer(
-                    "please choose another instance name".to_string(),
-                ));
+                let msg = "Conflict instance name, please choose another one";
+                error!("{msg}");
+                return Err(RtckError::Jailer(msg.into()));
             }
-
             self.jailer_workspace_dir = Some(jailer_workspace_dir.clone());
 
+            // Get socket path under jailer
             const DEFAULT_SOCKET_PATH_UNDER_JAILER: &'static str = "run/firecracker.socket";
-            let socket_path =
-                handle_entry_default(&self.socket, DEFAULT_SOCKET_PATH_UNDER_JAILER.to_string());
-            let socket_path = PathBuf::from(socket_path);
-            let socket_path = if socket_path.is_absolute() {
-                socket_path
-                    .strip_prefix("/")
-                    .map_err(|_| RtckError::Jailer("fail to strip absolute prefix".to_string()))?
-            } else {
-                socket_path.as_path()
-            };
-            self.socket_path_export = Some(jailer_workspace_dir.join(socket_path));
+            self.socket_path_export = self.get_x_path_under_jailer(
+                &self.socket,
+                DEFAULT_SOCKET_PATH_UNDER_JAILER,
+                "socket",
+                &jailer_workspace_dir,
+            )?;
 
+            // Get lock path under jailer
             const DEFAULT_LOCK_PATH_UNDER_JAILER: &'static str = "run/firecracker.lock";
-            let lock_path =
-                handle_entry_default(&self.lock_path, DEFAULT_LOCK_PATH_UNDER_JAILER.to_string());
-            let lock_path = PathBuf::from(lock_path);
-            let lock_path = if lock_path.is_absolute() {
-                lock_path
-                    .strip_prefix("/")
-                    .map_err(|_| RtckError::Jailer("fail to strip absolute prefix".to_string()))?
-            } else {
-                lock_path.as_path()
-            };
-            self.lock_path_export = Some(jailer_workspace_dir.join(lock_path));
+            self.lock_path_export = self.get_x_path_under_jailer(
+                &self.lock_path,
+                DEFAULT_LOCK_PATH_UNDER_JAILER,
+                "lock",
+                &jailer_workspace_dir,
+            )?;
 
+            // Get log path under jailer
             const DEFAULT_LOG_PATH_UNDER_JAILER: &'static str = "run/firecracker.log";
-            let log_path =
-                handle_entry_default(&self.log_path, DEFAULT_LOG_PATH_UNDER_JAILER.to_string());
-            let log_path = PathBuf::from(log_path);
-            let log_path = if log_path.is_absolute() {
-                log_path
-                    .strip_prefix("/")
-                    .map_err(|_| RtckError::Jailer("fail to strip absolute prefix".to_string()))?
-            } else {
-                log_path.as_path()
-            };
-            self.log_path_export = Some(jailer_workspace_dir.join(log_path));
+            self.log_path_export = self.get_x_path_under_jailer(
+                &self.log_path,
+                DEFAULT_LOG_PATH_UNDER_JAILER,
+                "log",
+                &jailer_workspace_dir,
+            )?;
 
+            // Get metrics path under jailer
             const DEFAULT_METRICS_PATH_UNDER_JAILER: &'static str = "run/firecracker.metrics";
-            let metrics_path = handle_entry_default(
+            self.metrics_path_export = self.get_x_path_under_jailer(
                 &self.metrics_path,
-                DEFAULT_METRICS_PATH_UNDER_JAILER.to_string(),
-            );
-            let metrics_path = PathBuf::from(metrics_path);
-            let metrics_path = if metrics_path.is_absolute() {
-                metrics_path
-                    .strip_prefix("/")
-                    .map_err(|_| RtckError::Jailer("fail to strip absolute prefix".to_string()))?
-            } else {
-                metrics_path.as_path()
-            };
-            self.metrics_path_export = Some(jailer_workspace_dir.join(metrics_path));
+                DEFAULT_METRICS_PATH_UNDER_JAILER,
+                "metrics",
+                &jailer_workspace_dir,
+            )?;
 
             match &self.config_path {
                 // not using config exported config, skipping
@@ -257,43 +213,36 @@ pub mod jailer {
                     self.config_path_jailed = Some(DEFAULT_CONFIG_PATH_JAILED.into());
 
                     let config_path_export = jailer_workspace_dir.join(DEFAULT_CONFIG_PATH_JAILED);
-                    std::fs::copy(config_path, config_path_export)
-                        .map_err(|_| RtckError::FilesysIO("jailer copying config".to_string()))?;
+                    std::fs::copy(config_path, config_path_export).map_err(|e| {
+                        let msg = format!("Fail to copy config when jailing: {e}");
+                        error!("{msg}");
+                        RtckError::FilesysIO(msg)
+                    })?;
                 }
             }
 
-            // match &self.stdout_to {
-            //     // not using stdout redirection, skipping
-            //     None => (),
-            //     Some(stdout_to) => {
-            //         let stdout_to = PathBuf::from(stdout_to);
-            //         let stdout_to = if stdout_to.is_absolute() {
-            //             stdout_to.strip_prefix("/").map_err(|_| {
-            //                 RtckError::Jailer("fail to strip absolute prefix".to_string())
-            //             })?
-            //         } else {
-            //             stdout_to.as_path()
-            //         };
-            //         self.stdout_to_exported = Some(jailer_workspace_dir.join(stdout_to));
-            //     }
-            // }
-
-            // match &self.stderr_to {
-            //     None => (),
-            //     Some(stderr_to) => {
-            //         let stderr_to = PathBuf::from(stderr_to);
-            //         let stderr_to = if stderr_to.is_absolute() {
-            //             stderr_to.strip_prefix("/").map_err(|_| {
-            //                 RtckError::Jailer("fail to strip absolute prefix".to_string())
-            //             })?
-            //         } else {
-            //             stderr_to.as_path()
-            //         };
-            //         self.stderr_to_exported = Some(jailer_workspace_dir.join(stderr_to));
-            //     }
-            // }
-
             Ok(instance_dir)
+        }
+
+        fn get_x_path_under_jailer(
+            &self,
+            x: &Option<String>,
+            default_path_under_jailer: &'static str,
+            name: &'static str,
+            jailer_workspace_dir: &PathBuf,
+        ) -> RtckResult<Option<PathBuf>> {
+            let path = handle_entry_default(x, default_path_under_jailer.to_string());
+            let path = PathBuf::from(path);
+            let path = if path.is_absolute() {
+                path.strip_prefix("/").map_err(|e| {
+                    let msg = format!("Fail to strip prefix of {name} path when jailing: {e}");
+                    error!("{msg}");
+                    RtckError::Jailer(msg)
+                })?
+            } else {
+                path.as_path()
+            };
+            Ok(Some(jailer_workspace_dir.join(path)))
         }
 
         pub fn launch(&self) -> RtckResult<std::process::Child> {
@@ -322,38 +271,11 @@ pub mod jailer {
                 }
             }
 
-            // match &self.stdout_to_exported {
-            //     Some(stdout_to) => {
-            //         if !PathBuf::from(stdout_to).exists() {
-            //             std::fs::File::create(stdout_to).map_err(|_| {
-            //                 RtckError::FilesysIO("fail to create stdout file".to_string())
-            //             })?;
-            //         }
-            //         let stdout = std::fs::File::open(stdout_to).map_err(|_| {
-            //             RtckError::FilesysIO("fail to open stdout redirection file".to_string())
-            //         })?;
-            //         cmd.stdout(Stdio::from(stdout));
-            //     }
-            //     None => (),
-            // }
-
-            // match &self.stderr_to_exported {
-            //     Some(stderr_to) => {
-            //         if !PathBuf::from(stderr_to).exists() {
-            //             std::fs::File::create(stderr_to).map_err(|_| {
-            //                 RtckError::FilesysIO("fail to create stderr file".to_string())
-            //             })?;
-            //         }
-            //         let stderr = std::fs::File::open(stderr_to).map_err(|_| {
-            //             RtckError::FilesysIO("fail to open stderr redirection file".to_string())
-            //         })?;
-            //         cmd.stderr(Stdio::from(stderr));
-            //     }
-            //     None => (),
-            // }
-
-            cmd.spawn()
-                .map_err(|_| RtckError::Jailer("spawning jailer".to_string()))
+            cmd.spawn().map_err(|e| {
+                let msg = format!("Fail to spawn jailer: {e}");
+                error!("{msg}");
+                RtckError::Jailer(msg)
+            })
         }
 
         /// Waiting for the socket set by firecracker
@@ -367,44 +289,7 @@ pub mod jailer {
                 std::thread::sleep(std::time::Duration::from_millis(100)); // check every 100 ms
             }
 
-            Err(RtckError::Jailer("remote socket timeout".to_string()))
-            // let pair = Arc::new((Mutex::new(false), Condvar::new()));
-            // let pair_peer = Arc::clone(&pair);
-
-            // // Wait for the socket
-            // let socket_path = handle_entry(&self.socket_path_export)?;
-            // std::thread::spawn(move || -> RtckResult<()> {
-            //     let &(ref lock, ref cvar) = &*pair_peer;
-            //     let mut created = lock
-            //         .lock()
-            //         .map_err(|_| RtckError::Jailer("waiting socket".to_string()))?;
-
-            //     while !socket_path.exists() {}
-
-            //     *created = true;
-            //     cvar.notify_one();
-
-            //     Ok(())
-            // });
-
-            // let &(ref lock, ref cvar) = &*pair;
-            // let created = lock
-            //     .lock()
-            //     .map_err(|_| RtckError::Jailer("waiting socket".to_string()))?;
-            // if !*created {
-            //     let result = cvar
-            //         .wait_timeout(
-            //             lock.lock()
-            //                 .map_err(|_| RtckError::Jailer("waiting socket".to_string()))?,
-            //             timeout,
-            //         )
-            //         .map_err(|_| RtckError::Jailer("waiting socket".to_string()))?;
-            //     if result.1.timed_out() {
-            //         return Err(RtckError::Jailer("remote socket timeout".to_string()));
-            //     }
-            // }
-
-            // Ok(())
+            Err(RtckError::Jailer("Remote socket timeout".to_string()))
         }
 
         /// Connect to the socket
@@ -414,7 +299,7 @@ pub mod jailer {
             let stream = loop {
                 if trying == 0 {
                     return Err(RtckError::Firecracker(format!(
-                        "fail to connect unix socket after {retry} tries"
+                        "Fail to connect unix socket after {retry} tries"
                     )));
                 }
                 match UnixStream::connect(socket) {
