@@ -106,7 +106,7 @@ pub mod jailer {
         pub fn from_config(config: &HypervisorConfig) -> RtckResult<Self> {
             config.validate()?;
 
-            let jailer_config = config.jailer_config.as_ref().ok_or({
+            let jailer_config = config.jailer_config.as_ref().ok_or_else(|| {
                 let msg = "Missing jailer config";
                 error!("{msg}");
                 RtckError::Config(msg.into())

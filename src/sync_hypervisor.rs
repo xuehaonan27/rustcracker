@@ -291,7 +291,7 @@ impl Hypervisor {
 
                 // using jailer, must change the owner of logger file to jailer uid:gid.
                 use nix::unistd::{Gid, Uid};
-                let (uid, gid) = self.uid_gid.ok_or({
+                let (uid, gid) = self.uid_gid.ok_or_else(|| {
                     let msg = "Uid and Gid not found in jailer";
                     error!("msg");
                     RtckError::Hypervisor(msg.into())
@@ -369,7 +369,7 @@ impl Hypervisor {
 
                 // using jailer, must change the owner of metrics file to jailer uid:gid.
                 use nix::unistd::{Gid, Uid};
-                let (uid, gid) = self.uid_gid.ok_or({
+                let (uid, gid) = self.uid_gid.ok_or_else(|| {
                     let msg = "Uid and Gid not found in jailer";
                     error!("msg");
                     RtckError::Hypervisor(msg.into())
@@ -441,12 +441,12 @@ impl Hypervisor {
                     error!("{msg}");
                     RtckError::Config(msg)
                 })?;
-                let source_dir = source.parent().ok_or({
+                let source_dir = source.parent().ok_or_else(|| {
                     let msg = format!("Invalid kernel image path, got {kerimg_path}");
                     error!("{msg}");
                     RtckError::Config(msg)
                 })?;
-                let kernel_file = source.file_name().ok_or({
+                let kernel_file = source.file_name().ok_or_else(|| {
                     let msg = format!("Invalid kernel image path, got {kerimg_path}");
                     error!("{msg}");
                     RtckError::Config(msg)
@@ -492,12 +492,12 @@ impl Hypervisor {
                         error!("{msg}");
                         RtckError::Config(msg)
                     })?;
-                    let source_dir = source.parent().ok_or({
+                    let source_dir = source.parent().ok_or_else(|| {
                         let msg = format!("Invalid initrd path, got {initrd_path}");
                         error!("{msg}");
                         RtckError::Config(msg)
                     })?;
-                    let initrd_file = source.file_name().ok_or({
+                    let initrd_file = source.file_name().ok_or_else(|| {
                         let msg = format!("Invalid initrd path, got {initrd_path}");
                         error!("{msg}");
                         RtckError::Config(msg)
@@ -578,12 +578,12 @@ impl Hypervisor {
                         error!("{msg}");
                         RtckError::Config(msg)
                     })?;
-                    let source_dir = source.parent().ok_or({
+                    let source_dir = source.parent().ok_or_else(|| {
                         let msg = format!("Invalid drive path, got {drive_path}");
                         error!("{msg}");
                         RtckError::Config(msg)
                     })?;
-                    let drive_file = source.file_name().ok_or({
+                    let drive_file = source.file_name().ok_or_else(|| {
                         let msg = format!("Invalid drive path, got {drive_path}");
                         error!("{msg}");
                         RtckError::Config(msg)
@@ -614,7 +614,7 @@ impl Hypervisor {
 
                     use nix::unistd::{Gid, Uid};
                     // change the owner of the drive
-                    let (uid, gid) = self.uid_gid.ok_or({
+                    let (uid, gid) = self.uid_gid.ok_or_else(|| {
                         let msg = "Uid and Gid not found in jailer";
                         error!("{msg}");
                         RtckError::Hypervisor(msg.into())

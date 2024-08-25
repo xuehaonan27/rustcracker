@@ -61,7 +61,7 @@ mod firecracker {
 
             let socket = jailer
                 .get_socket_path_exported()
-                .ok_or({
+                .ok_or_else(|| {
                     let msg = "Jailer without exported socket path";
                     error!("{msg}");
                     RtckError::Config(msg.into())
@@ -70,7 +70,7 @@ mod firecracker {
 
             let lock_path = jailer
                 .get_lock_path_exported()
-                .ok_or({
+                .ok_or_else(|| {
                     let msg = "Jailer without exported lock path";
                     error!("{msg}");
                     RtckError::Config(msg.into())
@@ -79,7 +79,7 @@ mod firecracker {
 
             let log_path = jailer
                 .get_log_path_exported()
-                .ok_or({
+                .ok_or_else(|| {
                     let msg = "Jailer without exported log path";
                     error!("{msg}");
                     RtckError::Config(msg.into())
@@ -216,7 +216,7 @@ mod firecracker_async {
 
             let socket = jailer
                 .get_socket_path_exported()
-                .ok_or({
+                .ok_or_else(|| {
                     let msg = "Jailer without exported socket path";
                     error!("{msg}");
                     RtckError::Config(msg.into())
@@ -225,7 +225,7 @@ mod firecracker_async {
 
             let lock_path = jailer
                 .get_lock_path_exported()
-                .ok_or({
+                .ok_or_else(|| {
                     let msg = "Jailer without exported lock path";
                     error!("{msg}");
                     RtckError::Config(msg.into())
@@ -234,7 +234,7 @@ mod firecracker_async {
 
             let log_path = jailer
                 .get_log_path_exported()
-                .ok_or({
+                .ok_or_else(|| {
                     let msg = "Jailer without exported log path";
                     error!("{msg}");
                     RtckError::Config(msg.into())

@@ -36,7 +36,7 @@ pub type RtckResult<T> = std::result::Result<T, RtckError>;
 
 #[doc(hidden)]
 pub(crate) fn handle_entry<T: Clone>(option: &Option<T>, name: &'static str) -> RtckResult<T> {
-    option.clone().ok_or({
+    option.clone().ok_or_else(|| {
         let msg = format!("Missing {name} entry");
         error!("{msg}");
         RtckError::Config(msg)
@@ -54,7 +54,7 @@ fn handle_entry_default<T: Clone>(entry: &Option<T>, default: T) -> T {
 
 #[doc(hidden)]
 fn handle_entry_ref<'a, T>(entry: &'a Option<T>, name: &'static str) -> RtckResult<&'a T> {
-    entry.as_ref().ok_or({
+    entry.as_ref().ok_or_else(|| {
         let msg = format!("Missing {name} entry");
         error!("{msg}");
         RtckError::Jailer(msg)
