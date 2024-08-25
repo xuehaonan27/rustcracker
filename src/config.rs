@@ -66,7 +66,9 @@ impl MicroVMConfig {
             Some(logger) => {
                 let path = PathBuf::from(&logger.log_path);
                 if path.exists() {
-                    return Err(RtckError::Config("logger path occupied".to_string()));
+                    let msg = "Logger path occupied";
+                    error!("{msg}");
+                    return Err(RtckError::Config(msg.into()));
                 }
             }
         }
@@ -76,7 +78,9 @@ impl MicroVMConfig {
             Some(metrics) => {
                 let path = PathBuf::from(&metrics.metrics_path);
                 if path.exists() {
-                    return Err(RtckError::Config("metrics path occupied".to_string()));
+                    let msg = "Metrics path occupied";
+                    error!("{msg}");
+                    return Err(RtckError::Config(msg.into()));
                 }
             }
         }
@@ -86,17 +90,14 @@ impl MicroVMConfig {
             Some(boot_source) => {
                 let path = PathBuf::from(&boot_source.kernel_image_path);
                 if !path.exists() || !path.is_file() {
-                    return Err(RtckError::Config("kernel image file missing".to_string()));
+                    let msg = format!("Kernel image file not found at {path:?}");
+                    error!("{msg}");
+                    return Err(RtckError::Config(msg));
                 }
             }
         }
 
         Ok(())
-    }
-
-    pub fn to_vec(&self) -> RtckResult<Vec<u8>> {
-        serde_json::to_vec(&self)
-            .map_err(|_| RtckError::Encode("firecracker config to vec".to_string()))
     }
 }
 
@@ -291,8 +292,6 @@ impl Default for HypervisorConfig {
             metrics_clear: None,
             network_clear: None,
             seccomp_level: None,
-            // stdout_to: None,
-            // stderr_to: None,
             clear_jailer: None,
             poll_status_secs: 10,
         }
@@ -361,11 +360,4 @@ impl HypervisorConfig {
         trace!("Hypervisor configuration validated");
         Ok(())
     }
-}
-
-/// Configuration combined for fast path microVM creation
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct GlobalConfig {
-    pub frck_config: Option<MicroVMConfig>,
-    pub hv_config: Option<HypervisorConfig>,
 }
