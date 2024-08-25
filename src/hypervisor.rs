@@ -1070,10 +1070,6 @@ impl Hypervisor {
             Err(_) => MicroVMStatus::Failure,
         }
     }
-
-    pub async fn check_status(&self) -> MicroVMStatus {
-        self.status
-    }
 }
 
 /// API for actions that is legal after MicroVM started.
