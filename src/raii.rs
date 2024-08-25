@@ -1,13 +1,20 @@
 use crate::{RtckError, RtckResult};
+use log::*;
 use nix::unistd::Pid;
 use std::path::PathBuf;
 
+/// Terminate the hypervisor by sending SIGTERM
+/// Note: this command will kill firecracker itself
 #[cfg(any(target_os = "linux", target_os = "unix"))]
 fn terminate(pid: Pid) -> RtckResult<()> {
     use nix::sys::signal::{kill, Signal};
     // the hypervisor occupies the pid by opening fd to it (procfs).
     // so kill -9 to this pid is safe.
-    kill(pid, Signal::SIGTERM).map_err(|_| RtckError::Machine("fail to terminate".to_string()))
+    kill(pid, Signal::SIGTERM).map_err(|e| {
+        let msg = format!("Fail to terminate pid {pid}: {e}");
+        error!("{msg}");
+        RtckError::Hypervisor(msg)
+    })
 }
 
 /// Terminate the hypervisor by sending SIGKILL
@@ -19,7 +26,11 @@ fn kill(pid: Pid) -> RtckResult<()> {
     use nix::sys::signal::{kill, Signal};
     kill(pid, Signal::SIGKILL)
         // kill -9 should not trigger this error since SIGKILL is not blockable
-        .map_err(|_| RtckError::Machine("fail to terminate".to_string()))
+        .map_err(|e| {
+            let msg = format!("Fail to kill pid {pid}: {e}");
+            error!("{msg}");
+            RtckError::Hypervisor(msg)
+        })
 }
 
 pub enum Rollback {
@@ -55,12 +66,12 @@ impl Rollback {
             } => {
                 // remove the instance directory
                 if clear {
-                    log::info!("Removing instance dir {:?}", instance_dir);
+                    info!("Removing instance dir {:?}", instance_dir);
                     let _ = std::fs::remove_dir_all(instance_dir);
                 }
             }
             Rollback::StopProcess { pid } => {
-                log::info!("Terminating process {pid}");
+                info!("Terminating process {pid}");
                 use nix::{
                     sys::wait::{waitpid, WaitPidFlag, WaitStatus},
                     unistd::Pid,
@@ -72,12 +83,12 @@ impl Rollback {
                 loop {
                     match waitpid(pid, Some(WaitPidFlag::WNOHANG)) {
                         Ok(WaitStatus::Exited(_, exit_status)) => {
-                            log::warn!("process {pid} has exited {exit_status}");
+                            warn!("Process {pid} has exited {exit_status}");
                             return;
                         }
                         Ok(WaitStatus::Signaled(_, signal, core_dumped)) => {
-                            log::warn!(
-                            "process {pid} has been signaled {signal}, core_dumped: {core_dumped}"
+                            warn!(
+                            "Process {pid} has been signaled {signal}, core_dumped: {core_dumped}"
                         );
                             return;
                         }
@@ -86,21 +97,21 @@ impl Rollback {
                         | Ok(WaitStatus::PtraceSyscall(_))
                         | Ok(WaitStatus::Continued(_)) => break, // terminate it!
                         Err(nix::errno::Errno::ECHILD) => {
-                            log::error!("No such process {}", pid);
+                            error!("No such process {}", pid);
                             return;
                         }
                         Err(nix::errno::Errno::EINTR) => {
-                            log::warn!("checking status interrupted, trying again...");
+                            warn!("Checking status interrupted, trying again...");
                             continue;
                         }
                         Err(nix::errno::Errno::EINVAL) => {
-                            log::error!(
-                                "checking status invalid arguments, send a terminate signal anyway"
+                            error!(
+                                "Checking status invalid arguments, send a terminate signal anyway"
                             );
                             break;
                         }
                         _ => {
-                            log::error!("fatal error! unreachable");
+                            error!("Fatal error! unreachable");
                             return;
                         }
                     }
@@ -113,11 +124,11 @@ impl Rollback {
                 loop {
                     match waitpid(pid, None) {
                         Ok(WaitStatus::Exited(_, status)) => {
-                            log::info!("Process {} exited with status {}", pid, status);
+                            info!("Process {} exited with status {}", pid, status);
                             break;
                         }
                         Ok(WaitStatus::Signaled(_, signal, _)) => {
-                            log::warn!("Process {} was killed by signal {}", pid, signal);
+                            warn!("Process {} was killed by signal {}", pid, signal);
                             break;
                         }
                         Ok(_) => {
@@ -128,11 +139,11 @@ impl Rollback {
                             std::thread::sleep(std::time::Duration::from_millis(100));
                         }
                         Err(nix::errno::Errno::ECHILD) => {
-                            log::error!("No such process {}", pid);
+                            error!("No such process {}", pid);
                             break;
                         }
                         Err(err) => {
-                            log::error!("Error occurred: {}", err);
+                            error!("Error occurred: {}", err);
                             break;
                         }
                     }
@@ -140,19 +151,19 @@ impl Rollback {
             }
             Rollback::RemoveSocket { path } => {
                 // removal failure is not a big deal so ignore possible error
-                log::info!("Removing socket {:?}", path);
+                info!("Removing socket {:?}", path);
                 let _ = std::fs::remove_file(path);
             }
             Rollback::RemoveFsLock { path } => {
                 // removal failure is not a big deal so ignore possible error
-                log::info!("Removing lock {:?}", path);
+                info!("Removing lock {:?}", path);
                 let _ = std::fs::remove_file(path);
             }
             Rollback::Umount { mount_point } => {
-                log::info!("Umount {mount_point:?}");
+                info!("Umount {mount_point:?}");
                 use nix::mount::{umount2, MntFlags};
                 let _ = umount2(&mount_point, MntFlags::MNT_FORCE).map_err(|e| {
-                    RtckError::Hypervisor(format!("fail to umount the kernel dir, errno = {}", e))
+                    RtckError::Hypervisor(format!("Fail to umount the kernel dir, errno = {}", e))
                 });
             }
             Rollback::Chown {
@@ -160,11 +171,9 @@ impl Rollback {
                 original_uid,
                 original_gid,
             } => {
-                log::info!(
+                info!(
                     "Change onwership of {:?} back to ({}:{})",
-                    path,
-                    original_uid,
-                    original_gid
+                    path, original_uid, original_gid
                 );
                 use nix::unistd::{Gid, Uid};
                 let _ = nix::unistd::chown(
