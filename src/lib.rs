@@ -6,6 +6,7 @@ pub mod firecracker;
 pub mod hypervisor;
 pub mod jailer;
 pub mod models;
+pub mod options;
 pub mod raii;
 pub mod reqres;
 pub mod sync_hypervisor;

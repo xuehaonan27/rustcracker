@@ -105,36 +105,46 @@ impl MicroVMConfig {
 /// Needed when using jailer.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct JailerConfig {
-    // `gid` the jailer switches to as it execs the target binary.
+    /// `gid` the jailer switches to as it execs the target binary.
     pub gid: Option<u32>,
 
-    // `uid` the jailer switches to as it execs the target binary.
+    /// `uid` the jailer switches to as it execs the target binary.
     pub uid: Option<u32>,
 
-    // `id` is the unique VM identification string, which may contain alphanumeric
-    // characters and hyphens. The maximum id length is currently 64 characters
-    // pub id: Option<String>,
-
-    // `numa_node` represents the NUMA node the process gets assigned to.
+    /// `numa_node` represents the NUMA node the process gets assigned to.
     pub numa_node: Option<usize>,
 
-    // `exec_file` is the path to the Firecracker binary that will be exec-ed by
-    // the jailer. The user can provide a path to any binary, but the interaction
-    // with the jailer is mostly Firecracker specific.
+    /// `exec_file` is the path to the Firecracker binary that will be exec-ed by
+    /// the jailer. The user can provide a path to any binary, but the interaction
+    /// with the jailer is mostly Firecracker specific.
     pub exec_file: Option<String>,
 
-    // `jailer_bin` specifies the jailer binary to be used for setting up the
-    // Firecracker VM jail.
-    // If not specified it defaults to "jailer".
+    /// `jailer_bin` specifies the jailer binary to be used for setting up the
+    /// Firecracker VM jail.
+    /// If not specified it defaults to "jailer".
     pub jailer_bin: Option<String>,
 
-    // `chroot_base_dir` represents the base folder where chroot jails are built. The
-    // default is /srv/jailer
+    /// `chroot_base_dir` represents the base folder where chroot jails are built. The
+    /// default is /srv/jailer
     pub chroot_base_dir: Option<String>,
 
-    // `daemonize` is set to true, call setsid() and redirect STDIN, STDOUT, and
-    // STDERR to /dev/null
+    /// `daemonize` is set to true, call setsid() and redirect STDIN, STDOUT, and
+    /// STDERR to /dev/null
     pub daemonize: Option<bool>,
+}
+
+impl Default for JailerConfig {
+    fn default() -> Self {
+        Self {
+            gid: None,
+            uid: None,
+            numa_node: None,
+            exec_file: None,
+            jailer_bin: None,
+            chroot_base_dir: None,
+            daemonize: None,
+        }
+    }
 }
 
 impl JailerConfig {
@@ -191,72 +201,72 @@ impl JailerConfig {
 /// Configuration relative to a hypervisor instance.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct HypervisorConfig {
-    /// instance id.
+    /// Instance id.
     /// If set to None, then the hypervisor will allocate a random one for you.
     /// So if you want to make sure which hypervisor you are running now,
     /// you'd better assign a value to this field :)
     pub id: Option<String>,
 
-    /// launch timeout
+    /// Launch timeout
     pub launch_timeout: u64,
 
-    /// intervals in seconds for hypervisor polling the status
+    /// Interval in seconds for hypervisor polling the status
     /// of the microVM it holds when waiting for the user to
     /// give up the microVM.
     /// Default to 10 (seconds).
     /// Could be set bigger to avoid large amount of log being produced.
     pub poll_status_secs: u64,
 
-    /// using jailer?
+    /// Whether jailer should be used or not
     pub using_jailer: Option<bool>,
 
-    /// path to firecracker binary
+    /// Path to firecracker binary
     pub frck_bin: Option<String>,
 
-    /// path to jailer binary (if using jailer)
+    /// Path to jailer binary (if using jailer)
     pub jailer_bin: Option<String>,
 
-    /// jailer configuration (if using jailer)
+    /// Jailer configuration (if using jailer)
     pub jailer_config: Option<JailerConfig>,
 
-    /// where to put firecracker exported config for `--config`
+    /// Where to put firecracker exported config for `--config`
     pub frck_export_path: Option<String>,
 
-    /// where to put socket, default to None, and hypervisor will allocate one for you.
+    /// Where to put socket, default to None, and hypervisor will allocate one for you.
     /// When using jailer, default value "run/firecracker.socket" is used since this
     /// name is impossible to conflict with other sockets when using jailer.
     /// When not using jailer, default value would be "/run/firecracker-<id>.socket",
     /// where <id> is the instance id of your hypervisor.
     pub socket_path: Option<String>,
 
-    /// socket retrying times, default to 3 times
+    /// Socket retrying times, default to 3 times
     pub socket_retry: usize,
 
-    /// where to put lock file, default to None, and Local will allocate one for you
+    /// Where to put lock file, default to None, and Local will allocate one for you
     pub lock_path: Option<String>,
 
-    /// hypervisor log path
+    /// Hypervisor log path
     /// path inside jailer seen by firecracker (when using jailer)
     pub log_path: Option<String>,
 
-    /// log_clear defines whether rustcracker should remove log files after microVM
-    /// instance is removed from hypervisor. Default to false.
+    /// Whether log files should be removed after microVM
+    /// instance is removed. Default to false.
     pub log_clear: Option<bool>,
 
-    /// hypervisor metrics path
+    /// Hypervisor metrics path
     /// path inside jailer seen by firecracker (when using jailer)
     pub metrics_path: Option<String>,
 
-    /// metrics_clear defines whether rustcracker should remove log files after microVM
-    /// instance is removed from hypervisor. Default to false.
+    /// Whether metrics files should be removed after microVM
+    /// instance is removed. Default to false.
     pub metrics_clear: Option<bool>,
 
-    /// network_clear defines whether rustcracker should clear networking after microVM
+    /// Whether networking should be cleared after microVM
     /// instance is removed from hypervisor. Default to false.
     pub network_clear: Option<bool>,
 
-    /// seccomp_level specifies whether seccomp filters should be installed and how
-    /// restrictive they should be. Possible values are:
+    /// Whether seccomp filters should be installed and how restrictive
+    /// they should be. Possible values are:
     ///
     ///	0 : (default): disabled.
     ///	1 : basic filtering. This prohibits syscalls not whitelisted by Firecracker.
@@ -264,12 +274,8 @@ pub struct HypervisorConfig {
     ///			parameters of the allowed syscalls.
     pub seccomp_level: Option<usize>,
 
-    // /// redirect stdout here
-    // pub stdout_to: Option<String>,
-
-    // /// redirect stderr here
-    // pub stderr_to: Option<String>,
-    /// clear jailer directory, default to false
+    /// Whether jailer working directory should be removed after
+    /// microVM instance is removed, default to false
     pub clear_jailer: Option<bool>,
 }
 
@@ -359,5 +365,9 @@ impl HypervisorConfig {
 
         trace!("Hypervisor configuration validated");
         Ok(())
+    }
+
+    pub(super) fn jailer_config(&mut self) -> Option<&mut JailerConfig> {
+        self.jailer_config.as_mut()
     }
 }
