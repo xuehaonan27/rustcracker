@@ -1,5 +1,8 @@
 use data::{HYPERVISOR_NOJAILER_CONFIG, HYPERVISOR_WITHJAILER_CONFIG, MICROVM_CONFIG};
-use rustcracker::{hypervisor::Hypervisor, options::HypervisorOptions};
+use rustcracker::{
+    hypervisor::Hypervisor,
+    options::{HypervisorOptions, MicroVMOptions},
+};
 
 pub mod data;
 
@@ -241,7 +244,6 @@ pub fn syncusing() {
 }
 
 pub async fn options() {
-    dotenvy::dotenv().ok();
     let options = HypervisorOptions::new()
         .using_jailer(true)
         .id("instance-demo-test")
@@ -270,8 +272,64 @@ pub async fn options() {
     hypervisor.ping_remote().await.expect("fail to ping remote");
     log::info!("Hypervisor running!");
 
-    hypervisor
-        .start(&MICROVM_CONFIG)
+    use rustcracker::models::*;
+    let logger = Logger {
+        level: None,
+        log_path: "firecracker.log".to_string(),
+        show_level: None,
+        show_log_origin: None,
+        module: None,
+    };
+    let boot_source = BootSource {
+        boot_args: Some("console=ttyS0 reboot=k panic=1 pci=off".to_string()),
+        initrd_path: None,
+        kernel_image_path: "/root/kernel/hello-vmlinux.bin".to_string(),
+    };
+    let rootfs = Drive {
+        drive_id: "rootfs".to_string(),
+        partuuid: None,
+        is_root_device: true,
+        cache_type: None,
+        is_read_only: false,
+        path_on_host: "/root/drives/ubuntu.img".to_string(),
+        rate_limiter: None,
+        io_engine: None,
+        socket: None,
+    };
+    let network_interface = NetworkInterface {
+        iface_id: "eth0".to_string(),
+        guest_mac: None,
+        host_dev_name: "tap0".to_string(),
+        rx_rate_limiter: None,
+        tx_rate_limiter: None,
+    };
+    let machine_config = MachineConfiguration {
+        cpu_template: None,
+        ht_enabled: Some(false),
+        mem_size_mib: 256,
+        track_dirty_pages: None,
+        vcpu_count: 4,
+    };
+    let vmid = "1234qwer";
+    let balloon = Balloon {
+        amount_mib: 64,
+        deflate_on_oom: true,
+        stats_polling_interval_s: None,
+    };
+    let init_metadata = "Hello, world!";
+
+    let microvm = MicroVMOptions::new()
+        .logger(logger)
+        .boot_source(boot_source)
+        .drives(vec![rootfs])
+        .network_interfaces(vec![network_interface])
+        .machine_config(machine_config)
+        .vmid(vmid)
+        .balloon(balloon)
+        .init_metadata(init_metadata);
+
+    microvm
+        .instance(&mut hypervisor)
         .await
         .expect("fail to configure microVM");
     log::info!("microVM configured");

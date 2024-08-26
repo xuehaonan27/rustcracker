@@ -1,4 +1,7 @@
-use crate::config::{HypervisorConfig, JailerConfig};
+use std::net::Ipv4Addr;
+
+use crate::config::{HypervisorConfig, JailerConfig, MicroVMConfig};
+use crate::models::*;
 use crate::RtckResult;
 use log::warn;
 
@@ -216,6 +219,124 @@ impl HypervisorOptions {
         } else {
             warn!("Jailer not enabled, ignoring setting `daemonize = {b}`")
         }
+        self
+    }
+}
+
+pub struct MicroVMOptions {
+    config: MicroVMConfig,
+}
+
+impl MicroVMOptions {
+    pub fn new() -> Self {
+        Self {
+            config: Default::default(),
+        }
+    }
+
+    pub fn validate(self) -> RtckResult<Self> {
+        self.config.validate()?;
+        Ok(self)
+    }
+
+    pub fn config(self) -> MicroVMConfig {
+        self.config.clone()
+    }
+
+    pub async fn instance(&self, hypervisor: &mut crate::hypervisor::Hypervisor) -> RtckResult<()> {
+        hypervisor.start(&self.config).await
+    }
+
+    pub fn block_instance(
+        &self,
+        hypervisor: &mut crate::sync_hypervisor::Hypervisor,
+    ) -> RtckResult<()> {
+        hypervisor.start(&self.config)
+    }
+
+    /// The logger for microVM.
+    pub fn logger(mut self, logger: Logger) -> Self {
+        self.config.logger = Some(logger);
+        self
+    }
+
+    /// The file path where the Firecracker metrics is located.
+    pub fn metrics(mut self, metrics: Metrics) -> Self {
+        self.config.metrics = Some(metrics);
+        self
+    }
+
+    /// Kernel image path, initrd path (optional) and kernel args.
+    pub fn boot_source(mut self, boot_source: BootSource) -> Self {
+        self.config.boot_source = Some(boot_source);
+        self
+    }
+
+    /// Block devices that should be made available to the microVM.
+    pub fn drives(mut self, drives: Vec<Drive>) -> Self {
+        self.config.drives = Some(drives);
+        self
+    }
+
+    /// Tap devices that should be made available to the microVM.
+    pub fn network_interfaces(mut self, network_interfaces: Vec<NetworkInterface>) -> Self {
+        self.config.network_interfaces = Some(network_interfaces);
+        self
+    }
+
+    /// Vsock devices that should be made available to the microVM.
+    pub fn vsock_devices(mut self, vsock_devices: Vec<Vsock>) -> Self {
+        self.config.vsock_devices = Some(vsock_devices);
+        self
+    }
+
+    /// CPU configuration of microVM.
+    pub fn cpu_config(mut self, cpu_config: CPUConfig) -> Self {
+        self.config.cpu_config = Some(cpu_config);
+        self
+    }
+
+    /// Firecracker microVM process configuration.
+    pub fn machine_config(mut self, machine_config: MachineConfiguration) -> Self {
+        self.config.machine_config = Some(machine_config);
+        self
+    }
+
+    /// (Optional) vmid is a unique identifier for this VM. It's set to a
+    /// random uuid if not provided by the user. It's used to set Firecracker's instance ID.
+    pub fn vmid<S: AsRef<str>>(mut self, vmid: S) -> Self {
+        self.config.vmid = Some(vmid.as_ref().into());
+        self
+    }
+
+    /// The path to a network namespace handle. If present, the
+    /// application will use this to join the associated network namespace
+    pub fn net_ns<S: AsRef<str>>(mut self, net_ns: S) -> Self {
+        self.config.net_ns = Some(net_ns.as_ref().into());
+        self
+    }
+
+    /// IPv4 address used by guest applications when issuing requests to MMDS.
+    pub fn mmds_address(mut self, address: Ipv4Addr) -> Self {
+        self.config.mmds_address = Some(address);
+        self
+    }
+
+    /// Balloon device that is to be put to the machine.
+    pub fn balloon(mut self, balloon: Balloon) -> Self {
+        self.config.balloon = Some(balloon);
+        self
+    }
+
+    /// The entropy device.
+    pub fn entropy_device(mut self, entropy_device: EntropyDevice) -> Self {
+        self.config.entropy_device = Some(entropy_device);
+        self
+    }
+
+    /// Initial metadata that is to be assigned to the machine.
+    pub fn init_metadata<S: AsRef<str>>(mut self, init_metadata: S) -> Self {
+        self.config.init_metadata = Some(init_metadata.as_ref().into());
         self
     }
 }

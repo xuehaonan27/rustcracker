@@ -6,57 +6,70 @@ use std::path::PathBuf;
 /// Configuration for a microVM instance
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MicroVMConfig {
-    // logger defines the logger for microVM.
+    /// The logger for microVM.
     pub logger: Option<logger::Logger>,
 
-    // metrics defines the file path where the Firecracker metrics
-    // is located.
+    /// The file path where the Firecracker metrics is located.
     pub metrics: Option<metrics::Metrics>,
 
-    // boot_source defines the kernel image path, initrd path and kernel args.
+    /// Kernel image path, initrd path (optional) and kernel args.
     pub boot_source: Option<boot_source::BootSource>,
 
-    // drives specifies BlockDevices that should be made available to the
-    // microVM.
+    /// Block devices that should be made available to the microVM.
     pub drives: Option<Vec<drive::Drive>>,
 
-    // network_interfaces specifies the tap devices that should be made available
-    // to the microVM.
+    /// Tap devices that should be made available to the microVM.
     pub network_interfaces: Option<Vec<network_interface::NetworkInterface>>,
 
-    // vsock_devices specifies the vsock devices that should be made available to
-    // the microVM.
+    /// Vsock devices that should be made available to the microVM.
     pub vsock_devices: Option<Vec<vsock::Vsock>>,
 
-    // cpu_config defines the CPU configuration of microVM.
+    /// CPU configuration of microVM.
     pub cpu_config: Option<cpu_template::CPUConfig>,
 
-    // machine_cfg represents the firecracker microVM process configuration
+    /// Firecracker microVM process configuration.
     pub machine_config: Option<machine_configuration::MachineConfiguration>,
 
-    // (Optional) vmid is a unique identifier for this VM. It's set to a
-    // random uuid if not provided by the user. It's used to set Firecracker's instance ID.
-    // If CNI configuration is provided as part of NetworkInterfaces,
-    // the vmid is used to set CNI ContainerID and create a network namespace path.
+    /// (Optional) vmid is a unique identifier for this VM. It's set to a
+    /// random uuid if not provided by the user. It's used to set Firecracker's instance ID.
     pub vmid: Option<String>,
 
-    // net_ns represents the path to a network namespace handle. If present, the
-    // application will use this to join the associated network namespace
+    /// The path to a network namespace handle. If present, the
+    /// application will use this to join the associated network namespace
     pub net_ns: Option<String>,
 
-    // mmds_address is IPv4 address used by guest applications when issuing requests to MMDS.
-    // It is possible to use a valid IPv4 link-local address (169.254.0.0/16).
-    // If not provided, the default address (169.254.169.254) will be used.
+    /// IPv4 address used by guest applications when issuing requests to MMDS.
     pub mmds_address: Option<std::net::Ipv4Addr>,
 
-    // balloon is Balloon device that is to be put to the machine
+    /// Balloon device that is to be put to the machine.
     pub balloon: Option<balloon::Balloon>,
 
-    // entropy_device defines the entropy device used by microVM.
+    /// The entropy device.
     pub entropy_device: Option<entropy_device::EntropyDevice>,
 
-    // init_metadata is initial metadata that is to be assigned to the machine
+    /// Initial metadata that is to be assigned to the machine.
     pub init_metadata: Option<String>,
+}
+
+impl Default for MicroVMConfig {
+    fn default() -> Self {
+        Self {
+            logger: None,
+            metrics: None,
+            boot_source: None,
+            drives: None,
+            network_interfaces: None,
+            vsock_devices: None,
+            cpu_config: None,
+            machine_config: None,
+            vmid: None,
+            net_ns: None,
+            mmds_address: None,
+            balloon: None,
+            entropy_device: None,
+            init_metadata: None,
+        }
+    }
 }
 
 impl MicroVMConfig {
