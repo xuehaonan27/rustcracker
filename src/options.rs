@@ -23,14 +23,14 @@ impl HypervisorOptions {
         Ok(self)
     }
 
-    pub async fn spawn(&self) -> RtckResult<crate::hypervisor::Hypervisor> {
-        use crate::hypervisor::Hypervisor;
+    pub async fn spawn_async(&self) -> RtckResult<crate::Hypervisor> {
+        use crate::Hypervisor;
         Hypervisor::new(&self.config).await
     }
 
-    pub fn spawn_sync(&self) -> RtckResult<crate::sync_hypervisor::Hypervisor> {
-        use crate::sync_hypervisor::Hypervisor;
-        Hypervisor::new(&self.config)
+    pub fn spawn_sync(&self) -> RtckResult<crate::HypervisorSync> {
+        use crate::HypervisorSync;
+        HypervisorSync::new(&self.config)
     }
 
     /// Instance id.
@@ -243,14 +243,11 @@ impl MicroVMOptions {
         self.config.clone()
     }
 
-    pub async fn instance(&self, hypervisor: &mut crate::hypervisor::Hypervisor) -> RtckResult<()> {
+    pub async fn instance_async(&self, hypervisor: &mut crate::Hypervisor) -> RtckResult<()> {
         hypervisor.start(&self.config).await
     }
 
-    pub fn block_instance(
-        &self,
-        hypervisor: &mut crate::sync_hypervisor::Hypervisor,
-    ) -> RtckResult<()> {
+    pub fn instance_sync(&self, hypervisor: &mut crate::HypervisorSync) -> RtckResult<()> {
         hypervisor.start(&self.config)
     }
 

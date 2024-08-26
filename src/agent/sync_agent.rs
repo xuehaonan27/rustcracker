@@ -14,6 +14,7 @@ pub struct Agent {
 }
 
 impl Agent {
+    #[allow(unused)]
     pub fn new(stream_path: String, lock_path: String) -> Result<Self, AgentError> {
         let stream = UnixStream::connect(&stream_path)
             .map_err(|e| AgentError::BadUnixSocket(e.to_string()))?;
@@ -184,6 +185,7 @@ impl Agent {
 
     /// Start some events by passing FirecrackerEvent like objects
     /// Useful since less locking and unlocking needed
+    #[allow(unused)]
     pub fn events<E: FirecrackerEvent>(&mut self, events: Vec<E>) -> AgentResult<Vec<E::Res>> {
         self.lock()?;
         self.clear_stream()?;

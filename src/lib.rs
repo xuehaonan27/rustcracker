@@ -1,16 +1,18 @@
 use agent::agent::AgentError;
 use log::*;
-pub mod agent;
+mod agent;
 pub mod config;
-pub mod firecracker;
+mod firecracker;
 pub mod hypervisor;
-pub mod jailer;
+mod jailer;
 pub mod models;
 pub mod options;
-pub mod raii;
-pub mod reqres;
-pub mod sync_hypervisor;
+mod raii;
+mod reqres;
+pub use crate::hypervisor::Hypervisor;
+pub use crate::hypervisor::HypervisorSync;
 
+/// Errors in rustcracker
 #[derive(Debug, thiserror::Error)]
 pub enum RtckError {
     #[error("Fail to encode structs: {0}")]

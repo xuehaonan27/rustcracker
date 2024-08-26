@@ -1,3 +1,4 @@
+#![allow(unused)]
 use crate::RtckResult;
 use serde::{Deserialize, Serialize};
 

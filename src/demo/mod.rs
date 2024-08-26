@@ -1,6 +1,6 @@
 use data::{HYPERVISOR_NOJAILER_CONFIG, HYPERVISOR_WITHJAILER_CONFIG, MICROVM_CONFIG};
 use rustcracker::{
-    hypervisor::Hypervisor,
+    hypervisor::tokio::Hypervisor,
     options::{HypervisorOptions, MicroVMOptions},
 };
 
@@ -219,11 +219,11 @@ pub async fn reusing_hypervisor() {
 }
 
 pub fn syncusing() {
-    use rustcracker::sync_hypervisor::Hypervisor;
+    use rustcracker::HypervisorSync;
     dotenvy::dotenv().ok();
 
     let mut hypervisor =
-        Hypervisor::new(&HYPERVISOR_WITHJAILER_CONFIG).expect("fail to create hypervisor");
+        HypervisorSync::new(&HYPERVISOR_WITHJAILER_CONFIG).expect("fail to create hypervisor");
     log::info!("Hypervisor created");
     std::thread::sleep(std::time::Duration::from_secs(3));
 
@@ -266,7 +266,10 @@ pub async fn options() {
         .validate()
         .expect("Invalid options");
 
-    let mut hypervisor = options.spawn().await.expect("fail to create hypervisor");
+    let mut hypervisor = options
+        .spawn_async()
+        .await
+        .expect("fail to create hypervisor");
     log::info!("Hypervisor created");
 
     hypervisor.ping_remote().await.expect("fail to ping remote");
@@ -329,7 +332,7 @@ pub async fn options() {
         .init_metadata(init_metadata);
 
     microvm
-        .instance(&mut hypervisor)
+        .instance_async(&mut hypervisor)
         .await
         .expect("fail to configure microVM");
     log::info!("microVM configured");

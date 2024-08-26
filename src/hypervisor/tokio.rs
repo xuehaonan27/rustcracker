@@ -1,3 +1,4 @@
+use super::MicroVMStatus;
 use crate::agent::agent::Agent;
 use crate::config::{HypervisorConfig, MicroVMConfig};
 use crate::firecracker::FirecrackerAsync;
@@ -8,17 +9,6 @@ use crate::reqres::*;
 use crate::{RtckError, RtckResult};
 use log::*;
 use std::{path::PathBuf, process::ExitStatus};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum MicroVMStatus {
-    None,    // no microVM running now
-    Start,   // in stage of staring
-    Running, // microVM running
-    Paused,  // microVM paused
-    Stop,    // microVM stopped
-    Delete,  // microVM deleted, waiting its resources to be collected
-    Failure, // microVM encountered failure
-}
 
 // #[derive(Debug)]
 pub struct Hypervisor {

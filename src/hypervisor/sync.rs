@@ -1,8 +1,8 @@
+use super::MicroVMStatus;
 use crate::agent::sync_agent::Agent;
 use crate::config::{HypervisorConfig, MicroVMConfig};
-use crate::firecracker::Firecracker;
-use crate::hypervisor::MicroVMStatus;
-use crate::jailer::Jailer;
+use crate::firecracker::FirecrackerSync;
+use crate::jailer::JailerSync;
 use crate::models::*;
 use crate::raii::{Rollback, RollbackStack};
 use crate::reqres::*;
@@ -110,7 +110,7 @@ impl Hypervisor {
     fn new_with_jailer(config: &HypervisorConfig) -> RtckResult<Self> {
         trace!("Creating instance with jailer");
         let mut rollbacks = RollbackStack::new();
-        let mut jailer = Jailer::from_config(&config)?;
+        let mut jailer = JailerSync::from_config(&config)?;
 
         let clear_jailer = if config.clear_jailer.is_none() || !config.clear_jailer.unwrap() {
             false
@@ -152,7 +152,7 @@ impl Hypervisor {
 
         let uid_gid = Some((uid, gid));
 
-        let firecracker = Firecracker::from_jailer(jailer)?;
+        let firecracker = FirecrackerSync::from_jailer(jailer)?;
 
         // Shared code
 
@@ -194,7 +194,7 @@ impl Hypervisor {
     fn new_without_jailer(config: &HypervisorConfig) -> RtckResult<Self> {
         trace!("Creating instance without jailer");
         let mut rollbacks = RollbackStack::new();
-        let firecracker = Firecracker::from_config(&config)?;
+        let firecracker = FirecrackerSync::from_config(&config)?;
 
         // spawn the firecracker process
         // error: fail to launch the process
