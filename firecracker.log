@@ -1,0 +1,19 @@
+2024-08-26T09:46:23.518962328 [anonymous-instance:fc_api] The request was executed successfully. Status code: 204 No Content.
+2024-08-26T09:46:23.519289934 [anonymous-instance:fc_api] The API server received a Put request on "/boot-source" with body "{\"boot_args\":\"console=ttyS0 reboot=k panic=1 pci=off\",\"initrd_path\":null,\"kernel_image_path\":\"/root/kernel/hello-vmlinux.bin\"}".
+2024-08-26T09:46:23.519586856 [anonymous-instance:fc_api] The request was executed successfully. Status code: 204 No Content.
+2024-08-26T09:46:23.519792360 [anonymous-instance:fc_api] The API server received a Put request on "/drives/rootfs" with body "{\"drive_id\":\"rootfs\",\"is_root_device\":true,\"is_read_only\":false,\"path_on_host\":\"/root/drives/ubuntu.img\"}".
+2024-08-26T09:46:23.520096143 [anonymous-instance:fc_api] The request was executed successfully. Status code: 204 No Content.
+2024-08-26T09:46:23.520274893 [anonymous-instance:fc_api] The API server received a Put request on "/network-interfaces/eth0" with body "{\"host_dev_name\":\"tap0\",\"iface_id\":\"eth0\"}".
+2024-08-26T09:46:23.521475274 [anonymous-instance:fc_api] The request was executed successfully. Status code: 204 No Content.
+2024-08-26T09:46:23.521692470 [anonymous-instance:fc_api] The API server received a Put request on "/machine-config" with body "{\"smt\":false,\"mem_size_mib\":256,\"vcpu_count\":4}".
+2024-08-26T09:46:23.521986768 [anonymous-instance:fc_api] The request was executed successfully. Status code: 204 No Content.
+2024-08-26T09:46:23.522242055 [anonymous-instance:fc_api] The API server received a Put request on "/balloon" with body "{\"amount_mib\":64,\"deflate_on_oom\":true}".
+2024-08-26T09:46:23.522493768 [anonymous-instance:fc_api] The request was executed successfully. Status code: 204 No Content.
+2024-08-26T09:46:23.522677071 [anonymous-instance:fc_api] The API server received a Put request on "/mmds".
+2024-08-26T09:46:23.522893367 [anonymous-instance:fc_api] The request was executed successfully. Status code: 204 No Content.
+2024-08-26T09:46:23.523045016 [anonymous-instance:fc_api] The API server received a Put request on "/actions" with body "{\"action_type\":\"InstanceStart\"}".
+2024-08-26T09:46:23.571139948 [anonymous-instance:main] Artificially kick devices.
+2024-08-26T09:46:23.571848539 [anonymous-instance:fc_api] The request was executed successfully. Status code: 204 No Content.
+2024-08-26T09:46:55.082916478 [anonymous-instance:main] Vmm is stopping.
+2024-08-26T09:46:55.084625898 [anonymous-instance:main] Vmm is stopping.
+2024-08-26T09:46:55.203297165 [anonymous-instance:main] Firecracker exiting successfully. exit_code=0

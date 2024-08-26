@@ -18,6 +18,7 @@ async fn main() {
         "--force" => demo::force_terminating().await,
         "--reusing" => demo::reusing_hypervisor().await,
         "--syncusing" => demo::syncusing(),
+        "--options" => demo::options().await,
         _ => panic!("unknown option"),
     };
 }

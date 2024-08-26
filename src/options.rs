@@ -1,15 +1,18 @@
-use crate::config::HypervisorConfig;
+use crate::config::{HypervisorConfig, JailerConfig};
 use crate::RtckResult;
+use log::warn;
 
+#[derive(Debug, Clone)]
 pub struct HypervisorOptions {
     config: HypervisorConfig,
 }
 
 impl HypervisorOptions {
     pub fn new() -> Self {
-        Self {
-            config: Default::default(),
-        }
+        let jailer_config: JailerConfig = Default::default();
+        let mut config: HypervisorConfig = Default::default();
+        config.jailer_config = Some(jailer_config);
+        Self { config }
     }
 
     pub fn validate(self) -> RtckResult<Self> {
@@ -31,8 +34,8 @@ impl HypervisorOptions {
     /// If set to None, then the hypervisor will allocate a random one for you.
     /// So if you want to make sure which hypervisor you are running now,
     /// you'd better assign a value to this field :)
-    pub fn id(mut self, id: &String) -> Self {
-        self.config.id = Some(id.clone());
+    pub fn id<S: AsRef<str>>(mut self, id: S) -> Self {
+        self.config.id = Some(id.as_ref().into());
         self
     }
 
@@ -55,23 +58,24 @@ impl HypervisorOptions {
     /// Whether jailer should be used or not
     pub fn using_jailer(mut self, b: bool) -> Self {
         self.config.using_jailer = Some(b);
-        if self.config.jailer_config == None {
-            self.config.jailer_config = Some(Default::default());
-            // unwrap safe
-            self.config.jailer_config().unwrap().jailer_bin = self.config.jailer_bin.clone();
-        }
         self
     }
 
     /// Path to firecracker binary
     pub fn frck_bin<P: AsRef<str>>(mut self, path: P) -> Self {
         self.config.frck_bin = Some(path.as_ref().into());
+        if let Some(c) = self.config.jailer_config() {
+            c.exec_file = Some(path.as_ref().into());
+        }
         self
     }
 
     /// Path to jailer binary (if using jailer)
     pub fn jailer_bin<P: AsRef<str>>(mut self, path: P) -> Self {
-        self.config.frck_bin = Some(path.as_ref().into());
+        self.config.jailer_bin = Some(path.as_ref().into());
+        if let Some(c) = self.config.jailer_config() {
+            c.jailer_bin = Some(path.as_ref().into());
+        }
         self
     }
 
@@ -159,34 +163,33 @@ impl HypervisorOptions {
 
     /// `gid` the jailer switches to as it execs the target binary.
     pub fn jailer_gid(mut self, gid: u32) -> Self {
-        if let Some(c) = self.config.jailer_config() {
+        if let Some(true) = self.config.using_jailer {
+            let c = self.config.jailer_config().unwrap();
             c.gid = Some(gid);
+        } else {
+            warn!("Jailer not enabled, ignoring setting `jailer_gid = {gid}`");
         }
         self
     }
 
     /// `uid` the jailer switches to as it execs the target binary.
     pub fn jailer_uid(mut self, uid: u32) -> Self {
-        if let Some(c) = self.config.jailer_config() {
+        if let Some(true) = self.config.using_jailer {
+            let c = self.config.jailer_config().unwrap();
             c.uid = Some(uid);
+        } else {
+            warn!("Jailer not enabled, ignoring setting `jailer_uid = {uid}`");
         }
         self
     }
 
     /// `numa_node` represents the NUMA node the process gets assigned to.
     pub fn numa_node(mut self, node: usize) -> Self {
-        if let Some(c) = self.config.jailer_config() {
+        if let Some(true) = self.config.using_jailer {
+            let c = self.config.jailer_config().unwrap();
             c.numa_node = Some(node);
-        }
-        self
-    }
-
-    /// `exec_file` is the path to the Firecracker binary that will be exec-ed by
-    /// the jailer. The user can provide a path to any binary, but the interaction
-    /// with the jailer is mostly Firecracker specific.
-    pub fn exec_file<P: AsRef<str>>(mut self, path: P) -> Self {
-        if let Some(c) = self.config.jailer_config() {
-            c.exec_file = Some(path.as_ref().into());
+        } else {
+            warn!("Jailer not enabled, ignoring setting `numa_node = {node}`");
         }
         self
     }
@@ -194,8 +197,12 @@ impl HypervisorOptions {
     /// `chroot_base_dir` represents the base folder where chroot jails are built. The
     /// default is /srv/jailer
     pub fn chroot_base_dir<P: AsRef<str>>(mut self, path: P) -> Self {
-        if let Some(c) = self.config.jailer_config() {
+        if let Some(true) = self.config.using_jailer {
+            let c = self.config.jailer_config().unwrap();
             c.chroot_base_dir = Some(path.as_ref().into());
+        } else {
+            let path: &str = path.as_ref().into();
+            warn!("Jailer not enabled, ignoring setting `chroot_base_dir = {path}`");
         }
         self
     }
@@ -203,8 +210,11 @@ impl HypervisorOptions {
     /// `daemonize` is set to true, call setsid() and redirect STDIN, STDOUT, and
     /// STDERR to /dev/null
     pub fn daemonize(mut self, b: bool) -> Self {
-        if let Some(c) = self.config.jailer_config() {
+        if let Some(true) = self.config.using_jailer {
+            let c = self.config.jailer_config().unwrap();
             c.daemonize = Some(b);
+        } else {
+            warn!("Jailer not enabled, ignoring setting `daemonize = {b}`")
         }
         self
     }

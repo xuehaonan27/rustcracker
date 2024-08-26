@@ -121,6 +121,7 @@ impl Hypervisor {
     }
 
     async fn new_with_jailer(config: &HypervisorConfig) -> RtckResult<Self> {
+        trace!("Creating instance with jailer");
         let mut rollbacks = RollbackStack::new();
         let mut jailer = JailerAsync::from_config(&config)?;
 
@@ -205,6 +206,7 @@ impl Hypervisor {
     }
 
     async fn new_without_jailer(config: &HypervisorConfig) -> RtckResult<Self> {
+        trace!("Creating instance without jailer");
         let mut rollbacks = RollbackStack::new();
         let firecracker = FirecrackerAsync::from_config(&config)?;
 
@@ -329,6 +331,16 @@ impl Hypervisor {
                     original_uid,
                     original_gid,
                 });
+            } else {
+                let log_path = PathBuf::from(&logger.log_path);
+                if !log_path.exists() {
+                    // create log file
+                    tokio::fs::File::create(&log_path).await.map_err(|e| {
+                        let msg = format!("Fail to create log file: {e}");
+                        error!("{msg}");
+                        RtckError::Hypervisor(msg)
+                    })?;
+                }
             }
 
             // Logger exported path is only useful when creating it and changing owner of it.
@@ -410,6 +422,16 @@ impl Hypervisor {
                     original_uid,
                     original_gid,
                 });
+            } else {
+                let metrics_path = PathBuf::from(&metrics.metrics_path);
+                if !metrics_path.exists() {
+                    // create metrics file
+                    tokio::fs::File::create(&metrics_path).await.map_err(|e| {
+                        let msg = format!("Fail to create metrics file: {e}");
+                        error!("{msg}");
+                        RtckError::Hypervisor(msg)
+                    })?;
+                }
             }
 
             // Metrics exported path is only useful when creating it and changing owner of it.

@@ -1,5 +1,5 @@
 use data::{HYPERVISOR_NOJAILER_CONFIG, HYPERVISOR_WITHJAILER_CONFIG, MICROVM_CONFIG};
-use rustcracker::hypervisor::Hypervisor;
+use rustcracker::{hypervisor::Hypervisor, options::HypervisorOptions};
 
 pub mod data;
 
@@ -237,5 +237,47 @@ pub fn syncusing() {
     let _ = hypervisor.wait();
 
     hypervisor.delete().expect("fail to delete");
+    log::info!("microVM deleted");
+}
+
+pub async fn options() {
+    dotenvy::dotenv().ok();
+    let options = HypervisorOptions::new()
+        .using_jailer(true)
+        .id("instance-demo-test")
+        .poll_status_secs(20)
+        .launch_timeout(5)
+        .frck_bin("/root/firecracker")
+        .jailer_bin("/root/jailer")
+        .socket_path("/run/firecracker.socket")
+        .socket_retry(3)
+        .lock_path("/run/firecracker.lock")
+        .log_path("/var/log/firecracker.log")
+        .log_clear(false)
+        .metrics_path("/var/metrics/firecracker.metrics")
+        .metrics_clear(false)
+        .clear_jailer(false)
+        .jailer_gid(10000)
+        .jailer_uid(10123)
+        .chroot_base_dir("/srv/jailer")
+        .daemonize(false)
+        .validate()
+        .expect("Invalid options");
+
+    let mut hypervisor = options.spawn().await.expect("fail to create hypervisor");
+    log::info!("Hypervisor created");
+
+    hypervisor.ping_remote().await.expect("fail to ping remote");
+    log::info!("Hypervisor running!");
+
+    hypervisor
+        .start(&MICROVM_CONFIG)
+        .await
+        .expect("fail to configure microVM");
+    log::info!("microVM configured");
+
+    let _ = hypervisor.wait().await;
+
+    hypervisor.delete().await.expect("fail to delete");
     log::info!("microVM deleted");
 }
