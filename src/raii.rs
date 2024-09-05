@@ -1,4 +1,4 @@
-use crate::{RtckError, RtckResult};
+use crate::{Error, Result};
 use log::*;
 use nix::unistd::Pid;
 use std::path::PathBuf;
@@ -6,21 +6,21 @@ use std::path::PathBuf;
 /// Terminate the hypervisor by sending SIGTERM
 /// Note: this command will kill firecracker itself
 #[cfg(any(target_os = "linux", target_os = "unix"))]
-fn terminate(pid: Pid) -> RtckResult<()> {
+fn terminate(pid: Pid) -> Result<()> {
     use nix::sys::signal::{kill, Signal};
     // the hypervisor occupies the pid by opening fd to it (procfs).
     // so kill -9 to this pid is safe.
     kill(pid, Signal::SIGTERM).map_err(|e| {
         let msg = format!("Fail to terminate pid {pid}: {e}");
         error!("{msg}");
-        RtckError::Hypervisor(msg)
+        Error::Hypervisor(msg)
     })
 }
 
 /// Terminate the hypervisor by sending SIGKILL
 /// Note: this command will kill firecracker itself.
 #[cfg(any(target_os = "linux", target_os = "unix"))]
-fn kill(pid: Pid) -> RtckResult<()> {
+fn kill(pid: Pid) -> Result<()> {
     // the hypervisor occupies the pid by opening fd to it (procfs).
     // so kill -9 to this pid is safe.
     use nix::sys::signal::{kill, Signal};
@@ -29,7 +29,7 @@ fn kill(pid: Pid) -> RtckResult<()> {
         .map_err(|e| {
             let msg = format!("Fail to kill pid {pid}: {e}");
             error!("{msg}");
-            RtckError::Hypervisor(msg)
+            Error::Hypervisor(msg)
         })
 }
 
@@ -163,7 +163,7 @@ impl Rollback {
                 info!("Umount {mount_point:?}");
                 use nix::mount::{umount2, MntFlags};
                 let _ = umount2(&mount_point, MntFlags::MNT_FORCE).map_err(|e| {
-                    RtckError::Hypervisor(format!("Fail to umount the kernel dir, errno = {}", e))
+                    Error::Hypervisor(format!("Fail to umount the kernel dir, errno = {}", e))
                 });
             }
             Rollback::Chown {

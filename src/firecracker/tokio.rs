@@ -1,6 +1,6 @@
 use crate::config::HypervisorConfig;
 use crate::{handle_entry, jailer::JailerAsync};
-use crate::{RtckError, RtckResult};
+use crate::{Error, Result};
 use log::*;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -27,7 +27,7 @@ pub(crate) struct FirecrackerAsync {
 
 impl FirecrackerAsync {
     /// Using bare firecracker
-    pub(crate) fn from_config(config: &HypervisorConfig) -> RtckResult<Self> {
+    pub(crate) fn from_config(config: &HypervisorConfig) -> Result<Self> {
         let id = if let Some(id) = &config.id {
             id.clone()
         } else {
@@ -53,7 +53,7 @@ impl FirecrackerAsync {
     }
 
     /// Using firecracker with jailer
-    pub(crate) fn from_jailer(jailer: JailerAsync) -> RtckResult<Self> {
+    pub(crate) fn from_jailer(jailer: JailerAsync) -> Result<Self> {
         let bin = jailer.get_firecracker_exec_file().clone();
 
         let socket = jailer
@@ -61,7 +61,7 @@ impl FirecrackerAsync {
             .ok_or_else(|| {
                 let msg = "Jailer without exported socket path";
                 error!("{msg}");
-                RtckError::Config(msg.into())
+                Error::Config(msg.into())
             })?
             .clone();
 
@@ -70,7 +70,7 @@ impl FirecrackerAsync {
             .ok_or_else(|| {
                 let msg = "Jailer without exported lock path";
                 error!("{msg}");
-                RtckError::Config(msg.into())
+                Error::Config(msg.into())
             })?
             .clone();
 
@@ -79,7 +79,7 @@ impl FirecrackerAsync {
             .ok_or_else(|| {
                 let msg = "Jailer without exported log path";
                 error!("{msg}");
-                RtckError::Config(msg.into())
+                Error::Config(msg.into())
             })?
             .clone();
 
@@ -95,7 +95,7 @@ impl FirecrackerAsync {
         })
     }
 
-    pub(crate) async fn launch(&self) -> RtckResult<tokio::process::Child> {
+    pub(crate) async fn launch(&self) -> Result<tokio::process::Child> {
         let mut c = tokio::process::Command::new(&self.bin);
         let mut c = c.arg("--api-sock").arg(&self.socket);
         match &self.config_path {
@@ -106,12 +106,12 @@ impl FirecrackerAsync {
         c.spawn().map_err(|e| {
             let msg = format!("Fail to spawn firecracker process: {e}");
             error!("{msg}");
-            RtckError::Firecracker(msg)
+            Error::Firecracker(msg)
         })
     }
 
     /// Waiting for the socket set by firecracker
-    pub(crate) async fn waiting_socket(&self, timeout: tokio::time::Duration) -> RtckResult<()> {
+    pub(crate) async fn waiting_socket(&self, timeout: tokio::time::Duration) -> Result<()> {
         // FIXME: better error handling. Give it a class.
         Ok(tokio::time::timeout(timeout, async {
             while tokio::fs::try_exists(&self.socket).await.is_err() {}
@@ -120,16 +120,16 @@ impl FirecrackerAsync {
         .map_err(|e| {
             let msg = format!("Failed when waiting socket: {e}");
             error!("{msg}");
-            RtckError::Config(msg)
+            Error::Config(msg)
         })?)
     }
 
     /// Connect to the socket
-    pub(crate) async fn connect(&self, retry: usize) -> RtckResult<UnixStream> {
+    pub(crate) async fn connect(&self, retry: usize) -> Result<UnixStream> {
         let mut trying = retry;
         let stream = loop {
             if trying == 0 {
-                return Err(RtckError::Firecracker(format!(
+                return Err(Error::Firecracker(format!(
                     "Fail to connect unix socket after {retry} tries"
                 )));
             }

@@ -1,7 +1,7 @@
 use crate::config::HypervisorConfig;
 use crate::handle_entry;
 use crate::jailer::JailerSync;
-use crate::{RtckError, RtckResult};
+use crate::{Error, Result};
 use log::*;
 use serde::{Deserialize, Serialize};
 use std::os::unix::net::UnixStream;
@@ -28,7 +28,7 @@ pub(crate) struct FirecrackerSync {
 
 impl FirecrackerSync {
     /// Using bare firecracker
-    pub(crate) fn from_config(config: &HypervisorConfig) -> RtckResult<Self> {
+    pub(crate) fn from_config(config: &HypervisorConfig) -> Result<Self> {
         let id = if let Some(id) = &config.id {
             id.clone()
         } else {
@@ -54,7 +54,7 @@ impl FirecrackerSync {
     }
 
     /// Using firecracker with jailer
-    pub(crate) fn from_jailer(jailer: JailerSync) -> RtckResult<Self> {
+    pub(crate) fn from_jailer(jailer: JailerSync) -> Result<Self> {
         let bin = jailer.get_firecracker_exec_file().clone();
 
         let socket = jailer
@@ -62,7 +62,7 @@ impl FirecrackerSync {
             .ok_or_else(|| {
                 let msg = "Jailer without exported socket path";
                 error!("{msg}");
-                RtckError::Config(msg.into())
+                Error::Config(msg.into())
             })?
             .clone();
 
@@ -71,7 +71,7 @@ impl FirecrackerSync {
             .ok_or_else(|| {
                 let msg = "Jailer without exported lock path";
                 error!("{msg}");
-                RtckError::Config(msg.into())
+                Error::Config(msg.into())
             })?
             .clone();
 
@@ -80,7 +80,7 @@ impl FirecrackerSync {
             .ok_or_else(|| {
                 let msg = "Jailer without exported log path";
                 error!("{msg}");
-                RtckError::Config(msg.into())
+                Error::Config(msg.into())
             })?
             .clone();
 
@@ -96,7 +96,7 @@ impl FirecrackerSync {
         })
     }
 
-    pub(crate) fn launch(&self) -> RtckResult<std::process::Child> {
+    pub(crate) fn launch(&self) -> Result<std::process::Child> {
         let mut c = std::process::Command::new(&self.bin);
         let mut c = c.arg("--api-sock").arg(&self.socket);
         match &self.config_path {
@@ -107,12 +107,12 @@ impl FirecrackerSync {
         c.spawn().map_err(|e| {
             let msg = format!("Fail to spawn firecracker process: {e}");
             error!("{msg}");
-            RtckError::Firecracker(msg)
+            Error::Firecracker(msg)
         })
     }
 
     /// Waiting for the socket set by firecracker
-    pub(crate) fn waiting_socket(&self, timeout: std::time::Duration) -> RtckResult<()> {
+    pub(crate) fn waiting_socket(&self, timeout: std::time::Duration) -> Result<()> {
         let start = std::time::Instant::now();
         let socket_path = PathBuf::from(&self.socket);
         while start.elapsed() < timeout {
@@ -122,15 +122,15 @@ impl FirecrackerSync {
             std::thread::sleep(std::time::Duration::from_millis(100)); // check every 100 ms
         }
 
-        Err(RtckError::Jailer("remote socket timeout".to_string()))
+        Err(Error::Jailer("remote socket timeout".to_string()))
     }
 
     /// Connect to the socket
-    pub(crate) fn connect(&self, retry: usize) -> RtckResult<UnixStream> {
+    pub(crate) fn connect(&self, retry: usize) -> Result<UnixStream> {
         let mut trying = retry;
         let stream = loop {
             if trying == 0 {
-                return Err(RtckError::Firecracker(format!(
+                return Err(Error::Firecracker(format!(
                     "Fail to connect unix socket after {retry} tries"
                 )));
             }

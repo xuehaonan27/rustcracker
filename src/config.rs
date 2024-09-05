@@ -1,4 +1,4 @@
-use crate::{models::*, RtckError, RtckResult};
+use crate::{models::*, Error, Result};
 use log::*;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -73,7 +73,7 @@ impl Default for MicroVMConfig {
 }
 
 impl MicroVMConfig {
-    pub fn validate(&self) -> RtckResult<()> {
+    pub fn validate(&self) -> Result<()> {
         match &self.logger {
             None => (),
             Some(logger) => {
@@ -81,7 +81,7 @@ impl MicroVMConfig {
                 if path.exists() {
                     let msg = "Logger path occupied";
                     error!("{msg}");
-                    return Err(RtckError::Config(msg.into()));
+                    return Err(Error::Config(msg.into()));
                 }
             }
         }
@@ -93,7 +93,7 @@ impl MicroVMConfig {
                 if path.exists() {
                     let msg = "Metrics path occupied";
                     error!("{msg}");
-                    return Err(RtckError::Config(msg.into()));
+                    return Err(Error::Config(msg.into()));
                 }
             }
         }
@@ -105,7 +105,7 @@ impl MicroVMConfig {
                 if !path.exists() || !path.is_file() {
                     let msg = format!("Kernel image file not found at {path:?}");
                     error!("{msg}");
-                    return Err(RtckError::Config(msg));
+                    return Err(Error::Config(msg));
                 }
             }
         }
@@ -161,25 +161,25 @@ impl Default for JailerConfig {
 }
 
 impl JailerConfig {
-    pub fn validate(&self) -> RtckResult<()> {
+    pub fn validate(&self) -> Result<()> {
         match &self.exec_file {
             None => {
                 let msg = "Firecracker executable file not configured";
                 error!("{msg}");
-                return Err(RtckError::Config(msg.into()));
+                return Err(Error::Config(msg.into()));
             }
             Some(path) => {
                 // forced by firecracker specification
                 if !path.contains("firecracker") {
                     let msg = "Firecracker executable path must contain `firecracker`";
                     error!("{msg}");
-                    return Err(RtckError::Config(msg.into()));
+                    return Err(Error::Config(msg.into()));
                 }
                 let path = PathBuf::from(path);
                 if !path.exists() || !path.is_file() {
                     let msg = format!("Firecracker executable file not found at {path:?}");
                     error!("{msg}");
-                    return Err(RtckError::Config(msg));
+                    return Err(Error::Config(msg));
                 }
             }
         }
@@ -188,14 +188,14 @@ impl JailerConfig {
             None => {
                 let msg = "Jailer binary path not configured";
                 error!("{msg}");
-                return Err(RtckError::Config(msg.into()));
+                return Err(Error::Config(msg.into()));
             }
             Some(path) => {
                 let path = PathBuf::from(path);
                 if !path.exists() || !path.is_file() {
                     let msg = format!("Jailer binary not fount at {path:?}");
                     error!("{msg}");
-                    return Err(RtckError::Config(msg));
+                    return Err(Error::Config(msg));
                 }
             }
         }
@@ -318,18 +318,18 @@ impl Default for HypervisorConfig {
 }
 
 impl HypervisorConfig {
-    pub fn validate(&self) -> RtckResult<()> {
+    pub fn validate(&self) -> Result<()> {
         if let Some(true) = self.using_jailer {
             match &self.jailer_bin {
                 Some(path) if !PathBuf::from(path).exists() => {
                     let msg = "Jailer binary path not configured";
                     error!("{msg}");
-                    return Err(RtckError::Config(msg.into()));
+                    return Err(Error::Config(msg.into()));
                 }
                 None => {
                     let msg = "Jailer binary path not configured";
                     error!("{msg}");
-                    return Err(RtckError::Config(msg.into()));
+                    return Err(Error::Config(msg.into()));
                 }
                 _ => (),
             }
@@ -338,7 +338,7 @@ impl HypervisorConfig {
                 None => {
                     let msg = "No jailer config";
                     error!("{msg}");
-                    return Err(RtckError::Config(msg.into()));
+                    return Err(Error::Config(msg.into()));
                 }
                 Some(config) => config.validate()?,
             }
@@ -347,14 +347,14 @@ impl HypervisorConfig {
                 None => {
                     let msg = "Socket path not configured";
                     error!("{msg}");
-                    return Err(RtckError::Config(msg.into()));
+                    return Err(Error::Config(msg.into()));
                 }
                 Some(path) => {
                     let path = PathBuf::from(path);
                     if path.exists() {
                         let msg = "Socket path occupied";
                         error!("{msg}");
-                        return Err(RtckError::Config(msg.into()));
+                        return Err(Error::Config(msg.into()));
                     }
                 }
             }
@@ -364,14 +364,14 @@ impl HypervisorConfig {
             None => {
                 let msg = "Firecracker binary path not configured";
                 error!("{msg}");
-                return Err(RtckError::Config(msg.into()));
+                return Err(Error::Config(msg.into()));
             }
             Some(path) => {
                 let path = PathBuf::from(path);
                 if !path.exists() || !path.is_file() {
                     let msg = format!("Firecracker binary not found, provided path: {path:#?}");
                     error!("{msg}");
-                    return Err(RtckError::Config(msg));
+                    return Err(Error::Config(msg));
                 }
             }
         }

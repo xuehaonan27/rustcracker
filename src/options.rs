@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 
 use crate::config::{HypervisorConfig, JailerConfig, MicroVMConfig};
 use crate::models::*;
-use crate::RtckResult;
+use crate::Result;
 use log::warn;
 
 #[derive(Debug, Clone)]
@@ -18,17 +18,17 @@ impl HypervisorOptions {
         Self { config }
     }
 
-    pub fn validate(self) -> RtckResult<Self> {
+    pub fn validate(self) -> Result<Self> {
         self.config.validate()?;
         Ok(self)
     }
 
-    pub async fn spawn_async(&self) -> RtckResult<crate::Hypervisor> {
+    pub async fn spawn_async(&self) -> Result<crate::Hypervisor> {
         use crate::Hypervisor;
         Hypervisor::new(&self.config).await
     }
 
-    pub fn spawn_sync(&self) -> RtckResult<crate::HypervisorSync> {
+    pub fn spawn_sync(&self) -> Result<crate::HypervisorSync> {
         use crate::HypervisorSync;
         HypervisorSync::new(&self.config)
     }
@@ -234,7 +234,7 @@ impl MicroVMOptions {
         }
     }
 
-    pub fn validate(self) -> RtckResult<Self> {
+    pub fn validate(self) -> Result<Self> {
         self.config.validate()?;
         Ok(self)
     }
@@ -243,11 +243,11 @@ impl MicroVMOptions {
         self.config.clone()
     }
 
-    pub async fn instance_async(&self, hypervisor: &mut crate::Hypervisor) -> RtckResult<()> {
+    pub async fn instance_async(&self, hypervisor: &mut crate::Hypervisor) -> Result<()> {
         hypervisor.start(&self.config).await
     }
 
-    pub fn instance_sync(&self, hypervisor: &mut crate::HypervisorSync) -> RtckResult<()> {
+    pub fn instance_sync(&self, hypervisor: &mut crate::HypervisorSync) -> Result<()> {
         hypervisor.start(&self.config)
     }
 

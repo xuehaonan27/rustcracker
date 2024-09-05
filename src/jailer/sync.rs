@@ -1,6 +1,6 @@
 use crate::config::HypervisorConfig;
 use crate::{handle_entry, handle_entry_default, handle_entry_ref};
-use crate::{RtckError, RtckResult};
+use crate::{Error, Result};
 use log::*;
 use serde::{Deserialize, Serialize};
 use std::{os::unix::net::UnixStream, path::PathBuf};
@@ -103,13 +103,13 @@ impl JailerSync {
 }
 
 impl JailerSync {
-    pub(crate) fn from_config(config: &HypervisorConfig) -> RtckResult<Self> {
+    pub(crate) fn from_config(config: &HypervisorConfig) -> Result<Self> {
         config.validate()?;
 
         let jailer_config = config.jailer_config.as_ref().ok_or_else(|| {
             let msg = "Missing jailer config";
             error!("{msg}");
-            RtckError::Config(msg.into())
+            Error::Config(msg.into())
         })?;
 
         let id = if let Some(id) = &config.id {
@@ -152,7 +152,7 @@ impl JailerSync {
         })
     }
 
-    pub(crate) fn jail(&mut self) -> RtckResult<PathBuf> {
+    pub(crate) fn jail(&mut self) -> Result<PathBuf> {
         let id = &self.id;
         let temp_binding = PathBuf::from(&self.exec_file);
         let exec_file_name =
@@ -164,7 +164,7 @@ impl JailerSync {
         if jailer_workspace_dir.exists() {
             let msg = "Conflict instance name, please choose another one";
             error!("{msg}");
-            return Err(RtckError::Jailer(msg.into()));
+            return Err(Error::Jailer(msg.into()));
         }
         self.jailer_workspace_dir = Some(jailer_workspace_dir.clone());
 
@@ -216,7 +216,7 @@ impl JailerSync {
                 std::fs::copy(config_path, config_path_export).map_err(|e| {
                     let msg = format!("Fail to copy config when jailing: {e}");
                     error!("{msg}");
-                    RtckError::FilesysIO(msg)
+                    Error::FilesysIO(msg)
                 })?;
             }
         }
@@ -230,14 +230,14 @@ impl JailerSync {
         default_path_under_jailer: &'static str,
         name: &'static str,
         jailer_workspace_dir: &PathBuf,
-    ) -> RtckResult<Option<PathBuf>> {
+    ) -> Result<Option<PathBuf>> {
         let path = handle_entry_default(x, default_path_under_jailer.to_string());
         let path = PathBuf::from(path);
         let path = if path.is_absolute() {
             path.strip_prefix("/").map_err(|e| {
                 let msg = format!("Fail to strip prefix of {name} path when jailing: {e}");
                 error!("{msg}");
-                RtckError::Jailer(msg)
+                Error::Jailer(msg)
             })?
         } else {
             path.as_path()
@@ -245,7 +245,7 @@ impl JailerSync {
         Ok(Some(jailer_workspace_dir.join(path)))
     }
 
-    pub(crate) fn launch(&self) -> RtckResult<std::process::Child> {
+    pub(crate) fn launch(&self) -> Result<std::process::Child> {
         let mut cmd = std::process::Command::new(&self.bin);
         cmd.args(vec!["--id", &self.id]);
         cmd.args(vec!["--uid", &self.uid.to_string()]);
@@ -274,12 +274,12 @@ impl JailerSync {
         cmd.spawn().map_err(|e| {
             let msg = format!("Fail to spawn jailer: {e}");
             error!("{msg}");
-            RtckError::Jailer(msg)
+            Error::Jailer(msg)
         })
     }
 
     /// Waiting for the socket set by firecracker
-    pub(crate) fn waiting_socket(&self, timeout: std::time::Duration) -> RtckResult<()> {
+    pub(crate) fn waiting_socket(&self, timeout: std::time::Duration) -> Result<()> {
         let start = std::time::Instant::now();
         let socket_path = handle_entry(&self.socket_path_export, "exported socket path")?;
         while start.elapsed() < timeout {
@@ -289,16 +289,16 @@ impl JailerSync {
             std::thread::sleep(std::time::Duration::from_millis(100)); // check every 100 ms
         }
 
-        Err(RtckError::Jailer("Remote socket timeout".to_string()))
+        Err(Error::Jailer("Remote socket timeout".to_string()))
     }
 
     /// Connect to the socket
-    pub(crate) fn connect(&self, retry: usize) -> RtckResult<UnixStream> {
+    pub(crate) fn connect(&self, retry: usize) -> Result<UnixStream> {
         let mut trying = retry;
         let socket = handle_entry_ref(&self.socket_path_export, "exported socket path")?;
         let stream = loop {
             if trying == 0 {
-                return Err(RtckError::Firecracker(format!(
+                return Err(Error::Firecracker(format!(
                     "Fail to connect unix socket after {retry} tries"
                 )));
             }

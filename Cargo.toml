@@ -21,11 +21,22 @@ paste = "1.0.15"
 nix = { version = "0.29.0", features = ["signal", "mount", "fs", "user"]}
 crossbeam = { version = "0.8.4", features = ["crossbeam-queue"] }
 event-listener = "5.3.1"
-future-utils = "0.12.1"
 dotenvy = "0.15.7"
 lazy_static = "1.5.0"
 fs2 = "0.4.3"
 log4rs = { version = "1.3.0", features = ["console_appender", "file_appender"] }
+async-std = "1.12.0"
+futures-intrusive = "0.5.0"
+futures-io = "0.3.30"
+futures-util = { version = "0.3.30", features = ["io"] }
+bytes = { version = "1.7.1", features = ["serde"] }
+memchr = "2.7.4"
+futures-core = "0.3.30"
+
+[features]
+default = ["_rt-tokio"]
+_rt-tokio = []
+_rt-async-std = []
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

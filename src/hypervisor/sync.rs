@@ -6,7 +6,7 @@ use crate::jailer::JailerSync;
 use crate::models::*;
 use crate::raii::{Rollback, RollbackStack};
 use crate::reqres::*;
-use crate::{RtckError, RtckResult};
+use crate::{Error, Result};
 use log::*;
 use std::{path::PathBuf, process::ExitStatus};
 
@@ -98,7 +98,7 @@ impl Hypervisor {
 }
 
 impl Hypervisor {
-    pub fn new(config: &HypervisorConfig) -> RtckResult<Self> {
+    pub fn new(config: &HypervisorConfig) -> Result<Self> {
         config.validate()?;
         if let Some(true) = config.using_jailer {
             Self::new_with_jailer(config)
@@ -107,7 +107,7 @@ impl Hypervisor {
         }
     }
 
-    fn new_with_jailer(config: &HypervisorConfig) -> RtckResult<Self> {
+    fn new_with_jailer(config: &HypervisorConfig) -> Result<Self> {
         trace!("Creating instance with jailer");
         let mut rollbacks = RollbackStack::new();
         let mut jailer = JailerSync::from_config(&config)?;
@@ -159,7 +159,7 @@ impl Hypervisor {
         let lock = fslock::LockFile::open(&firecracker.lock_path).map_err(|e| {
             let msg = format!("Fail to create file lock: {e}");
             error!("{msg}");
-            RtckError::Hypervisor(msg)
+            Error::Hypervisor(msg)
         })?;
         rollbacks.insert_1(Rollback::RemoveFsLock {
             path: firecracker.lock_path.clone(),
@@ -168,7 +168,7 @@ impl Hypervisor {
         stream.set_nonblocking(true).map_err(|e| {
             let msg = format!("Unable to set stream to non-blocking: {e}");
             error!("{msg}");
-            RtckError::Hypervisor(msg)
+            Error::Hypervisor(msg)
         })?;
         let agent = Agent::from_stream_lock(stream, lock);
 
@@ -191,7 +191,7 @@ impl Hypervisor {
         })
     }
 
-    fn new_without_jailer(config: &HypervisorConfig) -> RtckResult<Self> {
+    fn new_without_jailer(config: &HypervisorConfig) -> Result<Self> {
         trace!("Creating instance without jailer");
         let mut rollbacks = RollbackStack::new();
         let firecracker = FirecrackerSync::from_config(&config)?;
@@ -216,7 +216,7 @@ impl Hypervisor {
         let lock = fslock::LockFile::open(&firecracker.lock_path).map_err(|e| {
             let msg = format!("Fail to create file lock: {e}");
             error!("{msg}");
-            RtckError::Hypervisor(msg)
+            Error::Hypervisor(msg)
         })?;
         rollbacks.insert_1(Rollback::RemoveFsLock {
             path: firecracker.lock_path.clone(),
@@ -225,7 +225,7 @@ impl Hypervisor {
         stream.set_nonblocking(true).map_err(|e| {
             let msg = format!("Unable to set stream to non-blocking: {e}");
             error!("{msg}");
-            RtckError::Hypervisor(msg)
+            Error::Hypervisor(msg)
         })?;
         let agent = Agent::from_stream_lock(stream, lock);
 
@@ -249,14 +249,14 @@ impl Hypervisor {
     }
 
     /// Ping firecracker to check its soundness
-    pub fn ping_remote(&mut self) -> RtckResult<()> {
+    pub fn ping_remote(&mut self) -> Result<()> {
         let event = GetFirecrackerVersion::new();
         let _ = self.agent.event(event)?;
         Ok(())
     }
 
     /// Logger configuration. Nothing to rollback in this step.
-    fn logger_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+    fn logger_configure(&mut self, config: &MicroVMConfig) -> Result<()> {
         if let Some(logger) = &config.logger {
             if let Some(jailer_working_dir) = &self.jailer_working_dir {
                 // using jailer
@@ -268,7 +268,7 @@ impl Hypervisor {
                     log_path.strip_prefix("/").map_err(|e| {
                         let msg = format!("Fail to strip absolute prefix: {e}");
                         error!("{msg}");
-                        RtckError::Hypervisor(msg)
+                        Error::Hypervisor(msg)
                     })?
                 } else {
                     log_path.as_path()
@@ -279,7 +279,7 @@ impl Hypervisor {
                 std::fs::File::create(&log_path_external).map_err(|e| {
                     let msg = format!("Fail to create log file: {e}");
                     error!("{msg}");
-                    RtckError::Hypervisor(msg)
+                    Error::Hypervisor(msg)
                 })?;
 
                 // using jailer, must change the owner of logger file to jailer uid:gid.
@@ -287,13 +287,13 @@ impl Hypervisor {
                 let (uid, gid) = self.uid_gid.ok_or_else(|| {
                     let msg = "Uid and Gid not found in jailer";
                     error!("msg");
-                    RtckError::Hypervisor(msg.into())
+                    Error::Hypervisor(msg.into())
                 })?;
                 let metadata = std::fs::metadata(&log_path_external).map_err(|e| {
                     let msg =
                         format!("Fail to get metadata of log file at {log_path_external:#?}: {e}");
                     error!("{msg}");
-                    RtckError::Hypervisor(msg)
+                    Error::Hypervisor(msg)
                 })?;
                 use std::os::unix::fs::MetadataExt;
                 let original_uid = metadata.uid();
@@ -306,7 +306,7 @@ impl Hypervisor {
                 .map_err(|e| {
                     let msg = format!("Fail to change the owner of log file: {e}");
                     error!("{msg}");
-                    RtckError::Hypervisor(msg)
+                    Error::Hypervisor(msg)
                 })?;
 
                 // rolling back if fail
@@ -322,7 +322,7 @@ impl Hypervisor {
                     std::fs::File::create(&log_path).map_err(|e| {
                         let msg = format!("Fail to create log file: {e}");
                         error!("{msg}");
-                        RtckError::Hypervisor(msg)
+                        Error::Hypervisor(msg)
                     })?;
                 }
             }
@@ -333,19 +333,19 @@ impl Hypervisor {
             let res = self.agent.event(put_logger).map_err(|e| {
                 let msg = format!("PutLogger event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                Error::Agent(e)
             })?;
             if res.is_err() {
                 let msg = "PutLogger event returned error response";
                 error!("{msg}");
-                return Err(RtckError::Hypervisor(msg.into()));
+                return Err(Error::Hypervisor(msg.into()));
             }
         }
         Ok(())
     }
 
     /// Metrics configuration. Nothing to rollback in this step.
-    fn metrics_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+    fn metrics_configure(&mut self, config: &MicroVMConfig) -> Result<()> {
         if let Some(metrics) = &config.metrics {
             if let Some(jailer_working_dir) = &self.jailer_working_dir {
                 // using jailer
@@ -356,7 +356,7 @@ impl Hypervisor {
                     metrics_path.strip_prefix("/").map_err(|e| {
                         let msg = format!("Fail to strip absolute prefix: {e}");
                         error!("{msg}");
-                        RtckError::Hypervisor(msg)
+                        Error::Hypervisor(msg)
                     })?
                 } else {
                     metrics_path.as_path()
@@ -367,7 +367,7 @@ impl Hypervisor {
                 std::fs::File::create(&metrics_path_external).map_err(|e| {
                     let msg = format!("Fail to create metrics file: {e}");
                     error!("{msg}");
-                    RtckError::Hypervisor(msg)
+                    Error::Hypervisor(msg)
                 })?;
 
                 // using jailer, must change the owner of metrics file to jailer uid:gid.
@@ -375,14 +375,14 @@ impl Hypervisor {
                 let (uid, gid) = self.uid_gid.ok_or_else(|| {
                     let msg = "Uid and Gid not found in jailer";
                     error!("msg");
-                    RtckError::Hypervisor(msg.into())
+                    Error::Hypervisor(msg.into())
                 })?;
                 let metadata = std::fs::metadata(&metrics_path_external).map_err(|e| {
                     let msg = format!(
                         "Fail to get metadata of metrics file at {metrics_path_external:#?}: {e}"
                     );
                     error!("{msg}");
-                    RtckError::Hypervisor(msg)
+                    Error::Hypervisor(msg)
                 })?;
                 use std::os::unix::fs::MetadataExt;
                 let original_uid = metadata.uid();
@@ -395,7 +395,7 @@ impl Hypervisor {
                 .map_err(|e| {
                     let msg = format!("Fail to change the owner of metrics file: {e}");
                     error!("{msg}");
-                    RtckError::Hypervisor(msg)
+                    Error::Hypervisor(msg)
                 })?;
 
                 // rolling back if fail
@@ -411,7 +411,7 @@ impl Hypervisor {
                     std::fs::File::create(&metrics_path).map_err(|e| {
                         let msg = format!("Fail to create metrics file: {e}");
                         error!("{msg}");
-                        RtckError::Hypervisor(msg)
+                        Error::Hypervisor(msg)
                     })?;
                 }
             }
@@ -422,12 +422,12 @@ impl Hypervisor {
             let res = self.agent.event(put_metrics).map_err(|e| {
                 let msg = format!("PutMetrics event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                Error::Agent(e)
             })?;
             if res.is_err() {
                 let msg = "PutMetrics event returned error response";
                 error!("{msg}");
-                return Err(RtckError::Hypervisor(msg.into()));
+                return Err(Error::Hypervisor(msg.into()));
             }
         }
         Ok(())
@@ -435,7 +435,7 @@ impl Hypervisor {
 
     /// Guest boot source configuration.
     /// Roll back mounting kernel image directory if err.
-    fn boot_source_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+    fn boot_source_configure(&mut self, config: &MicroVMConfig) -> Result<()> {
         let boot_source = if let Some(jailer_working_dir) = &self.jailer_working_dir {
             // using jailer
             // jailer_working_dir = <chroot_base>/<exec_file_name>/<id>/root
@@ -445,24 +445,24 @@ impl Hypervisor {
                 std::fs::create_dir_all(&target_dir).map_err(|e| {
                     let msg = format!("Fail to create kernel directory under jailer: {e}");
                     error!("{msg}");
-                    RtckError::Hypervisor(msg)
+                    Error::Hypervisor(msg)
                 })?;
 
                 let kerimg_path = &boot_source.kernel_image_path;
                 let source = PathBuf::from(kerimg_path).canonicalize().map_err(|e| {
                     let msg = format!("Invalid kernel image path, got {kerimg_path}: {e}");
                     error!("{msg}");
-                    RtckError::Config(msg)
+                    Error::Config(msg)
                 })?;
                 let source_dir = source.parent().ok_or_else(|| {
                     let msg = format!("Invalid kernel image path, got {kerimg_path}");
                     error!("{msg}");
-                    RtckError::Config(msg)
+                    Error::Config(msg)
                 })?;
                 let kernel_file = source.file_name().ok_or_else(|| {
                     let msg = format!("Invalid kernel image path, got {kerimg_path}");
                     error!("{msg}");
-                    RtckError::Config(msg)
+                    Error::Config(msg)
                 })?;
 
                 use nix::mount::{mount, MsFlags};
@@ -482,7 +482,7 @@ impl Hypervisor {
                     Err(e) => {
                         let msg = format!("Fail to mount kernel image dir into jailer: {e}");
                         error!("{msg}");
-                        return Err(RtckError::Hypervisor(msg));
+                        return Err(Error::Hypervisor(msg));
                     }
                 }
 
@@ -498,22 +498,22 @@ impl Hypervisor {
                     std::fs::create_dir_all(&target_dir).map_err(|e| {
                         let msg = format!("Fail to create initrd directory under jailer: {e}");
                         error!("{msg}");
-                        RtckError::Hypervisor(msg)
+                        Error::Hypervisor(msg)
                     })?;
                     let source = PathBuf::from(initrd_path).canonicalize().map_err(|e| {
                         let msg = format!("Invalid initrd path, got {initrd_path}: {e}");
                         error!("{msg}");
-                        RtckError::Config(msg)
+                        Error::Config(msg)
                     })?;
                     let source_dir = source.parent().ok_or_else(|| {
                         let msg = format!("Invalid initrd path, got {initrd_path}");
                         error!("{msg}");
-                        RtckError::Config(msg)
+                        Error::Config(msg)
                     })?;
                     let initrd_file = source.file_name().ok_or_else(|| {
                         let msg = format!("Invalid initrd path, got {initrd_path}");
                         error!("{msg}");
-                        RtckError::Config(msg)
+                        Error::Config(msg)
                     })?;
 
                     match mount(
@@ -531,7 +531,7 @@ impl Hypervisor {
                         Err(e) => {
                             let msg = format!("Fail to mount initrd dir into jailer: {e}");
                             error!("{msg}");
-                            return Err(RtckError::Hypervisor(msg));
+                            return Err(Error::Hypervisor(msg));
                         }
                     }
 
@@ -554,24 +554,24 @@ impl Hypervisor {
             let res = self.agent.event(put_guest_boot_source).map_err(|e| {
                 let msg = format!("PutGuestBootSource event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                Error::Agent(e)
             })?;
             if res.is_err() {
                 let msg = "PutGuestBootSource event returned error response";
                 error!("{msg}");
-                return Err(RtckError::Hypervisor(msg.into()));
+                return Err(Error::Hypervisor(msg.into()));
             }
         } else {
             let msg = "Must specify BootSource config in MicroVMConfig passed in";
             error!("{msg}");
-            return Err(RtckError::Config(msg.into()));
+            return Err(Error::Config(msg.into()));
         }
         Ok(())
     }
 
     /// Guest drives configuration.
     /// Roll back mounting drives directory and changing owner if err.
-    fn drives_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+    fn drives_configure(&mut self, config: &MicroVMConfig) -> Result<()> {
         if let Some(drives) = &config.drives {
             for drive in drives {
                 let drive = if let Some(jailer_working_dir) = &self.jailer_working_dir {
@@ -583,23 +583,23 @@ impl Hypervisor {
                     std::fs::create_dir(&target_dir).map_err(|e| {
                         let msg = format!("Fail to create dir for drives {}: {e}", drive.drive_id);
                         error!("{msg}");
-                        RtckError::Hypervisor(msg)
+                        Error::Hypervisor(msg)
                     })?;
                     let drive_path = &drive.path_on_host;
                     let source = PathBuf::from(drive_path).canonicalize().map_err(|e| {
                         let msg = format!("Invalid drive path, got {drive_path}: {e}");
                         error!("{msg}");
-                        RtckError::Config(msg)
+                        Error::Config(msg)
                     })?;
                     let source_dir = source.parent().ok_or_else(|| {
                         let msg = format!("Invalid drive path, got {drive_path}");
                         error!("{msg}");
-                        RtckError::Config(msg)
+                        Error::Config(msg)
                     })?;
                     let drive_file = source.file_name().ok_or_else(|| {
                         let msg = format!("Invalid drive path, got {drive_path}");
                         error!("{msg}");
-                        RtckError::Config(msg)
+                        Error::Config(msg)
                     })?;
 
                     use nix::mount::{mount, MsFlags};
@@ -621,7 +621,7 @@ impl Hypervisor {
                                 drive.drive_id
                             );
                             error!("{msg}");
-                            return Err(RtckError::Hypervisor(msg));
+                            return Err(Error::Hypervisor(msg));
                         }
                     }
 
@@ -630,12 +630,12 @@ impl Hypervisor {
                     let (uid, gid) = self.uid_gid.ok_or_else(|| {
                         let msg = "Uid and Gid not found in jailer";
                         error!("{msg}");
-                        RtckError::Hypervisor(msg.into())
+                        Error::Hypervisor(msg.into())
                     })?;
                     let metadata = std::fs::metadata(&source).map_err(|e| {
                         let msg = format!("Fail to get metadata of drive at {source:#?}: {e}");
                         error!("{msg}");
-                        RtckError::Hypervisor(msg)
+                        Error::Hypervisor(msg)
                     })?;
                     use std::os::unix::fs::MetadataExt;
                     let original_uid = metadata.uid();
@@ -644,7 +644,7 @@ impl Hypervisor {
                         .map_err(|e| {
                             let msg = format!("Fail to change the owner of drive: {e}");
                             error!("{msg}");
-                            RtckError::Hypervisor(msg)
+                            Error::Hypervisor(msg)
                         })?;
                     self.rollbacks.insert_1(Rollback::Chown {
                         path: source.clone(),
@@ -666,7 +666,7 @@ impl Hypervisor {
                 let res = self.agent.event(put_guest_drive_by_id).map_err(|e| {
                     let msg = format!("PutGuestDriveByID event failed: {e}");
                     error!("{msg}");
-                    RtckError::Agent(e)
+                    Error::Agent(e)
                 })?;
                 if res.is_err() {
                     let msg = format!(
@@ -674,7 +674,7 @@ impl Hypervisor {
                         drive.drive_id
                     );
                     error!("{msg}");
-                    return Err(RtckError::Hypervisor(msg));
+                    return Err(Error::Hypervisor(msg));
                 }
             }
         }
@@ -682,7 +682,7 @@ impl Hypervisor {
     }
 
     /// Guest network interfaces.
-    fn network_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+    fn network_configure(&mut self, config: &MicroVMConfig) -> Result<()> {
         if let Some(ifaces) = &config.network_interfaces {
             for iface in ifaces {
                 let put_guest_network_interface_by_id =
@@ -693,7 +693,7 @@ impl Hypervisor {
                     .map_err(|e| {
                         let msg = format!("PutGuestNetworkInterfaceByID event failed: {e}");
                         error!("{msg}");
-                        RtckError::Agent(e)
+                        Error::Agent(e)
                     })?;
                 if res.is_err() {
                     let msg = format!(
@@ -701,7 +701,7 @@ impl Hypervisor {
                         iface.iface_id
                     );
                     error!("{msg}");
-                    return Err(RtckError::Hypervisor(msg));
+                    return Err(Error::Hypervisor(msg));
                 }
             }
         }
@@ -709,14 +709,14 @@ impl Hypervisor {
     }
 
     /// Vsocks configuration.
-    fn vsock_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+    fn vsock_configure(&mut self, config: &MicroVMConfig) -> Result<()> {
         if let Some(vsocks) = &config.vsock_devices {
             for vsock in vsocks {
                 let put_guest_vsock = PutGuestVsock::new(vsock.clone());
                 let res = self.agent.event(put_guest_vsock).map_err(|e| {
                     let msg = format!("PutGuestVsock event failed: {e}");
                     error!("{msg}");
-                    RtckError::Agent(e)
+                    Error::Agent(e)
                 })?;
                 if res.is_err() {
                     let msg = format!(
@@ -724,7 +724,7 @@ impl Hypervisor {
                         vsock.vsock_id
                     );
                     error!("{msg}");
-                    return Err(RtckError::Hypervisor(msg));
+                    return Err(Error::Hypervisor(msg));
                 }
             }
         }
@@ -732,90 +732,90 @@ impl Hypervisor {
     }
 
     /// CPU configuration.
-    fn cpu_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+    fn cpu_configure(&mut self, config: &MicroVMConfig) -> Result<()> {
         if let Some(cpu_config) = &config.cpu_config {
             let put_cpu_configuration = PutCpuConfiguration::new(cpu_config.clone());
             let res = self.agent.event(put_cpu_configuration).map_err(|e| {
                 let msg = format!("PutCpuConfiguration event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                Error::Agent(e)
             })?;
             if res.is_err() {
                 let msg = "PutCpuConfiguration event returned error response";
                 error!("{msg}");
-                return Err(RtckError::Hypervisor(msg.into()));
+                return Err(Error::Hypervisor(msg.into()));
             }
         }
         Ok(())
     }
 
     /// Machine configuration.
-    fn machine_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+    fn machine_configure(&mut self, config: &MicroVMConfig) -> Result<()> {
         if let Some(machine_config) = &config.machine_config {
             let put_machine_configuration = PutMachineConfiguration::new(machine_config.clone());
             let res = self.agent.event(put_machine_configuration).map_err(|e| {
                 let msg = format!("PutMachineConfiguration event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                Error::Agent(e)
             })?;
             if res.is_err() {
                 let msg = "PutMachineConfiguration event returned error response";
                 error!("{msg}");
-                return Err(RtckError::Hypervisor(msg.into()));
+                return Err(Error::Hypervisor(msg.into()));
             }
         }
         Ok(())
     }
 
     /// Balloon configure.
-    fn balloon_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+    fn balloon_configure(&mut self, config: &MicroVMConfig) -> Result<()> {
         if let Some(balloon) = &config.balloon {
             let put_balloon = PutBalloon::new(balloon.clone());
             let res = self.agent.event(put_balloon).map_err(|e| {
                 let msg = format!("PutBalloon event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                Error::Agent(e)
             })?;
             if res.is_err() {
                 let msg = "PutBalloon event returned error response";
                 error!("{msg}");
-                return Err(RtckError::Hypervisor(msg.into()));
+                return Err(Error::Hypervisor(msg.into()));
             }
         }
         Ok(())
     }
 
     /// Entropy device configure.
-    fn entropy_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+    fn entropy_configure(&mut self, config: &MicroVMConfig) -> Result<()> {
         if let Some(entropy_device) = &config.entropy_device {
             let put_entropy = PutEntropy::new(entropy_device.clone());
             let res = self.agent.event(put_entropy).map_err(|e| {
                 let msg = format!("PutEntropy event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                Error::Agent(e)
             })?;
             if res.is_err() {
                 let msg = "PutEntropy event returned error response";
                 error!("{msg}");
-                return Err(RtckError::Hypervisor(msg.into()));
+                return Err(Error::Hypervisor(msg.into()));
             }
         }
         Ok(())
     }
 
     /// Initial mmds content configure.
-    fn init_metadata_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+    fn init_metadata_configure(&mut self, config: &MicroVMConfig) -> Result<()> {
         if let Some(content) = &config.init_metadata {
             let put_mmds = PutMmds::new(content.clone());
             let res = self.agent.event(put_mmds).map_err(|e| {
                 let msg = format!("PutMmds event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                Error::Agent(e)
             })?;
             if res.is_err() {
                 let msg = "PutMmds event returned error response";
                 error!("{msg}");
-                return Err(RtckError::Hypervisor(msg.into()));
+                return Err(Error::Hypervisor(msg.into()));
             }
         }
         Ok(())
@@ -824,7 +824,7 @@ impl Hypervisor {
     /// Automatically configure the machine.
     /// User must guarantee that `config` passed to the machine contains
     /// valid firecracker configuration (`frck_config`).
-    fn configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+    fn configure(&mut self, config: &MicroVMConfig) -> Result<()> {
         self.logger_configure(config)?;
 
         self.metrics_configure(config)?;
@@ -851,7 +851,7 @@ impl Hypervisor {
     }
 
     /// Run a microVM instance by passing a microVM configuraion
-    pub fn start(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+    pub fn start(&mut self, config: &MicroVMConfig) -> Result<()> {
         // change microVM status in hypervisor
         self.status = MicroVMStatus::Start;
 
@@ -860,7 +860,7 @@ impl Hypervisor {
             self.status = MicroVMStatus::Failure;
             let msg = format!("Fail to configure: {e}");
             error!("{msg}");
-            RtckError::Hypervisor(msg)
+            Error::Hypervisor(msg)
         })?;
 
         let start_machine = CreateSyncAction::new(InstanceActionInfo {
@@ -872,7 +872,7 @@ impl Hypervisor {
             self.status = MicroVMStatus::Failure;
             let msg = format!("Start machine event failed: {e}");
             error!("{msg}");
-            RtckError::Hypervisor(msg)
+            Error::Hypervisor(msg)
         })?;
 
         if res.is_err() {
@@ -880,7 +880,7 @@ impl Hypervisor {
             self.status = MicroVMStatus::Failure;
             let msg = "Start machine event returned error response";
             error!("{msg}");
-            Err(RtckError::Hypervisor(msg.into()))
+            Err(Error::Hypervisor(msg.into()))
         } else {
             // change microVM status in hypervisor
             self.status = MicroVMStatus::Running;
@@ -889,7 +889,7 @@ impl Hypervisor {
     }
 
     /// Pause the machine by notifying the hypervisor
-    pub fn pause(&mut self) -> RtckResult<()> {
+    pub fn pause(&mut self) -> Result<()> {
         if self.status != MicroVMStatus::Running {
             warn!("Cannot pause a microVM which is not running");
             return Ok(());
@@ -901,13 +901,13 @@ impl Hypervisor {
             // no need for changing status here since pausing failure isn't a fatal error
             let msg = format!("Pause machine event failed: {e}");
             error!("{msg}");
-            RtckError::Agent(e)
+            Error::Agent(e)
         })?;
 
         if res.is_err() {
             let msg = "Pause machine event returned error response";
             error!("{msg}");
-            Err(RtckError::Hypervisor(msg.into()))
+            Err(Error::Hypervisor(msg.into()))
         } else {
             self.status = MicroVMStatus::Paused;
             Ok(())
@@ -915,7 +915,7 @@ impl Hypervisor {
     }
 
     /// Resume the machine by notifying the hypervisor
-    pub fn resume(&mut self) -> RtckResult<()> {
+    pub fn resume(&mut self) -> Result<()> {
         if self.status != MicroVMStatus::Paused {
             warn!("Cannot resume a microVM which is not paused");
             return Ok(());
@@ -927,13 +927,13 @@ impl Hypervisor {
             // no need for changing status here since resuming failure isn't a fatal error
             let msg = format!("Resume machine event failed: {e}");
             error!("{msg}");
-            RtckError::Agent(e)
+            Error::Agent(e)
         })?;
 
         if res.is_err() {
             let msg = "Resume machine event returned error response";
             error!("{msg}");
-            Err(RtckError::Hypervisor(msg.into()))
+            Err(Error::Hypervisor(msg.into()))
         } else {
             self.status = MicroVMStatus::Running;
             Ok(())
@@ -942,7 +942,7 @@ impl Hypervisor {
 
     /// Stop the machine by notifying the hypervisor.
     /// Hypervisor should still be valid.
-    pub fn stop(&mut self) -> RtckResult<()> {
+    pub fn stop(&mut self) -> Result<()> {
         let stop_machine = CreateSyncAction::new(InstanceActionInfo {
             action_type: ActionType::SendCtrlAtlDel,
         });
@@ -952,7 +952,7 @@ impl Hypervisor {
             self.status = MicroVMStatus::Failure;
             let msg = format!("Fail to stop: {e}");
             error!("{msg}");
-            RtckError::Hypervisor(msg)
+            Error::Hypervisor(msg)
         })?;
 
         if res.is_err() {
@@ -960,23 +960,23 @@ impl Hypervisor {
             self.status = MicroVMStatus::Failure;
             let msg = "Stop machine event returned error response";
             error!("{msg}");
-            Err(RtckError::Hypervisor(msg.into()))
+            Err(Error::Hypervisor(msg.into()))
         } else {
             self.status = MicroVMStatus::Stop;
             Ok(())
         }
     }
 
-    pub fn wait(&mut self) -> RtckResult<ExitStatus> {
+    pub fn wait(&mut self) -> Result<ExitStatus> {
         self.child.wait().map_err(|e| {
             let msg = format!("Fail to wait hypervisor to exit: {e}");
             error!("{msg}");
-            RtckError::Hypervisor(msg)
+            Error::Hypervisor(msg)
         })
     }
 
     /// Wait for microVM to exit microVM voluntarily
-    pub fn unused(&mut self) -> RtckResult<()> {
+    pub fn unused(&mut self) -> Result<()> {
         loop {
             std::thread::sleep(std::time::Duration::from_secs(self.poll_status_secs));
             let describe_metrics = DescribeInstance::new();
@@ -1013,7 +1013,7 @@ impl Hypervisor {
         state_path: P,
         mem_path: Q,
         _type: SnapshotType,
-    ) -> RtckResult<()> {
+    ) -> Result<()> {
         let create_snapshot = CreateSnapshot::new(SnapshotCreateParams {
             mem_file_path: state_path.as_ref().to_string(),
             snapshot_path: mem_path.as_ref().to_string(),
@@ -1024,18 +1024,18 @@ impl Hypervisor {
         let res = self.agent.event(create_snapshot).map_err(|e| {
             let msg = format!("CreateSnapshot event failed: {e}");
             error!("{msg}");
-            RtckError::Agent(e)
+            Error::Agent(e)
         })?;
         if res.is_err() {
             let msg = "CreateSnapshot event returned error response";
             error!("{msg}");
-            return Err(RtckError::Hypervisor(msg.into()));
+            return Err(Error::Hypervisor(msg.into()));
         }
         Ok(())
     }
 
     /// Delete the machine by notifying firecracker
-    pub fn delete(self) -> RtckResult<()> {
+    pub fn delete(self) -> Result<()> {
         drop(self);
 
         // delete network TUN/TAP interface
@@ -1075,7 +1075,7 @@ impl Hypervisor {
     pub fn patch_balloon_stats_interval(
         &mut self,
         stats_polling_interval_s: i64,
-    ) -> RtckResult<()> {
+    ) -> Result<()> {
         let patch_balloon_stats_interval = PatchBalloonStatsInterval::new(BalloonStatsUpdate {
             stats_polling_interval_s,
         });
@@ -1085,27 +1085,27 @@ impl Hypervisor {
             .map_err(|e| {
                 let msg = format!("PatchBalloonStatsInterval event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                Error::Agent(e)
             })?;
         if res.is_err() {
             let msg = "PatchBalloonStatsInterval event returned error response";
             error!("{msg}");
-            return Err(RtckError::Hypervisor(msg.into()));
+            return Err(Error::Hypervisor(msg.into()));
         }
         Ok(())
     }
 
-    pub fn patch_balloon(&mut self, amount_mib: i64) -> RtckResult<()> {
+    pub fn patch_balloon(&mut self, amount_mib: i64) -> Result<()> {
         let patch_balloon = PatchBalloon::new(BalloonUpdate { amount_mib });
         let res = self.agent.event(patch_balloon).map_err(|e| {
             let msg = format!("PatchBalloon event failed: {e}");
             error!("{msg}");
-            RtckError::Agent(e)
+            Error::Agent(e)
         })?;
         if res.is_err() {
             let msg = "PatchBalloon event returned error response";
             error!("{msg}");
-            return Err(RtckError::Hypervisor(msg.into()));
+            return Err(Error::Hypervisor(msg.into()));
         }
         Ok(())
     }
@@ -1115,7 +1115,7 @@ impl Hypervisor {
         drive_id: String,
         path_on_host: Option<String>,
         rate_limiter: Option<RateLimiter>,
-    ) -> RtckResult<()> {
+    ) -> Result<()> {
         let patch_guest_drive_by_id = PatchGuestDriveByID::new(PartialDrive {
             drive_id,
             path_on_host,
@@ -1124,12 +1124,12 @@ impl Hypervisor {
         let res = self.agent.event(patch_guest_drive_by_id).map_err(|e| {
             let msg = format!("PatchGuestDriveByID event failed: {e}");
             error!("{msg}");
-            RtckError::Agent(e)
+            Error::Agent(e)
         })?;
         if res.is_err() {
             let msg = "PatchGuestDriveByID event returned error response";
             error!("{msg}");
-            return Err(RtckError::Hypervisor(msg.into()));
+            return Err(Error::Hypervisor(msg.into()));
         }
         Ok(())
     }
@@ -1139,7 +1139,7 @@ impl Hypervisor {
         iface_id: String,
         rx_rate_limiter: Option<RateLimiter>,
         tx_rate_limiter: Option<RateLimiter>,
-    ) -> RtckResult<()> {
+    ) -> Result<()> {
         let patch_guest_network_interface_by_id =
             PatchGuestNetworkInterfaceByID::new(PartialNetworkInterface {
                 iface_id,
@@ -1152,12 +1152,12 @@ impl Hypervisor {
             .map_err(|e| {
                 let msg = format!("PatchGuestNetworkInterfaceByID event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                Error::Agent(e)
             })?;
         if res.is_err() {
             let msg = "PatchGuestNetworkInterfaceByID event returned error response";
             error!("{msg}");
-            return Err(RtckError::Hypervisor(msg.into()));
+            return Err(Error::Hypervisor(msg.into()));
         }
         Ok(())
     }
@@ -1169,7 +1169,7 @@ impl Hypervisor {
         cpu_template: Option<CPUTemplate>,
         ht_enabled: Option<bool>,
         track_dirty_pages: Option<bool>,
-    ) -> RtckResult<()> {
+    ) -> Result<()> {
         let patch_machine_configuration = PatchMachineConfiguration::new(MachineConfiguration {
             cpu_template,
             ht_enabled,
@@ -1180,42 +1180,42 @@ impl Hypervisor {
         let res = self.agent.event(patch_machine_configuration).map_err(|e| {
             let msg = format!("PatchMachineConfiguration event failed: {e}");
             error!("{msg}");
-            RtckError::Agent(e)
+            Error::Agent(e)
         })?;
         if res.is_err() {
             let msg = "PatchMachineConfiguration event returned error response";
             error!("{msg}");
-            return Err(RtckError::Hypervisor(msg.into()));
+            return Err(Error::Hypervisor(msg.into()));
         }
         Ok(())
     }
 
-    pub fn patch_mmds(&mut self, content: String) -> RtckResult<()> {
+    pub fn patch_mmds(&mut self, content: String) -> Result<()> {
         let patch_mmds = PatchMmds::new(content);
         let res = self.agent.event(patch_mmds).map_err(|e| {
             let msg = format!("PatchMmds event failed: {e}");
             error!("{msg}");
-            RtckError::Agent(e)
+            Error::Agent(e)
         })?;
         if res.is_err() {
             let msg = "PatchMmds event returned error response";
             error!("{msg}");
-            return Err(RtckError::Hypervisor(msg.into()));
+            return Err(Error::Hypervisor(msg.into()));
         }
         Ok(())
     }
 
-    pub fn patch_vm(&mut self, state: VmState) -> RtckResult<()> {
+    pub fn patch_vm(&mut self, state: VmState) -> Result<()> {
         let patch_vm = PatchVm::new(Vm { state });
         let res = self.agent.event(patch_vm).map_err(|e| {
             let msg = format!("PatchVm event failed: {e}");
             error!("{msg}");
-            RtckError::Agent(e)
+            Error::Agent(e)
         })?;
         if res.is_err() {
             let msg = "PatchVm event returned error response";
             error!("{msg}");
-            return Err(RtckError::Hypervisor(msg.into()));
+            return Err(Error::Hypervisor(msg.into()));
         }
         Ok(())
     }
