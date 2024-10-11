@@ -38,8 +38,8 @@ pub struct MicroVMConfig {
     /// application will use this to join the associated network namespace
     pub net_ns: Option<String>,
 
-    /// IPv4 address used by guest applications when issuing requests to MMDS.
-    pub mmds_address: Option<std::net::Ipv4Addr>,
+    /// Mmds configuration.
+    pub mmds_config: Option<mmds_config::MmdsConfig>,
 
     /// Balloon device that is to be put to the machine.
     pub balloon: Option<balloon::Balloon>,
@@ -64,7 +64,7 @@ impl Default for MicroVMConfig {
             machine_config: None,
             vmid: None,
             net_ns: None,
-            mmds_address: None,
+            mmds_config: None,
             balloon: None,
             entropy_device: None,
             init_metadata: None,

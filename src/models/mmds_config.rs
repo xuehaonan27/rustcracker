@@ -1,12 +1,14 @@
+#![allow(deprecated)]
 use serde::{Deserialize, Serialize};
 
 /// Defines the MMDS configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MmdsConfig {
-    /// Enumeration indicating the MMDS version to be configured.
+    /// MMDS version to be used. V1 is deprecated, V2 is recommended.
     #[serde(rename = "version", skip_serializing_if = "Option::is_none")]
     pub version: Option<Version>,
-    /// A valid IPv4 link-local address.
+    /// A valid IPv4 link-local address used by guest applications when 
+    /// issuing requests to MMDS.
     /// format: "169.254.([1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4]).([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])"
     /// default: "169.254.169.254"
     #[serde(rename = "ipv4_address", skip_serializing_if = "Option::is_none")]
@@ -24,6 +26,7 @@ pub struct MmdsConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Version {
+    #[deprecated]
     #[serde(rename = "V1")]
     V1,
     #[serde(rename = "V2")]

@@ -116,7 +116,7 @@ lazy_static! {
         }),
         vmid: Some("1234qwer".to_string()),
         net_ns: None,
-        mmds_address: None,
+        mmds_config: None,
         balloon: Some(Balloon {
             amount_mib: 64,
             deflate_on_oom: true,

@@ -313,9 +313,9 @@ impl MicroVMOptions {
         self
     }
 
-    /// IPv4 address used by guest applications when issuing requests to MMDS.
-    pub fn mmds_address(mut self, address: Ipv4Addr) -> Self {
-        self.config.mmds_address = Some(address);
+    /// Mmds configuration.
+    pub fn mmds_config(mut self, mmds_config: MmdsConfig) -> Self {
+        self.config.mmds_config = Some(mmds_config);
         self
     }
 
