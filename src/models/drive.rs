@@ -59,6 +59,19 @@ pub struct Drive {
     pub socket: Option<String>,
 }
 
+/// Block device caching strategies, default to "Unsafe".
+/// Firecracker offers the possiblity of choosing the block device caching strategy.
+/// Caching strategy affects the path data written from inside the microVM takes to the host persistent storage.
+/// 
+/// The caching strategy should be used in order to make a trade-off:
+/// + Unsafe
+/// + + enhances performance as fewer syscalls and IO operations are performed when running workloads
+/// + + sacrifices data integrity in situations where the host simply loses the contents of the page cache without committing them to the backing storage (such as a power outage)
+/// + + recommended for use cases with ephemeral storage, such as serverless environments
+/// + Writeback
+/// + + ensures that once a flush request was acknowledged by the host, the data is committed to the backing storage
+/// + + sacrifices performance, from boot time increases to greater emulation-related latencies when running workloads
+/// + + recommended for use cases with low power environments, such as embedded environments
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CacheType {
     #[serde(rename = "Unsafe")]
@@ -67,10 +80,23 @@ pub enum CacheType {
     WriteBack,
 }
 
+/// Block device IO engine, default to "Sync".
+/// The Async engine leverages io_uring for executing requests in an async manner,
+/// therefore getting overall higher throughput by taking better advantage of the block device hardware, which typically supports queue depths greater than 1.
+/// The block IO engine is configured via the PUT /drives API call (pre-boot only), with the io_engine field taking two possible values:
+/// + Sync (default)
+/// + Async (in developer preview)
+/// The Sync variant is the default, in order to provide backwards compatibility with older Firecracker versions.
+/// Note vhost-user block device is another option for block IO that requires an external backend process.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IoEngine {
     #[serde(rename = "Sync")]
     Sync,
+    /// Firecracker requires a minimum host kernel version of 5.10.51 for the Async IO engine.
+    /// This requirement is based on the availability of the io_uring subsystem, as well as a 
+    /// couple of features and bugfixes that were added in newer kernel versions.
+    /// If a block device is configured with the Async io_engine on a host kernel older than 
+    /// 5.10.51, the API call will return a 400 Bad Request, with a suggestive error message.
     #[serde(rename = "Async")]
     Async,
 }

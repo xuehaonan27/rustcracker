@@ -32,4 +32,19 @@ pub struct MachineConfiguration {
     /// Minimum: 1
     #[serde(rename = "vcpu_count")]
     pub vcpu_count: isize,
+
+    /// Which huge pages configuration (if any) should be used to back guest memory.
+    /// enum:
+    /// - None
+    /// - 2M
+    #[serde(rename = "huge_pages", skip_serializing_if = "Option::is_none")]
+    pub huge_pages: Option<HugePages>
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum HugePages {
+    #[serde(rename = "None")]
+    None,
+    #[serde(rename = "2M")]
+    HP2M,
 }
