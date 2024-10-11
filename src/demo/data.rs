@@ -115,10 +115,11 @@ lazy_static! {
             mem_size_mib: 256,
             track_dirty_pages: None,
             vcpu_count: 4,
+            huge_pages: Some(HugePages::None),
         }),
         vmid: Some("1234qwer".to_string()),
         net_ns: None,
-        mmds_address: None,
+        mmds_config: None,
         balloon: Some(Balloon {
             amount_mib: 64,
             deflate_on_oom: true,

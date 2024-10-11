@@ -58,6 +58,9 @@ pub struct Hypervisor {
     // intervals in seconds for polling the status of microVM
     // when waiting for the user to give up the microVM
     poll_status_secs: u64,
+
+    // full vm configuration
+    full_vm_configuration: FullVmConfiguration,
 }
 
 impl Hypervisor {
@@ -192,6 +195,7 @@ impl Hypervisor {
             uid_gid,
             rollbacks,
             poll_status_secs: config.poll_status_secs,
+            full_vm_configuration: Default::default(),
         })
     }
 
@@ -249,6 +253,7 @@ impl Hypervisor {
             uid_gid: None,
             rollbacks,
             poll_status_secs: config.poll_status_secs,
+            full_vm_configuration: Default::default(),
         })
     }
 
@@ -582,6 +587,12 @@ impl Hypervisor {
     async fn drives_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
         if let Some(drives) = &config.drives {
             for drive in drives {
+                // Validate the drive.
+                // `io_engine` and `socket` cannot present at the same time.
+                if is_vhost_user_block_device(drive).is_none() {
+                    continue;
+                }
+
                 let drive = if let Some(jailer_working_dir) = &self.jailer_working_dir {
                     // using jailer
                     // jailer_working_dir = <chroot_base>/<exec_file_name>/<id>/root
@@ -816,9 +827,35 @@ impl Hypervisor {
         Ok(())
     }
 
+    /// Mmds configure.
+    async fn mmds_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
+        if let Some(mmds_config) = &config.mmds_config {
+            let put_mmds_config = PutMmdsConfig::new(mmds_config.clone());
+            let res = self.agent.event(put_mmds_config).await.map_err(|e| {
+                let msg = format!("PutMmdsConfig event failed: {e}");
+                error!("{msg}");
+                RtckError::Agent(e)
+            })?;
+            if res.is_err() {
+                let msg = "PutMmdsConfig event returned error response";
+                error!("{msg}");
+                return Err(RtckError::Hypervisor(msg.into()));
+            }
+        }
+        Ok(())
+    }
+
     /// Initial mmds content configure.
     async fn init_metadata_configure(&mut self, config: &MicroVMConfig) -> RtckResult<()> {
         if let Some(content) = &config.init_metadata {
+            // Validate metadata
+            if let Err(e) = serde_json::to_value(content) {
+                let msg =
+                    format!("Invalid initial mmds, cannot be deserialized into a json object: {e}");
+                error!("{msg}");
+                return Err(RtckError::Hypervisor(msg));
+            }
+
             let put_mmds = PutMmds::new(content.clone());
             let res = self.agent.event(put_mmds).await.map_err(|e| {
                 let msg = format!("PutMmds event failed: {e}");
@@ -857,6 +894,8 @@ impl Hypervisor {
         self.balloon_configure(config).await?;
 
         self.entropy_configure(config).await?;
+
+        self.mmds_configure(config).await?;
 
         self.init_metadata_configure(config).await?;
 
@@ -1058,6 +1097,24 @@ impl Hypervisor {
         Ok(())
     }
 
+    /// Sync microVM configuration.
+    pub async fn sync_config(&mut self) -> RtckResult<()> {
+        let get_export_vm_config = GetExportVmConfig::new();
+        let res = self.agent.event(get_export_vm_config).await.map_err(|e| {
+            let msg = format!("GetExportVmConfigResponse event failed: {e}");
+            error!("{msg}");
+            RtckError::Agent(e)
+        })?;
+        if res.is_err() {
+            let msg = "GetExportVmConfigResponse event returned error response";
+            error!("{msg}");
+            return Err(RtckError::Hypervisor(msg.into()));
+        }
+        let conf = res.succ().to_owned();
+        self.full_vm_configuration = conf; // update
+        Ok(())
+    }
+
     /// Check microVM status and sync with remote.
     pub async fn sync_status(&mut self) -> MicroVMStatus {
         let describe_metrics = DescribeInstance::new();
@@ -1124,6 +1181,11 @@ impl Hypervisor {
         Ok(())
     }
 
+    /// Patch block devices by its id.
+    /// It should be called when the path to the block device is changed or if the file size has been modified.
+    /// It is important to note that external changes to the block device file do not automatically trigger a notification
+    /// in Firecracker so the explicit PATCH API call is mandatory.
+    /// For more information, see [patch-block](https://github.com/firecracker-microvm/firecracker/blob/main/docs/api_requests/patch-block.md).
     pub async fn patch_guest_drive_by_id(
         &mut self,
         drive_id: String,
@@ -1152,6 +1214,9 @@ impl Hypervisor {
         Ok(())
     }
 
+    /// Patch network interface by its iface id, usually used for updating the rate limiters.
+    /// It's recommended to use [`Hypervisor::remove_iface_rate_limit`] to remove rate limiting.
+    /// For more information, see [patch-network-interface](https://github.com/firecracker-microvm/firecracker/blob/main/docs/api_requests/patch-network-interface.md).
     pub async fn patch_guest_network_interface_by_id(
         &mut self,
         iface_id: String,
@@ -1188,6 +1253,7 @@ impl Hypervisor {
         cpu_template: Option<CPUTemplate>,
         ht_enabled: Option<bool>,
         track_dirty_pages: Option<bool>,
+        huge_pages: Option<HugePages>,
     ) -> RtckResult<()> {
         let patch_machine_configuration = PatchMachineConfiguration::new(MachineConfiguration {
             cpu_template,
@@ -1195,6 +1261,7 @@ impl Hypervisor {
             mem_size_mib,
             track_dirty_pages,
             vcpu_count,
+            huge_pages,
         });
         let res = self
             .agent
@@ -1214,6 +1281,13 @@ impl Hypervisor {
     }
 
     pub async fn patch_mmds(&mut self, content: String) -> RtckResult<()> {
+        // Validate metadata
+        if let Err(e) = serde_json::to_value(&content) {
+            let msg =
+                format!("Invalid initial mmds, cannot be deserialized into a json object: {e}");
+            error!("{msg}");
+            return Err(RtckError::Hypervisor(msg));
+        }
         let patch_mmds = PatchMmds::new(content);
         let res = self.agent.event(patch_mmds).await.map_err(|e| {
             let msg = format!("PatchMmds event failed: {e}");
@@ -1241,5 +1315,142 @@ impl Hypervisor {
             return Err(RtckError::Hypervisor(msg.into()));
         }
         Ok(())
+    }
+}
+
+impl Hypervisor {
+    pub async fn remove_iface_rate_limit<S: AsRef<str>>(&mut self, iface_id: S) -> RtckResult<()> {
+        let iface_id: String = iface_id.as_ref().into();
+        let event = PatchGuestNetworkInterfaceByID::new(PartialNetworkInterface {
+            iface_id: iface_id.clone(),
+            rx_rate_limiter: None,
+            tx_rate_limiter: Some(RateLimiter {
+                bandwidth: Some(TokenBucket {
+                    one_time_burst: None,
+                    refill_time: 0,
+                    size: 0,
+                }),
+                ops: Some(TokenBucket {
+                    one_time_burst: None,
+                    refill_time: 0,
+                    size: 0,
+                }),
+            }),
+        });
+        let res = self.agent.event(event).await.map_err(|e| {
+            let msg = format!("PatchGuestNetworkInterfaceByID event failed: {e}");
+            error!("{msg}");
+            RtckError::Agent(e)
+        })?;
+        if res.is_err() {
+            let msg = format!("PatchGuestNetworkInterfaceByID event returned error response, fail to remove rate limit for iface {iface_id}");
+            error!("{msg}");
+            return Err(RtckError::Hypervisor(msg));
+        }
+        Ok(())
+    }
+
+    /// One must call this method after modifying a vhost-user block device.
+    /// For more information, see [this](https://github.com/firecracker-microvm/firecracker/blob/main/docs/api_requests/patch-block.md#updating-vhost-user-block-devices-after-boot).
+    pub async fn notify_vhost_user_block_device<S: AsRef<str>>(
+        &mut self,
+        drive_id: S,
+    ) -> RtckResult<()> {
+        let drive_id: String = drive_id.as_ref().into();
+        // FIXME: check that this device is vhost-user block device, rather than a virtio block device.
+        self.sync_config().await?;
+        if let Some(drives) = &self.full_vm_configuration.drives {
+            if let Some(drive) = drives.iter().find(|&drive| drive.drive_id == drive_id) {
+                if let Some(true) = is_vhost_user_block_device(drive) {
+                    /* allowed */
+                } else {
+                    let msg = format!("{drive_id} is not a vhost user block device");
+                    error!("{msg}");
+                    return Err(RtckError::Hypervisor(msg));
+                }
+            } else {
+                let msg = format!("{drive_id} not present in this microVM");
+                error!("{msg}");
+                return Err(RtckError::Hypervisor(msg));
+            }
+        } else {
+            let msg = format!("{drive_id} not present in this microVM");
+            error!("{msg}");
+            return Err(RtckError::Hypervisor(msg));
+        }
+
+        let event = PatchGuestDriveByID::new(PartialDrive {
+            drive_id: drive_id.clone(),
+            path_on_host: None,
+            rate_limiter: None,
+        });
+        let res = self.agent.event(event).await.map_err(|e| {
+            let msg = format!("PatchGuestDriveByID event failed: {e}");
+            error!("{msg}");
+            RtckError::Agent(e)
+        })?;
+        if res.is_err() {
+            let msg = format!("PatchGuestDriveByID event returned error response, fail to notify {drive_id} about changes of the vhost-user block device");
+            error!("{msg}");
+            return Err(RtckError::Hypervisor(msg));
+        }
+        Ok(())
+    }
+
+    /// Fetch mmds stored
+    pub async fn get_mmds(&mut self) -> RtckResult<String> {
+        let get_mmds = GetMmds::new();
+
+        let res = self.agent.event(get_mmds).await.map_err(|e| {
+            let msg = format!("GetMmds event failed: {e}");
+            error!("{msg}");
+            RtckError::Agent(e)
+        })?;
+        if res.is_err() {
+            let msg = format!("GetMmds event returned error response");
+            error!("{msg}");
+            Err(RtckError::Hypervisor(msg))
+        } else {
+            let ret = res.succ().to_owned();
+            if let Err(e) = serde_json::to_value(&ret) {
+                let msg = format!("Message fetched from mmds cannot be deserialized into a json object, something might went wrong: {e}");
+                warn!("{msg}");
+            }
+            Ok(ret)
+        }
+    }
+}
+
+fn is_vhost_user_block_device(drive: &Drive) -> Option<bool> {
+    let id = &drive.drive_id;
+    match (drive.io_engine.is_some(), drive.socket.is_some()) {
+        (true, true) => {
+            // virtio-block: no
+            // vhost-user-block: no
+            let msg = format!("{id} not configured properly, cannot have `io_engine` and `socket` field simutaneously");
+            error!("{msg}");
+            None
+        }
+        (true, false) => {
+            // virtio-block: ok
+            // vhost-user-block: no
+            // must be a virtio-block device
+            info!("{id} is a virtio-block device");
+            Some(false)
+        }
+        (false, true) => {
+            // virtio-block: no
+            // vhost-user-block: ok
+            // must be a vhost-user-block device
+            info!("{id} is a vhost-user-block device");
+            Some(true)
+        }
+        (false, false) => {
+            // virtio-block: ok
+            // vhost-user-block: no
+            // must be a virtio-block device
+            info!("{id} is a virtio-block device");
+            Some(false)
+        }
     }
 }
