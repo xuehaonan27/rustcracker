@@ -130,9 +130,9 @@ dependencies = [
 
 [[package]]
 name = "bytes"
-version = "1.6.0"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "514de17de45fdb8dc022b1a7975556c53c86f9f0aa5f534b98977b171857c2c9"
+checksum = "f61dac84819c6588b558454b194026eb1f09c293b9036ae9b159e74e73ab6cf9"
 
 [[package]]
 name = "cc"
@@ -1002,6 +1002,7 @@ name = "rustcracker"
 version = "2.0.0"
 dependencies = [
  "async-trait",
+ "bytes 1.10.0",
  "crossbeam",
  "diesel",
  "dotenvy",
@@ -1318,7 +1319,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1adbebffeca75fcfd058afa480fb6c0b81e165a0323f9c9d39c9697e37c46787"
 dependencies = [
  "backtrace",
- "bytes 1.6.0",
+ "bytes 1.10.0",
  "libc",
  "mio 0.8.11",
  "num_cpus",
@@ -1505,7 +1506,7 @@ version = "0.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9cf6b47b3771c49ac75ad09a6162f53ad4b8088b76ac60e8ec1455b31a189fe1"
 dependencies = [
- "bytes 1.6.0",
+ "bytes 1.10.0",
  "futures-core",
  "futures-io",
  "futures-sink",

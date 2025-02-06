@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 /// Terminate the hypervisor by sending SIGTERM
 /// Note: this command will kill firecracker itself
-#[cfg(any(target_os = "linux", target_os = "unix"))]
+#[cfg(target_os = "linux")]
 fn terminate(pid: Pid) -> RtckResult<()> {
     use nix::sys::signal::{kill, Signal};
     // the hypervisor occupies the pid by opening fd to it (procfs).
@@ -19,7 +19,7 @@ fn terminate(pid: Pid) -> RtckResult<()> {
 
 /// Terminate the hypervisor by sending SIGKILL
 /// Note: this command will kill firecracker itself.
-#[cfg(any(target_os = "linux", target_os = "unix"))]
+#[cfg(target_os = "linux")]
 fn kill(pid: Pid) -> RtckResult<()> {
     // the hypervisor occupies the pid by opening fd to it (procfs).
     // so kill -9 to this pid is safe.
@@ -44,7 +44,8 @@ pub enum Rollback {
     RemoveSocket {
         path: PathBuf,
     },
-    RemoveFsLock {
+    #[allow(unused)]
+    RemoveFile {
         path: PathBuf,
     },
     Umount {
@@ -154,9 +155,9 @@ impl Rollback {
                 info!("Removing socket {:?}", path);
                 let _ = std::fs::remove_file(path);
             }
-            Rollback::RemoveFsLock { path } => {
+            Rollback::RemoveFile { path } => {
                 // removal failure is not a big deal so ignore possible error
-                info!("Removing lock {:?}", path);
+                info!("Removing file {:?}", path);
                 let _ = std::fs::remove_file(path);
             }
             Rollback::Umount { mount_point } => {

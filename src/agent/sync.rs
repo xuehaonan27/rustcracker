@@ -1,82 +1,41 @@
-use super::agent::{AgentError, AgentResult};
+//! Sync firecracker socket agent
+use super::{SocketAgent, MAX_BUFFER_SIZE};
 use crate::reqres::FirecrackerEvent;
-use fslock::LockFile;
-use log::*;
+use crate::{RtckError, RtckResult};
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
+use std::path::Path;
 
-// 1024 bytes are enough for firecracker response headers
-const MAX_BUFFER_SIZE: usize = 1024;
 #[derive(Debug)]
-pub struct Agent {
+pub struct SocketAgentSync {
     stream: UnixStream,
-    lock: LockFile,
 }
 
-impl Agent {
-    #[allow(unused)]
-    pub fn new(stream_path: String, lock_path: String) -> Result<Self, AgentError> {
-        let stream = UnixStream::connect(&stream_path)
-            .map_err(|e| AgentError::BadUnixSocket(e.to_string()))?;
-        stream.set_nonblocking(true).map_err(|e| {
-            let msg = format!("Fail to set the socket stream to non-blocking: {e}");
-            error!("{msg}");
-            AgentError::BadUnixSocket(msg.into())
-        })?;
-        // You should make sure that `lock_path` contains no nul-terminators
-        let lock = LockFile::open(&lock_path).map_err(|e| {
-            let msg = format!("Fail to open the lock file: {e}");
-            error!("{msg}");
-            AgentError::BadLockFile(msg)
-        })?;
-        Ok(Self { stream, lock })
+impl SocketAgent for SocketAgentSync {
+    type StreamType = UnixStream;
+    fn new<P: AsRef<Path>>(socket_path: P) -> RtckResult<Self> {
+        let stream = UnixStream::connect(socket_path)?;
+        stream.set_nonblocking(true)?;
+        Ok(Self { stream })
     }
 
-    pub fn from_stream_lock(stream: UnixStream, lock: LockFile) -> Self {
-        Self { stream, lock }
+    fn from_stream(stream: Self::StreamType) -> Self {
+        Self { stream }
     }
 
-    pub fn is_locked(&self) -> bool {
-        self.lock.owns_lock()
+    fn into_inner(self) -> Self::StreamType {
+        self.stream
     }
+}
 
-    pub fn lock(&mut self) -> AgentResult<()> {
-        self.lock.lock().map_err(|e| {
-            let msg = format!("When locking the lock file: {e}");
-            error!("{msg}");
-            AgentError::BadLockFile(msg)
-        })
-    }
-
-    pub fn unlock(&mut self) -> AgentResult<()> {
-        self.lock.unlock().map_err(|e| {
-            let msg = format!("When unlocking the lock file: {e}");
-            error!("{msg}");
-            AgentError::BadLockFile(msg)
-        })
-    }
-
-    /// One should make sure that this Agent is locked up before sending any data into the stream
-    pub fn send_request(&mut self, request: String) -> AgentResult<()> {
-        assert!(self.is_locked());
-
-        self.stream.write_all(&request.as_bytes()).map_err(|e| {
-            let msg = format!("When writing to the socket stream: {e}");
-            error!("{msg}");
-            AgentError::BadRequest(msg)
-        })?;
-
-        self.stream.flush().map_err(|e| {
-            let msg = format!("When flushing the socket stream: {e}");
-            error!("{msg}");
-            AgentError::BadRequest(msg)
-        })?;
+impl SocketAgentSync {
+    pub fn send_request(&mut self, data: &[u8]) -> RtckResult<()> {
+        self.stream.write_all(data)?;
+        self.stream.flush()?;
         Ok(())
     }
 
-    /// One should make sure that this Agent is locked up before receiving any data from the stream
-    pub fn recv_response(&mut self) -> AgentResult<Vec<u8>> {
-        assert!(self.is_locked());
+    pub fn recv_response(&mut self) -> RtckResult<Vec<u8>> {
         let mut headers = [httparse::EMPTY_HEADER; 64];
         let mut res = httparse::Response::new(&mut headers);
 
@@ -95,22 +54,15 @@ impl Agent {
                     }
                 }
                 Err(ref e) if e.kind() == ErrorKind::WouldBlock => continue,
-                Err(e) => {
-                    let msg = format!("Bad reading from the socket: {e}");
-                    error!("{msg}");
-                    return Err(AgentError::BadUnixSocket(msg));
-                }
+                Err(e) => return Err(RtckError::Agent(format!("Bad read from socket: {e}"))),
             }
         }
 
         let body_start = res.parse(&vec).unwrap();
         if body_start.is_partial() {
-            // Bad response
-            let msg = "Got incomplete response";
-            error!("{msg}");
-            return Err(AgentError::BadResponse(msg.into()));
+            return Err(RtckError::Agent("Incomplete response".into()));
         }
-        let body_start = body_start.unwrap();
+        let body_start = body_start.unwrap(); // unwrap safe
 
         let content_length = res
             .headers
@@ -134,8 +86,8 @@ impl Agent {
         };
     }
 
-    pub fn clear_stream(&mut self) -> AgentResult<()> {
-        let mut buf = [0; 1024];
+    pub fn clear_stream(&mut self) -> RtckResult<()> {
+        let mut buf = [0; MAX_BUFFER_SIZE];
         let read: bool = loop {
             match self.stream.read(&mut buf) {
                 Ok(0) => break true,
@@ -151,58 +103,43 @@ impl Agent {
         if read && write && flush {
             Ok(())
         } else {
-            let msg = "Fail to clear the socket stream";
-            error!("{msg}");
-            Err(AgentError::BadUnixSocket("clearing".into()))
+            Err(RtckError::Agent("Fail to clear the socket stream".into()))
         }
     }
 
     /// Start a single event by passing a FirecrackerEvent like object
-    pub fn event<E: FirecrackerEvent>(&mut self, event: E) -> AgentResult<E::Res> {
-        self.lock()?;
+    pub fn event<E: FirecrackerEvent>(&mut self, event: E) -> RtckResult<E::Res> {
         if let Err(e) = self.clear_stream() {
-            self.unlock()?;
             return Err(e);
         }
-        if let Err(e) = self.send_request(event.req()) {
-            self.unlock()?;
+        if let Err(e) = self.send_request(event.req().as_bytes()) {
             return Err(e);
         }
         let res = match self.recv_response() {
             Ok(res) => res,
             Err(e) => {
-                self.unlock()?;
                 return Err(e);
             }
         };
-        self.unlock()?;
-        E::decode(&res).map_err(|e| {
-            let msg = format!("Fail to decode response: {e}");
-            error!("{msg}");
-            AgentError::BadResponse(msg.into())
-        })
+
+        E::decode(&res).map_err(|e| RtckError::Agent(format!("Fail to decode response: {e}")))
     }
 
     /// Start some events by passing FirecrackerEvent like objects
     /// Useful since less locking and unlocking needed
     #[allow(unused)]
-    pub fn events<E: FirecrackerEvent>(&mut self, events: Vec<E>) -> AgentResult<Vec<E::Res>> {
-        self.lock()?;
+    pub fn events<E: FirecrackerEvent>(&mut self, events: Vec<E>) -> RtckResult<Vec<E::Res>> {
         self.clear_stream()?;
 
         // TODO: change to async iterator after `std::async_iter` is available in stable Rust.
         let mut res_vec = Vec::with_capacity(events.len());
         for event in events {
-            self.send_request(event.req())?;
+            self.send_request(event.req().as_bytes())?;
             let res = self.recv_response()?;
-            let res = E::decode(&res).map_err(|e| {
-                let msg = format!("Fail to decode response: {e}");
-                error!("{msg}");
-                AgentError::BadResponse(msg.into())
-            })?;
+            let res = E::decode(&res)
+                .map_err(|e| RtckError::Agent(format!("Fail to decode response: {e}")))?;
             res_vec.push(res);
         }
-        self.unlock()?;
         Ok(res_vec)
     }
 }
@@ -226,7 +163,6 @@ mod test {
 
     use super::*;
     const SOCKET_PATH: &'static str = "/tmp/rtck_test_uds.sock";
-    const LOCK_PATH: &'static str = "/tmp/rtck_test.lock";
 
     fn run_server(unique_test_id: usize, expected_request: Vec<u8>, rx: Receiver<()>) {
         let socket_path = &format!("{}{}", SOCKET_PATH, unique_test_id);
@@ -247,7 +183,7 @@ mod test {
             }
             let (mut stream, _) = listener.accept().unwrap();
 
-            let mut buffer = [0; 1024];
+            let mut buffer = [0; MAX_BUFFER_SIZE];
             let n = stream.read(&mut buffer).unwrap();
             if n > 0 {
                 let received_data = &buffer[0..n];
@@ -287,13 +223,11 @@ mod test {
         });
         std::thread::sleep(std::time::Duration::from_secs(1));
         let stream_path = format!("{}{}", SOCKET_PATH, unique_test_id);
-        let lock_path = format!("{}{}", LOCK_PATH, unique_test_id);
-        let mut agent = Agent::new(stream_path, lock_path).unwrap();
 
-        agent.lock().unwrap();
-        agent.send_request(request_s).unwrap();
+        let mut agent = SocketAgentSync::new(stream_path).unwrap();
+
+        agent.send_request(request_s.as_bytes()).unwrap();
         let res = agent.recv_response().unwrap();
-        agent.unlock().unwrap();
 
         let body = "I've received correct request!".to_string();
 
@@ -323,7 +257,7 @@ mod test {
             }
             let (mut stream, _) = listener.accept().unwrap();
 
-            let mut buffer = [0; 1024];
+            let mut buffer = [0; MAX_BUFFER_SIZE];
             let n = stream.read(&mut buffer).unwrap();
             if n > 0 {
                 let received_data = &buffer[0..n];
@@ -349,8 +283,7 @@ mod test {
         let _ = std::thread::spawn(move || event_server(unique_test_id, rx));
         std::thread::sleep(std::time::Duration::from_secs(1));
         let stream_path = format!("{}{}", SOCKET_PATH, unique_test_id);
-        let lock_path = format!("{}{}", LOCK_PATH, unique_test_id);
-        let mut agent = Agent::new(stream_path, lock_path).unwrap();
+        let mut agent = SocketAgentSync::new(stream_path).unwrap();
 
         println!("Launching event");
         let res = agent.event(event).unwrap();

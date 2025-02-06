@@ -1,5 +1,6 @@
 use super::MicroVMStatus;
-use crate::agent::sync_agent::Agent;
+use crate::agent::sync::SocketAgentSync;
+use crate::agent::SocketAgent;
 use crate::config::{HypervisorConfig, MicroVMConfig};
 use crate::firecracker::FirecrackerSync;
 use crate::jailer::JailerSync;
@@ -36,7 +37,7 @@ pub struct Hypervisor {
     config_path: Option<String>,
 
     // agent i.e. connection with remote
-    agent: Agent,
+    agent: SocketAgentSync,
 
     // instance status
     status: MicroVMStatus,
@@ -155,22 +156,12 @@ impl Hypervisor {
         let firecracker = FirecrackerSync::from_jailer(jailer)?;
 
         // Shared code
-
-        let lock = fslock::LockFile::open(&firecracker.lock_path).map_err(|e| {
-            let msg = format!("Fail to create file lock: {e}");
-            error!("{msg}");
-            RtckError::Hypervisor(msg)
-        })?;
-        rollbacks.insert_1(Rollback::RemoveFsLock {
-            path: firecracker.lock_path.clone(),
-        });
-
         stream.set_nonblocking(true).map_err(|e| {
             let msg = format!("Unable to set stream to non-blocking: {e}");
             error!("{msg}");
             RtckError::Hypervisor(msg)
         })?;
-        let agent = Agent::from_stream_lock(stream, lock);
+        let agent = SocketAgentSync::from_stream(stream);
 
         Ok(Self {
             id: firecracker.id,
@@ -212,22 +203,12 @@ impl Hypervisor {
         let stream = firecracker.connect(config.socket_retry)?;
 
         // Shared code
-
-        let lock = fslock::LockFile::open(&firecracker.lock_path).map_err(|e| {
-            let msg = format!("Fail to create file lock: {e}");
-            error!("{msg}");
-            RtckError::Hypervisor(msg)
-        })?;
-        rollbacks.insert_1(Rollback::RemoveFsLock {
-            path: firecracker.lock_path.clone(),
-        });
-
         stream.set_nonblocking(true).map_err(|e| {
             let msg = format!("Unable to set stream to non-blocking: {e}");
             error!("{msg}");
             RtckError::Hypervisor(msg)
         })?;
-        let agent = Agent::from_stream_lock(stream, lock);
+        let agent = SocketAgentSync::from_stream(stream);
 
         Ok(Self {
             id: firecracker.id,
@@ -333,7 +314,7 @@ impl Hypervisor {
             let res = self.agent.event(put_logger).map_err(|e| {
                 let msg = format!("PutLogger event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                RtckError::Agent(msg)
             })?;
             if res.is_err() {
                 let msg = "PutLogger event returned error response";
@@ -422,7 +403,7 @@ impl Hypervisor {
             let res = self.agent.event(put_metrics).map_err(|e| {
                 let msg = format!("PutMetrics event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                RtckError::Agent(msg)
             })?;
             if res.is_err() {
                 let msg = "PutMetrics event returned error response";
@@ -554,7 +535,7 @@ impl Hypervisor {
             let res = self.agent.event(put_guest_boot_source).map_err(|e| {
                 let msg = format!("PutGuestBootSource event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                RtckError::Agent(msg)
             })?;
             if res.is_err() {
                 let msg = "PutGuestBootSource event returned error response";
@@ -666,7 +647,7 @@ impl Hypervisor {
                 let res = self.agent.event(put_guest_drive_by_id).map_err(|e| {
                     let msg = format!("PutGuestDriveByID event failed: {e}");
                     error!("{msg}");
-                    RtckError::Agent(e)
+                    RtckError::Agent(msg)
                 })?;
                 if res.is_err() {
                     let msg = format!(
@@ -693,7 +674,7 @@ impl Hypervisor {
                     .map_err(|e| {
                         let msg = format!("PutGuestNetworkInterfaceByID event failed: {e}");
                         error!("{msg}");
-                        RtckError::Agent(e)
+                        RtckError::Agent(msg)
                     })?;
                 if res.is_err() {
                     let msg = format!(
@@ -716,7 +697,7 @@ impl Hypervisor {
                 let res = self.agent.event(put_guest_vsock).map_err(|e| {
                     let msg = format!("PutGuestVsock event failed: {e}");
                     error!("{msg}");
-                    RtckError::Agent(e)
+                    RtckError::Agent(msg)
                 })?;
                 if res.is_err() {
                     let msg = format!(
@@ -738,7 +719,7 @@ impl Hypervisor {
             let res = self.agent.event(put_cpu_configuration).map_err(|e| {
                 let msg = format!("PutCpuConfiguration event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                RtckError::Agent(msg)
             })?;
             if res.is_err() {
                 let msg = "PutCpuConfiguration event returned error response";
@@ -756,7 +737,7 @@ impl Hypervisor {
             let res = self.agent.event(put_machine_configuration).map_err(|e| {
                 let msg = format!("PutMachineConfiguration event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                RtckError::Agent(msg)
             })?;
             if res.is_err() {
                 let msg = "PutMachineConfiguration event returned error response";
@@ -774,7 +755,7 @@ impl Hypervisor {
             let res = self.agent.event(put_balloon).map_err(|e| {
                 let msg = format!("PutBalloon event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                RtckError::Agent(msg)
             })?;
             if res.is_err() {
                 let msg = "PutBalloon event returned error response";
@@ -792,7 +773,7 @@ impl Hypervisor {
             let res = self.agent.event(put_entropy).map_err(|e| {
                 let msg = format!("PutEntropy event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                RtckError::Agent(msg)
             })?;
             if res.is_err() {
                 let msg = "PutEntropy event returned error response";
@@ -810,7 +791,7 @@ impl Hypervisor {
             let res = self.agent.event(put_mmds).map_err(|e| {
                 let msg = format!("PutMmds event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                RtckError::Agent(msg)
             })?;
             if res.is_err() {
                 let msg = "PutMmds event returned error response";
@@ -901,7 +882,7 @@ impl Hypervisor {
             // no need for changing status here since pausing failure isn't a fatal error
             let msg = format!("Pause machine event failed: {e}");
             error!("{msg}");
-            RtckError::Agent(e)
+            RtckError::Agent(msg)
         })?;
 
         if res.is_err() {
@@ -927,7 +908,7 @@ impl Hypervisor {
             // no need for changing status here since resuming failure isn't a fatal error
             let msg = format!("Resume machine event failed: {e}");
             error!("{msg}");
-            RtckError::Agent(e)
+            RtckError::Agent(msg)
         })?;
 
         if res.is_err() {
@@ -1024,7 +1005,7 @@ impl Hypervisor {
         let res = self.agent.event(create_snapshot).map_err(|e| {
             let msg = format!("CreateSnapshot event failed: {e}");
             error!("{msg}");
-            RtckError::Agent(e)
+            RtckError::Agent(msg)
         })?;
         if res.is_err() {
             let msg = "CreateSnapshot event returned error response";
@@ -1085,7 +1066,7 @@ impl Hypervisor {
             .map_err(|e| {
                 let msg = format!("PatchBalloonStatsInterval event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                RtckError::Agent(msg)
             })?;
         if res.is_err() {
             let msg = "PatchBalloonStatsInterval event returned error response";
@@ -1100,7 +1081,7 @@ impl Hypervisor {
         let res = self.agent.event(patch_balloon).map_err(|e| {
             let msg = format!("PatchBalloon event failed: {e}");
             error!("{msg}");
-            RtckError::Agent(e)
+            RtckError::Agent(msg)
         })?;
         if res.is_err() {
             let msg = "PatchBalloon event returned error response";
@@ -1124,7 +1105,7 @@ impl Hypervisor {
         let res = self.agent.event(patch_guest_drive_by_id).map_err(|e| {
             let msg = format!("PatchGuestDriveByID event failed: {e}");
             error!("{msg}");
-            RtckError::Agent(e)
+            RtckError::Agent(msg)
         })?;
         if res.is_err() {
             let msg = "PatchGuestDriveByID event returned error response";
@@ -1152,7 +1133,7 @@ impl Hypervisor {
             .map_err(|e| {
                 let msg = format!("PatchGuestNetworkInterfaceByID event failed: {e}");
                 error!("{msg}");
-                RtckError::Agent(e)
+                RtckError::Agent(msg)
             })?;
         if res.is_err() {
             let msg = "PatchGuestNetworkInterfaceByID event returned error response";
@@ -1182,7 +1163,7 @@ impl Hypervisor {
         let res = self.agent.event(patch_machine_configuration).map_err(|e| {
             let msg = format!("PatchMachineConfiguration event failed: {e}");
             error!("{msg}");
-            RtckError::Agent(e)
+            RtckError::Agent(msg)
         })?;
         if res.is_err() {
             let msg = "PatchMachineConfiguration event returned error response";
@@ -1197,7 +1178,7 @@ impl Hypervisor {
         let res = self.agent.event(patch_mmds).map_err(|e| {
             let msg = format!("PatchMmds event failed: {e}");
             error!("{msg}");
-            RtckError::Agent(e)
+            RtckError::Agent(msg)
         })?;
         if res.is_err() {
             let msg = "PatchMmds event returned error response";
@@ -1212,7 +1193,7 @@ impl Hypervisor {
         let res = self.agent.event(patch_vm).map_err(|e| {
             let msg = format!("PatchVm event failed: {e}");
             error!("{msg}");
-            RtckError::Agent(e)
+            RtckError::Agent(msg)
         })?;
         if res.is_err() {
             let msg = "PatchVm event returned error response";

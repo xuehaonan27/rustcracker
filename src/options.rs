@@ -1,5 +1,3 @@
-use std::net::Ipv4Addr;
-
 use crate::config::{HypervisorConfig, JailerConfig, MicroVMConfig};
 use crate::models::*;
 use crate::RtckResult;

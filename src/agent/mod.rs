@@ -1,7 +1,29 @@
-pub mod agent;
-pub mod sync_agent;
+pub mod tokio;
+pub mod sync;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
+
+use crate::RtckResult;
+
+
+// 1024 bytes are enough for firecracker response headers
+const MAX_BUFFER_SIZE: usize = 1024;
+
+#[async_trait::async_trait]
+pub trait SocketAgent {
+    type StreamType;
+
+    /// Create new connection
+    fn new<P: AsRef<Path>>(socket_path: P) -> RtckResult<Self>
+    where
+        Self: Sized;
+
+    /// Create from existing stream
+    fn from_stream(stream: Self::StreamType) -> Self;
+
+    /// Get underlying stream
+    fn into_inner(self) -> Self::StreamType;
+}
 
 #[derive(Debug, Clone)]
 pub struct HttpRequest {

@@ -1,4 +1,3 @@
-use agent::agent::AgentError;
 use log::*;
 mod agent;
 pub mod config;
@@ -27,8 +26,10 @@ pub enum RtckError {
     Firecracker(String),
     #[error("Jailer: {0}")]
     Jailer(String),
+    #[error("IO error: {0}")]
+    IO(#[from] std::io::Error),
     #[error("Agent: {0}")]
-    Agent(#[from] AgentError),
+    Agent(String),
     #[error("Hypervisor: {0}")]
     Hypervisor(String),
     #[error("Process: {0}")]

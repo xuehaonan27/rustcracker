@@ -10,7 +10,7 @@ pub struct DescribeBalloonStats(pub DescribeBalloonStatsRequest);
 impl_all_firecracker_traits!(
     DescribeBalloonStats,
     "GET",
-    "/balllon/statistics",
+    "/ballon/statistics",
     BalloonStats,
     InternalError
 );
