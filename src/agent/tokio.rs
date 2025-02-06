@@ -223,7 +223,7 @@ mod test {
         };
         let request_s = serialize_request(&request);
 
-        let unique_test_id = 1;
+        let unique_test_id = 3;
         let server_task = tokio::spawn(run_server(unique_test_id, request_s.as_bytes().to_vec()));
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         let stream_path = format!("{}{}", SOCKET_PATH, unique_test_id);
@@ -277,7 +277,7 @@ mod test {
     async fn test_event() {
         let event = GetFirecrackerVersion(GetFirecrackerVersionRequest);
 
-        let unique_test_id = 2;
+        let unique_test_id = 4;
         let server_task = tokio::spawn(event_server(unique_test_id));
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         let stream_path = format!("{}{}", SOCKET_PATH, unique_test_id);

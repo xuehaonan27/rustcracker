@@ -80,9 +80,9 @@ impl JailerSync {
         self.socket_path_export.as_ref()
     }
 
-    pub(crate) fn get_lock_path_exported(&self) -> Option<&PathBuf> {
-        self.lock_path_export.as_ref()
-    }
+    // pub(crate) fn get_lock_path_exported(&self) -> Option<&PathBuf> {
+    //     self.lock_path_export.as_ref()
+    // }
 
     pub(crate) fn get_log_path_exported(&self) -> Option<&PathBuf> {
         self.log_path_export.as_ref()

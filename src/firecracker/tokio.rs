@@ -17,7 +17,7 @@ pub(crate) struct FirecrackerAsync {
 
     pub(crate) socket: PathBuf,
 
-    pub(crate) lock_path: PathBuf,
+    // pub(crate) lock_path: PathBuf,
 
     pub(crate) log_path: Option<PathBuf>,
 
@@ -46,7 +46,7 @@ impl FirecrackerAsync {
             id,
             bin: handle_entry(&config.frck_bin, "firecracker binary")?,
             socket,
-            lock_path: handle_entry(&config.lock_path, "lock path")?.into(),
+            // lock_path: handle_entry(&config.lock_path, "lock path")?.into(),
             log_path: config.log_path.clone().map(PathBuf::from),
             config_path: config.frck_export_path.clone().and_then(|s| Some(s.into())),
         })
@@ -65,14 +65,14 @@ impl FirecrackerAsync {
             })?
             .clone();
 
-        let lock_path = jailer
-            .get_lock_path_exported()
-            .ok_or_else(|| {
-                let msg = "Jailer without exported lock path";
-                error!("{msg}");
-                RtckError::Config(msg.into())
-            })?
-            .clone();
+        // let lock_path = jailer
+        //     .get_lock_path_exported()
+        //     .ok_or_else(|| {
+        //         let msg = "Jailer without exported lock path";
+        //         error!("{msg}");
+        //         RtckError::Config(msg.into())
+        //     })?
+        //     .clone();
 
         let log_path = jailer
             .get_log_path_exported()
@@ -89,7 +89,7 @@ impl FirecrackerAsync {
             id: jailer.id,
             bin,
             socket,
-            lock_path,
+            // lock_path,
             log_path: Some(log_path),
             config_path,
         })

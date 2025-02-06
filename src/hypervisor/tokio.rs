@@ -29,7 +29,7 @@ pub struct Hypervisor {
     socket_retry: usize,
 
     // lock path of this hypervisor
-    lock_path: PathBuf,
+    // lock_path: PathBuf,
 
     // log path of this hypervisor
     log_path: Option<PathBuf>,
@@ -81,9 +81,9 @@ impl Hypervisor {
         self.socket_retry
     }
 
-    pub fn lock_path(&self) -> &PathBuf {
-        &self.lock_path
-    }
+    // pub fn lock_path(&self) -> &PathBuf {
+    //     &self.lock_path
+    // }
 
     pub fn log_path(&self) -> Option<&PathBuf> {
         self.log_path.as_ref()
@@ -176,7 +176,7 @@ impl Hypervisor {
             child,
             socket_path: firecracker.socket,
             socket_retry: config.socket_retry,
-            lock_path: firecracker.lock_path,
+            // lock_path: firecracker.lock_path,
             log_path: firecracker.log_path,
             config_path: firecracker.config_path,
             agent,
@@ -225,7 +225,7 @@ impl Hypervisor {
             child,
             socket_path: firecracker.socket,
             socket_retry: config.socket_retry,
-            lock_path: firecracker.lock_path,
+            // lock_path: firecracker.lock_path,
             log_path: firecracker.log_path,
             config_path: firecracker.config_path,
             agent,

@@ -14,7 +14,7 @@ thiserror = "1.0.61"
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.120"
 uuid = { version = "1.9.1", features = ["v4", "fast-rng"] }
-fslock = "0.2.1"
+# fslock = "0.2.1"
 httparse = "1.9.4"
 either = "1.13.0"
 paste = "1.0.15"
