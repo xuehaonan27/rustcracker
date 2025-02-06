@@ -113,6 +113,7 @@ lazy_static! {
             mem_size_mib: 256,
             track_dirty_pages: None,
             vcpu_count: 4,
+            huge_pages: None,
         }),
         vmid: Some("1234qwer".to_string()),
         net_ns: None,
