@@ -127,14 +127,12 @@ impl Hypervisor {
 
         // jail the firecracker
         let instance_dir = jailer.jail().await?;
-        if let Some(true) = config.using_jailer {
-            rollbacks.push(Rollback::Jailing {
-                clear: clear_jailer,
-                instance_dir,
-            });
-        }
+        rollbacks.push(Rollback::Jailing {
+            clear: clear_jailer,
+            instance_dir,
+        });
 
-        // spawn the firecracker process
+        // spawn the jailer process
         // error: fail to launch the process
         let child = jailer.launch().await?;
         let pid = child.id().ok_or_else(|| {
@@ -240,7 +238,7 @@ impl Hypervisor {
     }
 
     /// Ping firecracker to check its soundness
-    pub async fn ping_remote(&mut self) -> RtckResult<()> {
+    pub async fn check_sanity(&mut self) -> RtckResult<()> {
         let event = GetFirecrackerVersion::new();
         let _ = self.agent.event(event).await?;
         Ok(())

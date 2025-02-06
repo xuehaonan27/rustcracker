@@ -40,7 +40,7 @@ pub trait FirecrackerEvent {
     type Req: FirecrackerRequest;
     type Res: FirecrackerResponse;
     fn req(&self) -> String;
-    fn decode(payload: &Vec<u8>) -> RtckResult<Self::Res>;
+    fn res(payload: &Vec<u8>) -> RtckResult<Self::Res>;
 }
 
 macro_rules! impl_all_firecracker_traits {
@@ -202,7 +202,7 @@ macro_rules! impl_firecracker_event {
                 self.0.encode()
             }
 
-            fn decode(payload: &Vec<u8>) -> crate::RtckResult<Self::Res> {
+            fn res(payload: &Vec<u8>) -> crate::RtckResult<Self::Res> {
                 Self::Res::decode(payload)
             }
         }

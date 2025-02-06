@@ -204,7 +204,7 @@ impl JailerAsync {
             &jailer_workspace_dir,
         )?;
 
-        match &self.config_path {
+        /*match &self.config_path {
             // not using config exported config, skipping
             None => (),
             Some(config_path) => {
@@ -221,7 +221,7 @@ impl JailerAsync {
                         RtckError::FilesysIO(msg)
                     })?;
             }
-        }
+        }*/
 
         Ok(instance_dir)
     }

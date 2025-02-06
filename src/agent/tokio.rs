@@ -136,7 +136,7 @@ impl SocketAgentAsync {
             }
         };
 
-        E::decode(&res).map_err(|e| RtckError::Agent(format!("Fail to decode response: {e}")))
+        E::res(&res).map_err(|e| RtckError::Agent(format!("Fail to decode response: {e}")))
     }
 
     /// Start some events by passing FirecrackerEvent like objects
@@ -150,7 +150,7 @@ impl SocketAgentAsync {
         for event in events {
             self.send_request(event.req().as_bytes()).await?;
             let res = self.recv_response().await?;
-            let res = E::decode(&res)
+            let res = E::res(&res)
                 .map_err(|e| RtckError::Agent(format!("Fail to decode response: {e}")))?;
             res_vec.push(res);
         }

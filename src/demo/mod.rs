@@ -18,7 +18,10 @@ async fn demo() {
         .await
         .expect("fail to create hypervisor");
     // check remote
-    hypervisor.ping_remote().await.expect("fail to ping remote");
+    hypervisor
+        .check_sanity()
+        .await
+        .expect("fail to ping remote");
     // start microVM
     hypervisor
         .start(&MICROVM_CONFIG)
@@ -43,7 +46,10 @@ pub async fn no_jailer() {
 
     sleep(3).await;
 
-    hypervisor.ping_remote().await.expect("fail to ping remote");
+    hypervisor
+        .check_sanity()
+        .await
+        .expect("fail to ping remote");
 
     sleep(3).await;
 
@@ -74,7 +80,10 @@ pub async fn with_jailer() {
     log::info!("Hypervisor created");
     sleep(3).await;
 
-    hypervisor.ping_remote().await.expect("fail to ping remote");
+    hypervisor
+        .check_sanity()
+        .await
+        .expect("fail to ping remote");
     log::info!("Hypervisor running!");
     sleep(3).await;
 
@@ -110,7 +119,10 @@ pub async fn using() {
     log::info!("Hypervisor created");
     sleep(3).await;
 
-    hypervisor.ping_remote().await.expect("fail to ping remote");
+    hypervisor
+        .check_sanity()
+        .await
+        .expect("fail to ping remote");
     log::info!("Hypervisor running!");
     sleep(3).await;
 
@@ -136,7 +148,10 @@ pub async fn force_terminating() {
     log::info!("Hypervisor created");
     sleep(3).await;
 
-    hypervisor.ping_remote().await.expect("fail to ping remote");
+    hypervisor
+        .check_sanity()
+        .await
+        .expect("fail to ping remote");
     log::info!("Hypervisor running!");
     sleep(3).await;
 
@@ -164,7 +179,10 @@ pub async fn reusing_hypervisor() {
 
     sleep(3).await;
 
-    hypervisor.ping_remote().await.expect("fail to ping remote");
+    hypervisor
+        .check_sanity()
+        .await
+        .expect("fail to ping remote");
 
     sleep(3).await;
 
@@ -227,7 +245,7 @@ pub fn syncusing() {
     log::info!("Hypervisor created");
     std::thread::sleep(std::time::Duration::from_secs(3));
 
-    hypervisor.ping_remote().expect("fail to ping remote");
+    hypervisor.check_sanity().expect("fail to ping remote");
     log::info!("Hypervisor running!");
     std::thread::sleep(std::time::Duration::from_secs(3));
 
@@ -272,7 +290,10 @@ pub async fn options() {
         .expect("fail to create hypervisor");
     log::info!("Hypervisor created");
 
-    hypervisor.ping_remote().await.expect("fail to ping remote");
+    hypervisor
+        .check_sanity()
+        .await
+        .expect("fail to ping remote");
     log::info!("Hypervisor running!");
 
     use rustcracker::models::*;

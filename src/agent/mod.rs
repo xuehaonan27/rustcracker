@@ -1,10 +1,9 @@
-pub mod tokio;
 pub mod sync;
+pub mod tokio;
 
 use std::{collections::HashMap, path::Path};
 
 use crate::RtckResult;
-
 
 // 1024 bytes are enough for firecracker response headers
 const MAX_BUFFER_SIZE: usize = 1024;
@@ -14,6 +13,7 @@ pub trait SocketAgent {
     type StreamType;
 
     /// Create new connection
+    #[allow(unused)]
     fn new<P: AsRef<Path>>(socket_path: P) -> RtckResult<Self>
     where
         Self: Sized;
@@ -22,6 +22,7 @@ pub trait SocketAgent {
     fn from_stream(stream: Self::StreamType) -> Self;
 
     /// Get underlying stream
+    #[allow(unused)]
     fn into_inner(self) -> Self::StreamType;
 }
 

@@ -6,3 +6,4 @@ rtck-test-output.*
 /config
 /log
 /.devcontainer
+.env
