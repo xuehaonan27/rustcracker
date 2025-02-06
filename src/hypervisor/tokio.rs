@@ -1253,7 +1253,7 @@ impl Hypervisor {
         cpu_template: Option<CPUTemplate>,
         ht_enabled: Option<bool>,
         track_dirty_pages: Option<bool>,
-        huge_pages: Option<HugePages>,
+        huge_pages: Option<HugePageOption>,
     ) -> RtckResult<()> {
         let patch_machine_configuration = PatchMachineConfiguration::new(MachineConfiguration {
             cpu_template,

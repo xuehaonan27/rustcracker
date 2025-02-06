@@ -38,13 +38,13 @@ pub struct MachineConfiguration {
     /// - None
     /// - 2M
     #[serde(rename = "huge_pages", skip_serializing_if = "Option::is_none")]
-    pub huge_pages: Option<HugePages>
+    pub huge_pages: Option<HugePageOption>
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum HugePages {
+pub enum HugePageOption {
     #[serde(rename = "None")]
     None,
     #[serde(rename = "2M")]
-    HP2M,
+    HugePage2M,
 }

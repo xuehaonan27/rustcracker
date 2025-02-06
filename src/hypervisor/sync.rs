@@ -1169,6 +1169,7 @@ impl Hypervisor {
         cpu_template: Option<CPUTemplate>,
         ht_enabled: Option<bool>,
         track_dirty_pages: Option<bool>,
+        huge_pages: Option<HugePageOption>,
     ) -> RtckResult<()> {
         let patch_machine_configuration = PatchMachineConfiguration::new(MachineConfiguration {
             cpu_template,
@@ -1176,6 +1177,7 @@ impl Hypervisor {
             mem_size_mib,
             track_dirty_pages,
             vcpu_count,
+            huge_pages,
         });
         let res = self.agent.event(patch_machine_configuration).map_err(|e| {
             let msg = format!("PatchMachineConfiguration event failed: {e}");

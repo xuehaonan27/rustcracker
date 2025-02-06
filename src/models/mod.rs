@@ -42,7 +42,7 @@ pub use instance_action_info::{ActionType, InstanceActionInfo};
 pub use instance_info::{InstanceInfo, State as InstanceState};
 pub use kernel_args::KernelArgs;
 pub use logger::{LogLevel, Logger};
-pub use machine_configuration::{MachineConfiguration, HugePages};
+pub use machine_configuration::{MachineConfiguration, HugePageOption};
 pub use memory_backend::{BackendType, MemoryBackend};
 pub use metrics::Metrics;
 pub use mmds_config::{MmdsConfig, MmdsContentsObject, Version};
