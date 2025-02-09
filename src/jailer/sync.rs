@@ -177,15 +177,6 @@ impl JailerSync {
             &jailer_workspace_dir,
         )?;
 
-        // Get lock path under jailer
-        const DEFAULT_LOCK_PATH_UNDER_JAILER: &'static str = "run/firecracker.lock";
-        self.lock_path_export = self.get_x_path_under_jailer(
-            &self.lock_path,
-            DEFAULT_LOCK_PATH_UNDER_JAILER,
-            "lock",
-            &jailer_workspace_dir,
-        )?;
-
         // Get log path under jailer
         const DEFAULT_LOG_PATH_UNDER_JAILER: &'static str = "run/firecracker.log";
         self.log_path_export = self.get_x_path_under_jailer(

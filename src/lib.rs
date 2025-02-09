@@ -8,6 +8,7 @@ pub mod models;
 pub mod options;
 mod raii;
 mod reqres;
+mod instance;
 pub use crate::hypervisor::Hypervisor;
 pub use crate::hypervisor::HypervisorSync;
 
