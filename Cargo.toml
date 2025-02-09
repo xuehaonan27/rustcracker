@@ -2,9 +2,12 @@
 name = "rustcracker"
 version = "1.1.1+deprecated"
 edition = "2021"
+license = "Apache-2.0"
 authors = ["Xue Haonan <xuehaonan27@gmail.com>"]
 description = "A crate for communicating with firecracker for the development of PKU-cloud."
 repository = "https://github.com/xuehaonan27/rustcracker"
+keywords = ["firecracker", "AWS", "cloud", "rustcracker"]
+categories = ["virtualization", "asynchronous"]
 deprecated = "This crate is deprecated. Please use the new crate `firecracker-rs-sdk` instead."
 
 [dependencies]
