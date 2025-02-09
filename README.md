@@ -1,7 +1,10 @@
+# DEPRECATED: This crate is no longer maintained. Use [firecracker-rs-sdk](https://github.com/xuehaonan27/firecracker-rs-sdk) instead.
+
 # rustcracker
 A crate for communicating with [firecracker](https://github.com/firecracker-microvm/firecracker) developed by [Xue Haonan](https://github.com/xuehaonan27) during development of [PKU-cloud](https://github.com/lcpu-club/PKU-cloud). Reference: [firecracker-go-sdk](https://github.com/gbionescu/firecracker-go-sdk)
 
 Thanks for supports from all members of LCPU (Linux Club of Peking University).
+
 
 # Break Changes
 The API of rustcracker 2.0.0 has a break change, which is completely incompatible with 1.x, and is cleaner, more organized and easier to use.
